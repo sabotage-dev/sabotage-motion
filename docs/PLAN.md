@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Revision | 1.3 (2026-11-12): council rounds 1-3 folded (section 22) |
-| Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (not created yet, D5), MIT |
-| Status | Plan under council review. Nothing is built yet. |
+| Revision | 1.4 (2026-11-12): council rounds 1-3 folded (section 22); delivery tags (7.1, D9) |
+| Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
+| Status | Plan cleared council round 3. Nothing is built yet; P0 is next (section 17). |
 | Decisions | D1-D8 in section 19, ruled by the owner on 2026-11-12 |
 | Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
 
@@ -182,7 +182,7 @@ export const BOARD = {
 - A beat has either `vo` (a voice line) or `dur` (seconds, for silent beats). Silent beats may lead, sit between
   voiced beats, or trail (section 6.3).
 - Beat ids are unique and may not be `TAKE`, `VO_OFFSET` or `DUR`.
-- `anchor` defaults to the first four words of `vo`. `gapBefore` asks `cues.mjs` to open that much silence before
+- `anchor` defaults to the first four words of `vo`, not counting delivery tags like `[curious]` (7.1). `gapBefore` asks `cues.mjs` to open that much silence before
   the anchor (section 7.4). `hook: true` marks the hook beat for the gate. `hold: true` adds the beat's window to the
   holds `check` accepts.
 - `sfx` is a note for the person and a presence check (section 6.5); `sfxHit: true` asks for a transient instead;
@@ -213,7 +213,7 @@ All windows are picture time, half-open, contiguous, and together cover `[0, boa
 this long after its last word), both settable on the board.
 
 **Before a take exists (estimate).** Beats run back to back in board order: a voiced beat lasts
-`words / wps + 0.25` s, a silent beat lasts its `dur`. `VO_OFFSET` is the summed `dur` of any leading silent beats
+`words / wps + 0.25` s (delivery tags are not words), a silent beat lasts its `dur`. `VO_OFFSET` is the summed `dur` of any leading silent beats
 plus `lead`. The board sheet and animatic say "estimated timing".
 
 **Once `cues.js` exists.** The take is the only source for voiced beats; the estimate is never used again for them.
@@ -231,7 +231,7 @@ Windows are built from a list of boundaries, so they are contiguous by construct
   Each beat ends where the next starts; `boardDur()` is the last end (with no trailing beat,
   `VO_OFFSET + TAKE.lastWordEnd + tail`).
 - **Room in the voice for interleaved silent beats.** `cues.mjs` splices `D` seconds of zeros into `vo.wav` at
-  `s = max(prevWordEnd, CUE[i] − lead)` (seconds into the raw take), with a 5 ms fade out before the zeros and a
+  `s = max(prevWordEnd, CUE[i] − lead)` (seconds into the raw take; both tag-aware, 7.1), with a 5 ms fade out before the zeros and a
   5 ms fade in after them so the cut cannot click. When the pause before the anchor is at least `lead`, the zeros
   land exactly on the silent run's window; when it is shorter, the splice falls at the previous word's end and the
   window opens at most `lead` before the zeros, so the last moment of the previous word (under `lead`) carries
@@ -265,7 +265,7 @@ silent `video` render is enough).
 | `board_copy_missing` | WARN | A string in a beat's `on` is never found in that beat's window. Matching works across the whole window, not per sample, so words that appear one at a time still match: for each `group` (or for all boxes, without groups), the box texts seen at any sample inside the window are joined in order of first appearance (ties in reading order), one entry per box `id` (so a box seen at many samples counts once, and two boxes that both say "go" give "go go"), and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
 | `board_copy_unread` | WARN | A string in `on` is found for less than `max(1.0, 0.25 × words)` seconds in total. |
 | `board_sfx_missing` | WARN | A beat with an `sfx` note has no 50 ms window above -40 dBFS RMS in the effects stem inside its window. With `sfxHit: true`, it needs a transient instead: a 10 ms window more than 12 dB above the RMS of the preceding 100 ms and above -40 dBFS. `sfx: null` is never checked. |
-| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. On a master mixed with a voice, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
+| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + `HOOK_END` (the hook beat's last word or closing tag, 7.1) is later than `hookMax`. On a master mixed with a voice, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
 
 ## 7. Voice-driven timing
 
@@ -274,11 +274,31 @@ silent `video` render is enough).
 ```json
 { "source": "elevenlabs|whisper|words", "duration": 12.48, "sampleRate": 48000,
   "words": [{ "text": "Stop", "start": 0.12, "end": 0.38 }],
-  "chars": { "text": "Stop pasting ...", "starts": [], "ends": [] } }
+  "chars": { "text": "Stop pasting ...", "starts": [], "ends": [] },
+  "tags": [{ "text": "[chuckles]", "start": 11.28, "end": 11.73 }] }
 ```
 
 `chars` is present only when the source gives character timings. Matching uses `chars` when present (exact phrase
 match, case-sensitive) and the word sequence otherwise (case-sensitive, punctuation stripped at word edges).
+
+**Delivery tags.** A `[...]` span in a `vo` line (`[curious]`, `[short pause]`, `[chuckles]`) is a delivery tag: it
+goes to the TTS as written and shows on the board sheet as direction, but it is never a word. Every adapter moves
+tags out of `words` and `chars` (with one adjacent space, so the text reads as spoken) into `tags`, keeping their
+times. Measured on the owner's ElevenLabs takes (three takes, one model): a tag's span ends where the next word
+starts, most last about 50 ms and `[chuckles]` 0.36 to 0.45 s, and the spans are not silent (-51 to -23 dBFS RMS:
+the next word's breath and onset, or the chuckle itself). So a tag is dropped as text and kept as sound that belongs
+to the line it is written in:
+
+- Tags are not words: they are not in `WORDS`, never captioned, not counted by the estimate (6.3), and never matched
+  as anchors. The default anchor is the line's first four words after any opening tags; an `anchor` containing `[`
+  is refused.
+- Tags written directly before a beat's anchor in the same `vo` line (nothing but spaces between) move that beat's
+  cue to the first such tag's start, so the cut and any spliced silence come before the line's breath or chuckle.
+- Tags written after a line's last word belong to that line: `prevWordEnd` in 6.3 and 7.4 means the end of the
+  last word or closing tag before the cue, and `TAKE.lastWordEnd` and `HOOK_END` include a closing tag on the last
+  line or the hook line (the content cannot start until it ends).
+
+Together these keep every splice and every `gapBefore` cut outside a tag's span.
 
 ### 7.2 Adapters (`tools/cues.mjs --from <kind> <file>`)
 
@@ -312,8 +332,8 @@ export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 
 ### 7.4 Gaps
 
-`gapBefore` opens silence before a beat's anchor: the cut goes at the quietest 10 ms between the previous character
-or word's end and the anchor's start; it refuses when that point is louder than -50 dBFS (it would split speech) or
+`gapBefore` opens silence before a beat's anchor: the cut goes at the quietest 10 ms between `prevWordEnd` and the
+cue (both tag-aware, 7.1, so the cut never lands in a tag's span); it refuses when that point is louder than -50 dBFS (it would split speech) or
 when there is no pause at all; every later timing shifts by the gap. Ported from the private helper, which has used
 it on every voiced piece. Interleaved silent beats use the same splice without the refusal (section 6.3). The voice file with gaps is `vo.wav`; the raw take is kept as `take-raw.wav`.
 
@@ -324,7 +344,8 @@ says by how much, before the scene or mix uses it. `check` measures it again on 
 
 ### 7.6 `tools/voice-elevenlabs.mjs`
 
-Optional. Joins the board's `vo` lines into one continuous request (one take keeps the delivery consistent), calls
+Optional. Joins the board's `vo` lines, delivery tags included as written, into one continuous request (one take
+keeps the delivery consistent; the tool keeps no list of allowed tags, since that is the model's business), calls
 the with-timestamps endpoint, writes `take-raw.wav` immediately (so a failed check does not waste the credits), then
 `take.json`. Reads `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` from the environment or `--env-file`; the model is
 `--model`, with no default baked in (the README names the current one). Sends no voice settings unless asked.
@@ -335,7 +356,7 @@ the with-timestamps endpoint, writes `take-raw.wav` immediately (so a failed che
 `lib.js` gains `captions(ctx, WORDS, t, opts)`: groups words into lines that fit `opts.maxW` with `measureText`,
 shows one line group at a time, pops the active word (`anticip` or a spring, 1.15 to 1), colours it with the accent,
 and places the block inside the target's safe zones. It returns its text boxes so a scene can pass them through
-`boxes(t)`. Offsets are applied once from `VO_OFFSET`.
+`boxes(t)`. Offsets are applied once from `VO_OFFSET`. Delivery tags never appear: they are not in `WORDS` (7.1).
 
 ## 9. Mix and master (`tools/mix.mjs`)
 
@@ -533,7 +554,12 @@ Suites:
   the slate's length with silent effects, and never evaluates the real scene's cues.
 - **Cues**: each adapter on a recorded fixture gives the expected cues; a missing anchor stops before any write; the
   occurrence count works; a gap at a silent point shifts later timings by exactly the gap; a gap that would split
-  speech is refused; the hook gate refuses a late take; `CUE` holds only beat ids.
+  speech is refused; the hook gate refuses a late take; `CUE` holds only beat ids. Delivery tags, on a synthetic
+  take (tone bursts for words, a 50 ms burst under a short tag, a 0.4 s noise burst under a long one), with tags
+  opening a line, mid-line, closing a line, and closing the last line: no tag reaches `WORDS`, `chars`, captions or
+  the estimate; an anchor right after a mid-line tag matches; the default anchor skips an opening tag; an opening
+  tag moves its beat's cue to the tag's start; a closing tag counts in `prevWordEnd`, `TAKE.lastWordEnd` and
+  `HOOK_END`; no splice or `gapBefore` cut lands inside any tag's span; an anchor containing `[` is refused.
 - **Board timing**: estimate and cue-based windows for boards with leading, interleaved and trailing silent beats;
   windows are contiguous, half-open and start at 0 in every case, including: a single voiced beat whose first cue is
   later than `lead`; the five-beat board `cold (dur 1) / hook (vo) / mid (dur 1.5) / save (vo) / end (dur 2.5)`; an
@@ -614,10 +640,11 @@ mutations before the round.
 | D2 | MIT, copyright Sabotage Development LLC. |
 | D3 | v1 = the engine plus voice cues, mix and master, footage and `check`. The owner's voice, likeness, music generation and every per-project note stay out. |
 | D4 | v2: a live preview with a scrubber, parallel rendering, a fresh-context reviewer agent, a tested GPU-accelerated Linux recipe. |
-| D5 | Drafted locally; the GitHub repo is created only after this plan clears the council. |
+| D5 | Drafted locally; the GitHub repo is created only after this plan clears the council. The plan cleared round 3 and the owner approved the repo on 2026-11-12. |
 | D6 | "Lightweight" means dependencies: Node, Chrome, ffmpeg, `playwright-core`. No framework. |
 | D7 | Notes that describe the owner's private setup stay out of this public repo; this plan carries only what the public build needs. |
 | D8 | A storyboard is in v1 (owner, 2026-11-12: "Could we add some sort of story board feature to go with it?"): `board.js`, the board sheet, the slate scene and animatic, and the board checks (section 6). |
+| D9 | Delivery tags are dropped from words, cues and captions (owner, 2026-11-12: "Yeah we have to drop them"), and kept as sound that belongs to their line (7.1). |
 
 ## 20. Open questions (the build takes the default unless overruled)
 
@@ -653,6 +680,8 @@ Not verified yet:
 
 - That the private harness renders correctly on Linux at all (it has only run on macOS).
 - The ElevenLabs and openai-whisper field names (P1 re-checks both against current docs).
+- How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
+  model the README names.
 - The plugin marketplace file format and the skills.sh install flow (P5).
 - Safe-zone numbers for Reels and Shorts, and the top edge for TikTok (P3).
 - That the decoded video of a master hashes the same as its render (P3).
@@ -666,6 +695,9 @@ Not verified yet:
 | 1 (2026-11-12, rev 1.0 at `51e4b7a`) | codex `gpt-6.1-sol` effort high (relaunched once after a usage-limit stop with no review); grok `grok-4.7`. The third seat did not run: its CLI was signed out. Two-seat round. | grok SHIP-WITH-FIXES (2 HIGH, 3 MEDIUM); codex NEEDS-WORK (2 HIGH, 8 MEDIUM). All 15 findings verified against the plan and the private sources and folded in rev 1.1; none refuted. |
 | 2 (2026-11-12, rev 1.1 at `3b6ae3f`, delta) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Third seat signed out again. Two-seat round. | Both NEEDS-WORK. Of the 15 round 1 items, 9 were closed by both seats and 6 called half-closed by at least one (timing, text checks, provenance, motion). New: grok 1 HIGH + 3 MEDIUM, codex 3 HIGH + 3 MEDIUM. All verified and folded in rev 1.2; none refuted. |
 | 3 (2026-11-12, rev 1.2 at `92355c5`, delta, convergence) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Two-seat round. | Both SHIP-WITH-FIXES. Of the 10 round 2 items both seats closed 9 and called the splice half-closed. One HIGH, raised by both seats: the spliced silence could sit more than `lead` off its silent beat. Folded in rev 1.3 (6.3: splice at `max(prevWordEnd, CUE − lead)`, which gives exact alignment when the pause allows and never cuts a word; both seats proposed splicing at the anchor, which keeps the error at exactly `lead`). Three non-blocking follow-ups folded too: `file_spec` reads `render.json`'s settings, `hook_long` on a master applies only to voiced mixes, copy matching keeps repeated words. No round 4: the fold is one rule in 6.3, and P1's board-timing test asserts it. |
+
+Rev 1.4 (2026-11-12) is an owner decision, not a council round: delivery tags (7.1, D9), found while checking how
+the plan handles voice. The P1 council round reviews it with the code that implements it.
 
 Round 1 fold map (seat finding: where it landed):
 

@@ -24,7 +24,8 @@ Planned for v1:
 
 ## Status
 
-Planning. Nothing is built yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md) and is under review.
+Planning. Nothing is built yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md); it has been through review, and
+the build starts with phase P0 (scaffold, CI on macOS and Linux, headless WebGL2 check).
 
 ## License
 
