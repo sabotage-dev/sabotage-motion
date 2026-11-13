@@ -24,8 +24,55 @@ Planned for v1:
 
 ## Status
 
-Planning. Nothing is built yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md); it has been through review, and
-the build starts with phase P0 (scaffold, CI on macOS and Linux, headless WebGL2 check).
+Early build, not ready for use yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
+engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
+video render, `doctor`, and CI on macOS and Linux. The skill text (SKILL.md is a stub for now), the storyboard,
+voice cues, mix and master, footage and `check` come in phases P1 to P4.
+
+## Requirements
+
+- **Node** 22 or 24.
+- **Google Chrome**, or any Chrome or Chromium binary in `CHROME_PATH`. Playwright's own Chromium works too
+  (`npx playwright-core install chromium`, then set `CHROME_PATH` to its binary); CI checks it on both OSes.
+- **ffmpeg** and ffprobe with the `libx264`, `libvpx-vp9` and `prores_ks` encoders and the `loudnorm`, `ebur128`,
+  `sidechaincompress` and `alimiter` filters (`brew install ffmpeg` on macOS; the distribution's ffmpeg on
+  Ubuntu has them).
+- macOS or Linux. WebGL2 runs on the GPU through Metal on macOS, and in software (SwiftShader) on Linux.
+
+`node render.mjs doctor`, run in a piece (or `npm run doctor` in this repo), checks all of it: it finds Chrome,
+opens a WebGL2 context and prints the renderer, checks each ffmpeg encoder and filter, loads every font the piece
+declares, and renders one frame twice to confirm the hashes match. Each failing line says what to install.
+
+## Render speed
+
+Milliseconds per frame for one second (30 frames) of the template's default scene at 1080×1920 with 8
+motion-blur subframes (the scene doubles them during fast moves), measured with
+`node render.mjs video --to 1` (2026-11-13; CI numbers are four runs each, Node 22 and 24, and vary with the
+runner):
+
+| Machine | WebGL2 renderer | ms per frame |
+|---|---|---|
+| GitHub Actions `ubuntu-latest` (x64), Chrome 156 | SwiftShader (software, through ANGLE on Vulkan) | 2684 to 4795, median about 3070 |
+| GitHub Actions `macos-latest` (arm64), Chrome 156 | ANGLE on Metal (paravirtual GPU) | 491 to 798 |
+| Apple M5 Pro laptop, Chrome 157 | ANGLE on Metal | 234 to 259 |
+
+Linux works but is slow at full size: about 3 s per frame, so a 15 s piece at 30 fps takes 20 to 35 minutes.
+Use `--scale 0.5` (or less) and fewer `--sub` for drafts there. A GPU-accelerated Linux recipe is planned for v2.
+
+## Development
+
+```sh
+npm ci
+npm test                                   # every suite
+npm run test:engine                        # determinism, frame count and container, alpha, scene swap
+SM_DENYLIST="$(cat denylist.txt)" node --test test/leak.test.mjs
+```
+
+The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece) at scale 0.25 in a throwaway copy
+of the template under `test/.work/`. The leak test checks every tracked file for absolute home paths and for the
+strings in `SM_DENYLIST` (newline-separated, case-insensitive; never committed). In CI the denylist comes from the
+`SM_DENYLIST` Actions secret, and the test fails when the secret is missing, except on pull requests from forks.
+`ASSETS.md` lists every binary file with its source and licence, and a test keeps it complete.
 
 ## License
 
