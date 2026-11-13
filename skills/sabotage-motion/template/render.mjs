@@ -161,6 +161,10 @@ function decodedVideoHash(file) {
   if (!m) throw new Error(`could not hash the decoded video of ${file}: ${r.stderr || r.error}`);
   return 'sha256:' + m[1];
 }
+// The record is named after the whole output file (out/scene.mp4.render.json), so an .mp4 and an alpha
+// .mov of the same name keep separate records. A render deletes its old record before it starts, so a
+// failed or interrupted render never leaves a record that describes a different file.
+const recordOf = (file) => file + '.render.json';
 function writeRenderJson(file, src, extra) {
   const rec = {
     format: 'sabotage-motion/render@1',
@@ -174,7 +178,7 @@ function writeRenderJson(file, src, extra) {
     video: { hash: decodedVideoHash(file) },
     sha256: sha256(fs.readFileSync(file)),
   };
-  const out = file.slice(0, -path.extname(file).length) + '.render.json';
+  const out = recordOf(file);
   fs.writeFileSync(out, JSON.stringify(rec, null, 2) + '\n');
   console.log('wrote', out);
 }
@@ -394,6 +398,7 @@ try {
       console.log('wrote', out, '\ntimes (reading order):', times.join(', '));
     } else if (mode === 'video') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
+      fs.rmSync(recordOf(out), { force: true });
       const src = sourceHash(new Set([out]));
       const from = +opt('from', 0), to = +opt('to', DUR);
       const frames = await renderVideo(page, out, from, to);
@@ -407,6 +412,7 @@ try {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
       const base = out.slice(0, -path.extname(out).length);
       const vtmp = base + '.video' + videoExt, atmp = base + '.wav';
+      fs.rmSync(recordOf(out), { force: true });
       const src = sourceHash(new Set([out, vtmp, atmp]));
       await renderAudioTo(page, atmp);          // audio first: it takes 0.1 s, so a broken audio.js fails fast
       const frames = await renderVideo(page, vtmp, 0, DUR);

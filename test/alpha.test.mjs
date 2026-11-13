@@ -26,7 +26,7 @@ test('--alpha prores writes ProRes 4444 (ap4h) .mov with a non-constant alpha pl
   const { lo, hi } = range(alphaBytes(file));
   assert.ok(lo <= 8, `alpha never reaches transparent (min ${lo})`);
   assert.ok(hi >= 247, `alpha never reaches opaque (max ${hi})`);
-  assert.equal(JSON.parse(fs.readFileSync(P('out/a.render.json'), 'utf8')).alpha, 'prores');
+  assert.equal(JSON.parse(fs.readFileSync(P('out/a.mov.render.json'), 'utf8')).alpha, 'prores');
 });
 
 test('--alpha webm writes VP9 .webm whose alpha (decoded with libvpx-vp9) is non-constant', () => {
@@ -39,7 +39,7 @@ test('--alpha webm writes VP9 .webm whose alpha (decoded with libvpx-vp9) is non
   const { lo, hi } = range(alphaBytes(file));
   assert.ok(lo <= 8, `alpha never reaches transparent (min ${lo})`);
   assert.ok(hi >= 247, `alpha never reaches opaque (max ${hi})`);
-  const r = JSON.parse(fs.readFileSync(P('out/w.render.json'), 'utf8'));
+  const r = JSON.parse(fs.readFileSync(P('out/w.webm.render.json'), 'utf8'));
   assert.equal(r.alpha, 'webm');
   assert.equal(r.frames, 60);
 });

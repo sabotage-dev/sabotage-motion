@@ -145,7 +145,7 @@ The only harness changes in v1:
 | `renderAudio({ TL, CFG, params })` receives the selected scene's `TL` and `CFG` from the harness, after that scene's `init`; `audio.js` no longer imports `scene.js` | With a static import, a `--scene slate.js` render would schedule the real scene's cues (`audio.js` imports `scene.js` today, and `init` fills `TL.words` and `TL.hits`). A scene without sound exports `silent = true`, and `audio` renders silence | `main.js`, `audio.js` |
 | `--target <name>` | Size, fps and safe zones from `safezones.json` unless `CFG` sets them | `main.js`, `render.mjs` |
 | Optional `boxes(t)` export: `[{id, text, x, y, w, h, group?, deco?}]` | Lets `check` see text without OCR. Semantics: one box per drawn run of text, in design pixels before the camera, bounds after any clip mask, and only while its alpha is above 0.05; `group` joins the words of one phrase or caption line (section 11) | scene contract |
-| `render.mjs` writes `out/<name>.render.json` after every `video`/`full` render | Ties a master to the source it came from (section 11.2) | `render.mjs` |
+| `render.mjs` writes `<output file>.render.json` (for example `out/scene.mp4.render.json`) after every `video`/`full` render, and deletes the old record before a render starts | Ties a master to the source it came from (section 11.2) | `render.mjs` |
 | Optional `HOLDS` export: `[[t0, t1], ...]` | Marks deliberate holds (end cards hold to the last frame) | scene contract |
 | `window.renderProbe(t, opts)`: one frame at a given scale, subframes and post overrides (`grain: 0`), returned as luma bytes | `check`'s motion analysis without noise from grain | `main.js` |
 | Board composition in the page (section 6.2) | Captions under panels with the piece's own fonts; no ffmpeg `drawtext` | `main.js` |
@@ -438,7 +438,7 @@ Runs every check it can, says which it could not run and why, prints one line pe
 
 A master is only as good as the source it came from, so the artifact checks first prove which source that was.
 
-- `render.mjs` writes `out/<name>.render.json` after every `video` or `full` render: a hash over the piece's source
+- `render.mjs` writes `<output file>.render.json` after every `video` or `full` render (named after the whole file, so an `.mp4` and an alpha `.mov` of the same name keep separate records; the old record is deleted before a render starts, so a failed render leaves none): a hash over the piece's source
   (every file except `out/`, `stills/`, `node_modules/` and the review sheets), the scene file, params, size, fps,
   subframes and alpha mode, and a hash of the rendered file's decoded video (`ffmpeg -map 0:v -f hash -hash sha256`).
 - `mix.mjs` writes `out/<name>.master.json` (section 9), including the SHA-256 of the whole master file. Any change
@@ -665,7 +665,7 @@ mutations before the round.
 
 | Risk | Mitigation |
 |---|---|
-| Headless WebGL2 on Linux CI may be missing or very slow under SwiftShader. | P0 runs `doctor` and the fixture on `ubuntu-latest` first; the fixture renders at scale 0.25. If WebGL2 does not come up, P0 stops and the plan is revised before anything else is built. |
+| Headless WebGL2 on Linux CI may be missing or very slow under SwiftShader. | P0 runs `doctor` and the fixture on `ubuntu-latest` first; the fixture renders at scale 0.25. If WebGL2 does not come up, P0 stops and the plan is revised before anything else is built. **Measured in P0 (2026-11-12):** WebGL2 comes up on `ubuntu-latest` through SwiftShader with every flag set tried; about 2.7 to 6 s per full-size frame at 8 subframes, against about 0.25 s on an Apple-silicon Mac. |
 | Google Chrome may not be on the CI runners, or not where Playwright looks. | `doctor` reports it; CI installs it if needed; `CHROME_PATH` overrides. |
 | Long frame sequences use a lot of memory, since every frame is decoded and held. | `delivery.md` says to scale clips to their drawn size; P2 measures memory for a 20 s sequence at 960 px wide and states the limit. |
 | `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. |
@@ -678,7 +678,6 @@ mutations before the round.
 
 Not verified yet:
 
-- That the private harness renders correctly on Linux at all (it has only run on macOS).
 - The ElevenLabs and openai-whisper field names (P1 re-checks both against current docs).
 - How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
   model the README names.

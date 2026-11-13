@@ -5,10 +5,10 @@ import { prog } from './lib.js';
 console.log('fixture: alt.js evaluated');
 
 export const CFG = { DUR: 1.0, FONTS: ['MONO'] };
-export const TL = { hits: [0.25] };
+export const TL = {};   // filled in init, so the test proves audio.js gets the TL as init left it
 
 let ctx;
-export async function init({ ctx: c }) { ctx = c; }
+export async function init({ ctx: c }) { ctx = c; TL.hits = [0.25]; }
 
 export function frame(t, jit) {
   ctx.fillStyle = '#9AD1FF';

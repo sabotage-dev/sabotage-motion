@@ -25,7 +25,7 @@ test('video writes round(DUR x FPS) frames at the scaled size, H.264 in .mp4', (
 });
 
 test('render.json sits beside the video with the scene, settings, source hash and decoded-video hash', () => {
-  const r = readJson('out/fc.render.json');
+  const r = readJson('out/fc.mp4.render.json');
   assert.equal(r.file, 'out/fc.mp4');
   assert.equal(r.scene, 'scene.js');
   assert.equal(r.mode, 'video');
@@ -53,7 +53,7 @@ test('full muxes video and audio, frame count unchanged, and writes render.json'
   assert.equal(countFrames(file), 60);
   assert.ok(fs.existsSync(P('out/full.wav')), 'the soundtrack WAV is kept beside the master');
   assert.ok(!fs.existsSync(P('out/full.video.mp4')), 'the temporary video was not removed');
-  const r = readJson('out/full.render.json');
+  const r = readJson('out/full.mp4.render.json');
   assert.equal(r.mode, 'full');
   assert.equal(r.frames, 60);
   assert.equal(r.audio, 'out/full.wav');
@@ -66,11 +66,29 @@ test('the extension follows the codec: a mismatched --out extension is replaced,
   assert.ok(fs.existsSync(P('out/ext.mp4')));
   assert.ok(!fs.existsSync(P('out/ext.webm')));
   assert.equal(countFrames(P('out/ext.mp4')), 6);
-  assert.equal(readJson('out/ext.render.json').frames, 6);
+  assert.equal(readJson('out/ext.mp4.render.json').frames, 6);
+});
+
+test('an .mp4 and an alpha .mov of the same name keep separate records, each bound to its own file', () => {
+  render(dir, ['video', '--scale', '0.25', '--to', '0.2', '--out', 'out/pair']);
+  render(dir, ['video', '--alpha', 'prores', '--scale', '0.25', '--to', '0.2', '--out', 'out/pair']);
+  for (const ext of ['mp4', 'mov']) {
+    const r = readJson(`out/pair.${ext}.render.json`);
+    assert.equal(r.file, `out/pair.${ext}`);
+    assert.equal(r.sha256, sha256File(P(`out/pair.${ext}`)), `the .${ext} record does not describe out/pair.${ext}`);
+  }
+});
+
+test('a failed re-render removes the old record instead of leaving it beside the output', () => {
+  render(dir, ['video', '--scale', '0.25', '--to', '0.1', '--out', 'out/redo']);
+  assert.ok(fs.existsSync(P('out/redo.mp4.render.json')));
+  const r = render(dir, ['video', '--scale', '0.25', '--to', '0.1', '--out', 'out/redo', '--crf', 'not-a-number'], { allowFail: true });
+  assert.notEqual(r.status, 0, 'the broken encode did not fail');
+  assert.ok(!fs.existsSync(P('out/redo.mp4.render.json')), 'a stale record survived a failed render');
 });
 
 test('the source hash ignores outputs and review sheets, and changes when the source does', () => {
-  const short = (name) => { render(dir, ['video', '--scale', '0.25', '--to', '0.1', '--out', `out/${name}`]); return readJson(`out/${name}.render.json`).source.hash; };
+  const short = (name) => { render(dir, ['video', '--scale', '0.25', '--to', '0.1', '--out', `out/${name}`]); return readJson(`out/${name}.mp4.render.json`).source.hash; };
   const h1 = short('s1');
   fs.mkdirSync(P('stills'), { recursive: true });
   fs.writeFileSync(P('stills/x.png'), 'not a source file');
@@ -90,7 +108,7 @@ test('--target supplies size and fps when CFG leaves them out', () => {
   assert.equal(v.height, 270);
   assert.equal(v.r_frame_rate, '30/1');
   assert.equal(countFrames(P('out/yt.mp4')), 30);
-  const r = readJson('out/yt.render.json');
+  const r = readJson('out/yt.mp4.render.json');
   assert.equal(r.target, 'youtube');
   assert.deepEqual(r.size, [1920, 1080]);
 });
