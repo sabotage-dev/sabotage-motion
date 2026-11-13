@@ -118,6 +118,32 @@ test('pre-push: the denylisted string in a commit message, an author name or a n
   }
 });
 
+test('pre-push: a file marked binary in .gitattributes is still checked, and so are binary files', () => {
+  const repo = scratchRepo();
+  repo.commit('.gitattributes', '*.txt binary\n');
+  const sha = repo.commit('notes.txt', `hello ${LEAK}\n`);
+  const r = prePush(repo, { localSha: sha });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /notes\.txt:1: denylist entry #2/);
+
+  const repo2 = scratchRepo();
+  const bin = Buffer.concat([Buffer.from([0, 1, 2, 0]), Buffer.from(`\nauthor ${LEAK}\n`), Buffer.from([0, 255])]);
+  fs.writeFileSync(path.join(repo2.dir, 'img.bin'), bin);
+  repo2.g('add', '-A');
+  repo2.g('commit', '-q', '-m', 'binary');
+  const r2 = prePush(repo2, { localSha: repo2.g('rev-parse', 'HEAD') });
+  assert.equal(r2.code, 1, r2.out);
+  assert.match(r2.out, /img\.bin:\d+: denylist entry #2/);
+});
+
+test('pre-push: a path with a tab or quote in it is still checked', () => {
+  const repo = scratchRepo();
+  const sha = repo.commit(`odd\t"${LEAK}".txt`, 'x\n');
+  const r = prePush(repo, { localSha: sha });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /\(path\): denylist entry #2/);
+});
+
 test('pre-push: an absolute home path blocks the push without any denylist entry for it', () => {
   const repo = scratchRepo();
   const sha = repo.commit('notes.md', `see ${HOME}\n`);

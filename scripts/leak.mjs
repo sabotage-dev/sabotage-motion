@@ -73,17 +73,24 @@ export function checkCommit(sha, entries, cwd) {
   const meta = git(['show', '-s', '--format=%an%n%ae%n%cn%n%ce%n%B', sha], cwd);
   for (const h of findHits(meta, entries)) out.push(`commit ${short} (message or author): ${h.what}`);
 
-  for (const line of git(['diff-tree', '--root', '-r', '-M', '--no-commit-id', '--name-status', sha], cwd).split('\n')) {
-    const [status, ...paths] = line.split('\t');
-    if (!status || !/^[ARC]/.test(status)) continue;
-    const added = paths[paths.length - 1];
+  // -z: raw paths, NUL-separated (status, then one path, or two for a rename or copy).
+  const fields = git(['diff-tree', '--root', '-r', '-M', '-z', '--no-commit-id', '--name-status', sha], cwd).split('\0');
+  for (let i = 0; i < fields.length && fields[i];) {
+    const status = fields[i];
+    const n = /^[RC]/.test(status) ? 2 : 1;
+    const added = fields[i + n];
+    i += n + 1;
+    if (!/^[ARC]/.test(status)) continue;
     for (const h of findHits(added, entries)) out.push(`commit ${short} ${added} (path): ${h.what}`);
   }
 
   // -U0 keeps only changed lines; a hunk header gives the new file's line number for the lines that follow.
   // A merge shows as a combined diff (git show's default): only what the merge itself changed, with one
-  // prefix column per parent and a hunk header of one more '@' than there are parents.
-  const patch = git(['show', '--format=', '-M', '-U0', '--no-color', '--no-ext-diff', sha], cwd);
+  // prefix column per parent and a hunk header of one more '@' than there are parents. --text and
+  // --no-textconv show every file's real bytes, so a .gitattributes rule (binary, -diff, a textconv driver)
+  // cannot hide a file's content, and strings inside binary files are checked too.
+  const patch = git(['show', '--format=', '-M', '-U0', '--text', '--no-textconv', '--no-color', '--no-ext-diff',
+    '--src-prefix=a/', '--dst-prefix=b/', sha], cwd);
   const HUNK = /^(@{2,}) (?:-\d+(?:,\d+)? )+\+(\d+)(?:,\d+)? @{2,}/;
   let file = null;
   let cols = 0;   // 0 = in a file header, not a hunk
