@@ -78,6 +78,30 @@ jobs:
       - name: tests (determinism, frame count and container, alpha, scene swap, asset inventory)
         run: npm run test:engine && node --test test/assets.test.mjs
 
+      # Informational only (never fails the job): which Linux GPU flags give WebGL2, and whether
+      # Playwright's own Chromium works headless (plan Q5). Results go to the job summary.
+      - name: WebGL2 flag variants (Linux, informational)
+        if: runner.os == 'Linux' && matrix.node == 24
+        continue-on-error: true
+        shell: bash
+        run: |
+          { echo "### WebGL2 with other flag sets (ubuntu, informational)"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          for flags in "--enable-unsafe-swiftshader" "--use-angle=swiftshader" "--use-gl=angle --use-angle=swiftshader-webgl --enable-unsafe-swiftshader" ""; do
+            line=$(SM_GPU_ARGS="$flags" npm run --silent doctor 2>&1 | grep -E 'webgl2:' | head -1)
+            echo "SM_GPU_ARGS='$flags' -> ${line:-no webgl2 line}" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Playwright's own Chromium (Q5, informational)
+        if: matrix.node == 24
+        continue-on-error: true
+        shell: bash
+        run: |
+          npx playwright-core install chromium > /dev/null
+          export CHROME_PATH="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          set -o pipefail
+          npm run --silent doctor 2>&1 | grep -E 'chrome:|webgl2|probe frame|doctor:' | sed -E 's#/(home|Users)/[^/]+#~#g' | tee pw.txt
+          { echo "### doctor with Playwright's Chromium (${{ matrix.os }})"; echo '```'; cat pw.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   leak:
     name: leak test
     runs-on: ubuntu-latest
