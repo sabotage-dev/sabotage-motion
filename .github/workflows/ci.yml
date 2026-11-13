@@ -111,8 +111,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: leak test (denylist from the SM_DENYLIST secret)
-        env:
-          SM_DENYLIST: ${{ secrets.SM_DENYLIST }}
-          SM_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      # Home paths in every tracked file, and the pre-push check's own tests on throwaway repos. The owner's
+      # denylist is not on GitHub: the pre-push hook checks it on the owner's machine (scripts/leak.mjs).
+      - name: leak test (home paths; pre-push check tests)
         run: node --test test/leak.test.mjs

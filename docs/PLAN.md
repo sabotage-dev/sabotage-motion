@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Revision | 1.4 (2026-11-12): council rounds 1-3 folded (section 22); delivery tags (7.1, D9) |
+| Revision | 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
-| Status | Plan cleared council round 3. Nothing is built yet; P0 is next (section 17). |
-| Decisions | D1-D8 in section 19, ruled by the owner on 2026-11-12 |
+| Status | Plan cleared council round 3. P0 is built and in review (PR #1); P1 is next (section 17). |
+| Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13 |
 | Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
 
 ## 1. What this is
@@ -590,11 +590,15 @@ Suites:
   text outside the safe area only at the first and last subframes of each frame. Clean cases that must pass: a
   `--master-only` master (no `vo_delay`), a render of an alternate `--scene` checked through its `render.json`. Each is reported with the right id and level,
   and none of the clean cases is. Mutation: disabling any one detector fails a test.
-- **Leak test**: no tracked file contains a private home-directory path or any string from the owner's denylist. The
-  denylist (brand names, private paths, the owner's voice id) is never committed: CI reads it from the
-  `SM_DENYLIST` Actions secret, and the test FAILs in CI when it is missing, except on pull requests from forks,
-  where it reports "skipped: no denylist" in the job summary. The path patterns are built in the test from parts, so
-  the test and this plan do not trip it.
+- **Leak check** (D10): nothing published contains a private home-directory path or any string from the owner's
+  denylist (brand names, private paths, the owner's voice id). The denylist is never committed and is not stored on
+  GitHub: it is a file on the owner's machine, read by the pre-push hook (`.githooks/pre-push`, `scripts/leak.mjs`),
+  which checks every commit a push would publish (message, author and committer, new paths, added lines) and blocks
+  the push on a hit or when it finds no denylist. CI checks home paths in every tracked file, and tests the hook on
+  throwaway repos with a made-up denylist: a hit in each place it looks, a leak in an earlier commit of the same push,
+  one introduced by a merge, an annotated tag, commits already on the remote skipped, a commit that removes a leak
+  allowed, and no denylist blocking. Hits name the entry's number, never its text. The path patterns are built from
+  parts, so the check and this plan do not trip it.
 - **Asset inventory**: `ASSETS.md` lists every binary file in the repo (fonts, audio, images, sequences) with its
   source and licence; the test fails on any binary not listed, and on any listed file that is missing.
 
@@ -605,7 +609,7 @@ mutations before the round.
 
 | Phase | Scope | Acceptance (measured, not read) | Size |
 |---|---|---|---|
-| **P0** Scaffold | Repo layout, plugin manifest, CI, the template copied from the private skill with private material removed, bundled fonts, `--scene` and `--target`, `doctor` | CI green on both OSes running the determinism, frame-count and alpha tests on the fixture; `doctor` passes on macOS and on the Linux runner and prints the WebGL renderer; Linux ms per frame recorded in the README; leak test green with the owner's denylist | M |
+| **P0** Scaffold | Repo layout, plugin manifest, CI, the template copied from the private skill with private material removed, bundled fonts, `--scene` and `--target`, `doctor` | CI green on both OSes running the determinism, frame-count and alpha tests on the fixture; `doctor` passes on macOS and on the Linux runner and prints the WebGL renderer; Linux ms per frame recorded in the README; leak check: the hook's tests green in CI, and the whole history clean against the owner's denylist | M |
 | **P1** Board and voice | `board.js` format, `beatWindow`/`beatAt`, `board` mode, slate scene, `cues.mjs` with all three adapters, gaps, hook gate, `voice-elevenlabs.mjs`, captions helper | Board and cues tests above; one opt-in live ElevenLabs smoke on the owner's account (`SM_LIVE=elevenlabs`) producing a take whose cues match its own `chars` | M |
 | **P2** Mix and footage | `mix.mjs`, `frames.mjs`, `loadSeq`/`seqAt` | Mix and footage tests above; parity, run by the owner on private stems that are never committed, for the voiced graph against the private mixer and for `--master-only` against the private master script: the two premixes (before loudness normalization), aligned on the first sample, have 100 ms RMS envelopes within 0.5 dB on at least 95% of windows, and the masters land within 0.5 LU integrated and 0.5 dB true peak; once with default settings and once with a non-default voice delay, bed skip, bed start and a mute window | M |
 | **P3** Check and safe zones | `check` and every detector, `boxes(t)`, `HOLDS`, `renderProbe`, `safezones.json`, `--safe` overlays, threshold tuning | `fixture-check` suite above; the three examples and at least three recorded real renders pass with no FAIL and no WARN that is not deliberate; safe-zone numbers measured for each target the release names, with the date and method in `safezones.json` | M |
@@ -632,7 +636,7 @@ mutations before the round.
 | The owner's voice clone, its delivery-tag rules, an illustrated avatar with blink and wave frames, a music-generation script | Removed; not part of v1 (D3) |
 | Review by contact sheet and stills | Kept, plus the board sheet (6.2) and measured checks (11) |
 
-## 19. Decisions (owner, 2026-11-12)
+## 19. Decisions (owner, 2026-11-12 and 2026-11-13)
 
 | # | Decision |
 |---|---|
@@ -645,6 +649,7 @@ mutations before the round.
 | D7 | Notes that describe the owner's private setup stay out of this public repo; this plan carries only what the public build needs. |
 | D8 | A storyboard is in v1 (owner, 2026-11-12: "Could we add some sort of story board feature to go with it?"): `board.js`, the board sheet, the slate scene and animatic, and the board checks (section 6). |
 | D9 | Delivery tags are dropped from words, cues and captions (owner, 2026-11-12: "Yeah we have to drop them"), and kept as sound that belongs to their line (7.1). |
+| D10 | No GitHub secrets (owner, 2026-11-13: "why do we need any secrets"). The leak denylist stays on the owner's machine and a pre-push hook checks it, so a leak is stopped before it is public rather than reported after; CI checks home paths only (16). |
 
 ## 20. Open questions (the build takes the default unless overruled)
 
@@ -670,11 +675,11 @@ mutations before the round.
 | Long frame sequences use a lot of memory, since every frame is decoded and held. | `delivery.md` says to scale clips to their drawn size; P2 measures memory for a 20 s sequence at 960 px wide and states the limit. |
 | `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. |
 | The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. |
-| The leak denylist lives in a CI secret; a fork PR cannot read it. | Fork PRs report the leak test as skipped in the job summary, and the owner's own pushes and release tags always run it. |
+| The denylist lives only on the owner's machine, so nothing on GitHub checks it: not a push from another machine without the hook, an edit in GitHub's web editor, a PR from a fork, or the title and body of a squash merge. | The owner pushes from the machine with the hook, and checks PR text before merging; a fork PR is checked when the owner pulls it locally. `node scripts/leak.mjs history` audits everything already pushed. |
 | Timing formats move: the ElevenLabs alignment, openai-whisper's JSON, and other ASR tools differ. | Three adapters with recorded fixtures; the generic `words` format as the way in for everything else. |
 | ffmpeg builds differ (missing `libvpx` or `prores_ks`). | `doctor` lists each encoder and filter with what to install. |
 | A fresh agent finds the board and voice workflow heavier than the private one. | P4's usability test with two briefs; silent pieces skip the voice steps entirely. |
-| Private material leaks into the public repo. | The leak test with the owner's denylist; D7. |
+| Private material leaks into the public repo. | The pre-push leak check with the owner's denylist (16, D10); D7. |
 
 Not verified yet:
 
@@ -696,7 +701,8 @@ Not verified yet:
 | 3 (2026-11-12, rev 1.2 at `92355c5`, delta, convergence) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Two-seat round. | Both SHIP-WITH-FIXES. Of the 10 round 2 items both seats closed 9 and called the splice half-closed. One HIGH, raised by both seats: the spliced silence could sit more than `lead` off its silent beat. Folded in rev 1.3 (6.3: splice at `max(prevWordEnd, CUE − lead)`, which gives exact alignment when the pause allows and never cuts a word; both seats proposed splicing at the anchor, which keeps the error at exactly `lead`). Three non-blocking follow-ups folded too: `file_spec` reads `render.json`'s settings, `hook_long` on a master applies only to voiced mixes, copy matching keeps repeated words. No round 4: the fold is one rule in 6.3, and P1's board-timing test asserts it. |
 
 Rev 1.4 (2026-11-12) is an owner decision, not a council round: delivery tags (7.1, D9), found while checking how
-the plan handles voice. The P1 council round reviews it with the code that implements it.
+the plan handles voice. The P1 council round reviews it with the code that implements it. Rev 1.5 (2026-11-13) is
+an owner decision too: the leak denylist moves from a CI secret to a pre-push hook (16, D10), reviewed with P0.
 
 Round 1 fold map (seat finding: where it landed):
 

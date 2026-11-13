@@ -66,14 +66,21 @@ Use `--scale 0.5` (or less) and fewer `--sub` for drafts there. A GPU-accelerate
 npm ci
 npm test                                   # every suite
 npm run test:engine                        # determinism, frame count and container, alpha, scene swap
-SM_DENYLIST="$(cat denylist.txt)" node --test test/leak.test.mjs
+npm run test:repo                          # leak check and asset inventory
 ```
 
 The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece) at scale 0.25 in a throwaway copy
-of the template under `test/.work/`. The leak test checks every tracked file for absolute home paths and for the
-strings in `SM_DENYLIST` (newline-separated, case-insensitive; never committed). In CI the denylist comes from the
-`SM_DENYLIST` Actions secret, and the test fails when the secret is missing, except on pull requests from forks.
-`ASSETS.md` lists every binary file with its source and licence, and a test keeps it complete.
+of the template under `test/.work/`. `ASSETS.md` lists every binary file with its source and licence, and a test
+keeps it complete.
+
+**Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist
+(private names and ids). The denylist is never committed and is not stored on GitHub. It is a plain file on the
+owner's machine, one string per line, matched case-insensitively: `~/.config/sabotage-motion/denylist.txt`, or the
+file `SM_DENYLIST_FILE` names. The owner's clone runs `git config core.hooksPath .githooks`, and the pre-push hook
+(`scripts/leak.mjs`) then checks every commit a push would publish: messages, author and committer, new paths and
+added lines. It blocks the push on a hit, and when it finds no denylist. `node scripts/leak.mjs history` runs the
+same check over the whole history. CI checks home paths in every tracked file and tests the hook against throwaway
+repos. Hits are reported by entry number, never by the entry's text.
 
 ## License
 
