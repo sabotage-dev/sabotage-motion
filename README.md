@@ -77,10 +77,12 @@ keeps it complete.
 (private names and ids). The denylist is never committed and is not stored on GitHub. It is a plain file on the
 owner's machine, one string per line, matched case-insensitively: `~/.config/sabotage-motion/denylist.txt`, or the
 file `SM_DENYLIST_FILE` names. The owner's clone runs `git config core.hooksPath .githooks`, and the pre-push hook
-(`scripts/leak.mjs`) then checks every commit a push would publish: messages, author and committer, new paths and
-added lines. It blocks the push on a hit, and when it finds no denylist. `node scripts/leak.mjs history` runs the
-same check over the whole history. CI checks home paths in every tracked file and tests the hook against throwaway
-repos. Hits are reported by entry number, never by the entry's text.
+(`scripts/leak.mjs`) then checks everything a push would publish that the remote does not already have (it asks the
+remote with `git ls-remote`): each commit's message, author and committer, the paths new in it (merges included) and
+the lines it adds; every tag object in a pushed tag's chain; the branch and tag names. It blocks the push on a hit,
+and when it finds no denylist. `node scripts/leak.mjs history` checks every commit, tag and ref name in the clone. CI
+checks home paths in every tracked file and tests the hook against throwaway repos. Hits are reported by entry
+number, never by the entry's text; a path or ref name prints with the entry replaced by `[#N]`.
 
 ## License
 

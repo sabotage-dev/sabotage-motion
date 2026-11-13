@@ -87,6 +87,14 @@ test('a failed re-render removes the old record instead of leaving it beside the
   assert.ok(!fs.existsSync(P('out/redo.mp4.render.json')), 'a stale record survived a failed render');
 });
 
+test('a failed full re-render removes the old record too', () => {
+  render(dir, ['full', '--scale', '0.25', '--out', 'out/redofull']);
+  assert.ok(fs.existsSync(P('out/redofull.mp4.render.json')));
+  const r = render(dir, ['full', '--scale', '0.25', '--out', 'out/redofull', '--crf', 'not-a-number'], { allowFail: true });
+  assert.notEqual(r.status, 0, 'the broken encode did not fail');
+  assert.ok(!fs.existsSync(P('out/redofull.mp4.render.json')), 'a stale record survived a failed full render');
+});
+
 test('the source hash ignores outputs and review sheets, and changes when the source does', () => {
   const short = (name) => { render(dir, ['video', '--scale', '0.25', '--to', '0.1', '--out', `out/${name}`]); return readJson(`out/${name}.mp4.render.json`).source.hash; };
   const h1 = short('s1');

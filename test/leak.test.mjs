@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { repoRoot, repoFiles } from './helpers.mjs';
-import { HOME_PATTERNS, findHits, loadDenylist } from '../scripts/leak.mjs';
+import { HOME_PATTERNS, findHits, loadDenylist, mask } from '../scripts/leak.mjs';
 
 const files = repoFiles();
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
@@ -41,8 +41,9 @@ test('no file contains a denylisted string', (t) => {
   const hits = [];
   for (const f of files) {
     const text = fs.readFileSync(path.join(repoRoot, f)).toString('utf8');
-    for (const h of findHits(f, list.entries)) if (h.what.startsWith('denylist')) hits.push(`${f} (path): ${h.what}`);
-    for (const h of findHits(text, list.entries)) if (h.what.startsWith('denylist')) hits.push(`${f}:${lineOf(text, h.index)}: ${h.what}`);
+    const shown = mask(f, list.entries);
+    for (const h of findHits(f, list.entries)) if (h.what.startsWith('denylist')) hits.push(`${shown} (path): ${h.what}`);
+    for (const h of findHits(text, list.entries)) if (h.what.startsWith('denylist')) hits.push(`${shown}:${lineOf(text, h.index)}: ${h.what}`);
   }
   assert.deepEqual(hits, [], `denylisted strings found (entries are numbered, not printed):\n${hits.join('\n')}`);
   t.diagnostic(`${files.length} files checked against ${list.entries.length} entries`);
@@ -58,12 +59,17 @@ const leakScript = path.join(repoRoot, 'scripts', 'leak.mjs');
 const scratch = [];
 after(() => { for (const d of scratch) fs.rmSync(d, { recursive: true, force: true }); });
 
+// A throwaway repo with a real bare repo as `origin`, so "already published" is what the remote has.
 function scratchRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-leak-'));
-  scratch.push(dir);
-  const g = (...args) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
-    '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-leak-remote-'));
+  scratch.push(dir, bare);
+  const opts = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false',
+    '-c', 'tag.gpgsign=false', '-c', 'init.defaultBranch=main', '-c', 'core.hooksPath=/dev/null'];
+  const g = (...args) => execFileSync('git', [...opts, ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  execFileSync('git', ['init', '-q', '--bare', bare]);
   g('init', '-q');
+  g('remote', 'add', 'origin', bare);
   const commit = (file, text, message = 'change') => {
     if (text === null) fs.rmSync(path.join(dir, file));
     else { fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); fs.writeFileSync(path.join(dir, file), text); }
@@ -71,17 +77,17 @@ function scratchRepo() {
     g('commit', '-q', '-m', message);
     return g('rev-parse', 'HEAD');
   };
-  const markPushed = (sha) => g('update-ref', 'refs/remotes/origin/main', sha);
-  return { dir, g, commit, markPushed };
+  const markPushed = (sha) => g('push', '-q', '--no-verify', 'origin', `${sha}:refs/heads/main`);
+  return { dir, bare, g, commit, markPushed };
 }
 
-// Runs the hook as git would for `git push origin main` from `fromSha` (null = a new branch).
-function prePush(repo, { deny = DENY, ref = 'refs/heads/main', localSha, remoteSha = null } = {}) {
+// Runs the hook as git would for `git push origin <ref>` (remoteSha null = a new ref on the remote).
+function prePush(repo, { deny = DENY, ref = 'refs/heads/main', remoteRef = ref, localSha, remoteSha = null } = {}) {
   const env = { ...process.env, SM_DENYLIST: deny, SM_DENYLIST_FILE: path.join(repo.dir, 'no-such-denylist.txt') };
   if (!deny) delete env.SM_DENYLIST;
   const zero = '0'.repeat(40);
-  const stdin = `${ref} ${localSha} ${ref} ${remoteSha || zero}\n`;
-  const r = spawnSync(process.execPath, [leakScript, 'pre-push', 'origin', 'https://example.invalid/x.git'], { cwd: repo.dir, input: stdin, encoding: 'utf8', env });
+  const stdin = `${ref} ${localSha} ${remoteRef} ${remoteSha || zero}\n`;
+  const r = spawnSync(process.execPath, [leakScript, 'pre-push', 'origin', repo.bare], { cwd: repo.dir, input: stdin, encoding: 'utf8', env });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
 
@@ -90,7 +96,7 @@ test('pre-push: a clean push passes', () => {
   const sha = repo.commit('a.txt', 'hello\n');
   const r = prePush(repo, { localSha: sha });
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /1 commit\(s\) clean against 2 denylist entries/);
+  assert.match(r.out, /1 commit\(s\), 0 tag\(s\), 1 ref name\(s\) clean against 2 denylist entries/);
 });
 
 test('pre-push: an added line with a denylisted string blocks the push, named by number, not text', () => {
@@ -103,19 +109,36 @@ test('pre-push: an added line with a denylisted string blocks the push, named by
   assert.ok(!r.out.toLowerCase().includes(LEAK), 'the entry text must not be printed');
 });
 
-test('pre-push: the denylisted string in a commit message, an author name or a new path blocks the push', () => {
+test('pre-push: the denylisted string in a commit message, author, committer or new path blocks the push', () => {
+  const commitAs = (repo, env) => {
+    fs.writeFileSync(path.join(repo.dir, 'a.txt'), 'y\n');
+    repo.g('add', '-A');
+    execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'change'], { cwd: repo.dir, env: { ...process.env,
+      GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid', ...env } });
+    return repo.g('rev-parse', 'HEAD');
+  };
   for (const [what, make] of [
     ['message', (repo) => repo.commit('a.txt', 'x\n', `docs: notes for ${LEAK}`)],
     ['path', (repo) => repo.commit(`assets/${LEAK}-logo.txt`, 'x\n')],
-    ['author', (repo) => { fs.writeFileSync(path.join(repo.dir, 'a.txt'), 'y\n'); repo.g('add', '-A');
-      repo.g('-c', `user.name=${LEAK} bot`, 'commit', '-q', '-m', 'change'); return repo.g('rev-parse', 'HEAD'); }],
+    ['author', (repo) => commitAs(repo, { GIT_AUTHOR_NAME: `${LEAK} bot` })],
+    ['committer', (repo) => commitAs(repo, { GIT_COMMITTER_EMAIL: `ci@${LEAK}.example` })],
   ]) {
     const repo = scratchRepo();
     const sha = make(repo);
     const r = prePush(repo, { localSha: sha });
     assert.equal(r.code, 1, `${what}: ${r.out}`);
     assert.match(r.out, /denylist entry #2/, what);
+    assert.ok(!r.out.toLowerCase().includes(LEAK), `${what}: the entry text must not be printed`);
   }
+});
+
+test('pre-push: a path hit prints the path with the entry masked', () => {
+  const repo = scratchRepo();
+  const sha = repo.commit(`assets/${LEAK}-logo.txt`, 'x\n');
+  const r = prePush(repo, { localSha: sha });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`commit ${sha.slice(0, 7)} assets/\\[#2\\]-logo\\.txt \\(path\\): denylist entry #2`));
+  assert.ok(!r.out.toLowerCase().includes(LEAK), 'the entry text must not be printed');
 });
 
 test('pre-push: a file marked binary in .gitattributes is still checked, and so are binary files', () => {
@@ -159,7 +182,30 @@ test('pre-push: commits already on the remote are not checked again, and a commi
   const fix = repo.commit('a.txt', 'fixed\n');
   const r = prePush(repo, { localSha: fix, remoteSha: leaked });
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /1 commit\(s\) clean/);
+  assert.match(r.out, /1 commit\(s\), 0 tag\(s\), 1 ref name\(s\) clean/);
+});
+
+test('pre-push: a local tracking ref the destination does not have does not exclude anything', () => {
+  // origin/main claims the leaky commit is published (say the URL changed since), but the remote is empty.
+  const repo = scratchRepo();
+  const leaked = repo.commit('a.txt', `${LEAK}\n`);
+  repo.g('update-ref', 'refs/remotes/origin/main', leaked);
+  const tip = repo.commit('a.txt', 'clean\n');
+  const r = prePush(repo, { localSha: tip });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`commit ${leaked.slice(0, 7)} a\\.txt:1: denylist entry #2`));
+});
+
+test('pre-push: a branch or tag name with the string blocks the push, masked', () => {
+  const repo = scratchRepo();
+  const sha = repo.commit('a.txt', 'x\n');
+  repo.markPushed(sha);
+  for (const remoteRef of [`refs/heads/${LEAK}-wip`, `refs/tags/${LEAK}`]) {
+    const r = prePush(repo, { localSha: sha, remoteRef });
+    assert.equal(r.code, 1, `${remoteRef}: ${r.out}`);
+    assert.match(r.out, /ref refs\/(heads|tags)\/\[#2\]\S* \(name\): denylist entry #2/);
+    assert.ok(!r.out.toLowerCase().includes(LEAK), 'the entry text must not be printed');
+  }
 });
 
 test('pre-push: a leak hidden in an earlier commit of the same push still blocks it', () => {
@@ -197,6 +243,25 @@ test('pre-push: a leak introduced by a merge itself blocks the push', () => {
   assert.match(r.out, new RegExp(`commit ${merge.slice(0, 7)} b\\.txt:3: denylist entry #2`));
 });
 
+test('pre-push: a path that first appears in a merge commit blocks the push', () => {
+  const repo = scratchRepo();
+  const base = repo.commit('a.txt', 'one\n');
+  repo.markPushed(base);
+  repo.g('checkout', '-q', '-b', 'side');
+  repo.commit('s.txt', 'side\n');
+  repo.g('checkout', '-q', 'main');
+  repo.commit('m.txt', 'main\n');
+  repo.g('merge', '-q', '--no-ff', '--no-commit', 'side');
+  fs.mkdirSync(path.join(repo.dir, 'assets'));
+  fs.writeFileSync(path.join(repo.dir, 'assets', `${LEAK}-logo.txt`), 'x\n');   // clean content, private name
+  repo.g('add', '-A');
+  repo.g('commit', '-q', '-m', 'merge side');
+  const merge = repo.g('rev-parse', 'HEAD');
+  const r = prePush(repo, { localSha: merge, remoteSha: base });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`commit ${merge.slice(0, 7)} assets/\\[#2\\]-logo\\.txt \\(path\\): denylist entry #2`));
+});
+
 test('pre-push: an annotated tag whose message has the string blocks the push', () => {
   const repo = scratchRepo();
   const sha = repo.commit('a.txt', 'x\n');
@@ -206,6 +271,54 @@ test('pre-push: an annotated tag whose message has the string blocks the push', 
   const r = prePush(repo, { ref: 'refs/tags/v1', localSha: tag });
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /tag [0-9a-f]{7}: denylist entry #2/);
+});
+
+test('pre-push: every tag object in a pushed tag\'s chain is checked, not only the outermost', () => {
+  const repo = scratchRepo();
+  const sha = repo.commit('a.txt', 'x\n');
+  repo.markPushed(sha);
+  repo.g('tag', '-a', 'v1', '-m', `release for ${LEAK}`);
+  const inner = repo.g('rev-parse', 'v1');
+  repo.g('tag', '-a', 'latest', '-m', 'clean', 'v1');
+  const r = prePush(repo, { ref: 'refs/tags/latest', localSha: repo.g('rev-parse', 'latest') });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`tag ${inner.slice(0, 7)}: denylist entry #2`));
+});
+
+test('pre-push: a tag that points at a blob or a tree has that content checked', () => {
+  const repo = scratchRepo();
+  const sha = repo.commit('a.txt', 'x\n');
+  repo.markPushed(sha);
+  const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: repo.dir, input: `notes ${LEAK}\n`, encoding: 'utf8' }).trim();
+  repo.g('tag', '-a', 'blobtag', '-m', 'clean', blob);
+  let r = prePush(repo, { ref: 'refs/tags/blobtag', localSha: repo.g('rev-parse', 'blobtag') });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`blob ${blob.slice(0, 7)}: denylist entry #2`));
+
+  const tree = execFileSync('git', ['mktree'], { cwd: repo.dir, input: `100644 blob ${blob}\tnotes.txt\n`, encoding: 'utf8' }).trim();
+  repo.g('tag', '-a', 'treetag', '-m', 'clean', tree);
+  r = prePush(repo, { ref: 'refs/tags/treetag', localSha: repo.g('rev-parse', 'treetag') });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, new RegExp(`tree ${tree.slice(0, 7)} notes\\.txt: denylist entry #2`));
+});
+
+test('history: checks tag objects and ref names as well as commits', () => {
+  const runHistory = (repo) => {
+    const r = spawnSync(process.execPath, [leakScript, 'history'], { cwd: repo.dir, encoding: 'utf8', env: { ...process.env, SM_DENYLIST: DENY } });
+    return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
+  };
+  const repo = scratchRepo();
+  repo.commit('a.txt', 'x\n');
+  assert.equal(runHistory(repo).code, 0);
+  repo.g('tag', '-a', 'v1', '-m', `release for ${LEAK}`);
+  let r = runHistory(repo);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /tag [0-9a-f]{7}: denylist entry #2/);
+  repo.g('tag', '-d', 'v1');
+  repo.g('branch', `${LEAK}-wip`);
+  r = runHistory(repo);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /ref refs\/heads\/\[#2\]-wip \(name\): denylist entry #2/);
 });
 
 test('pre-push: with no denylist the push is blocked, not waved through', () => {
@@ -230,9 +343,11 @@ test('the hook in .githooks runs this check and is executable', () => {
 });
 
 test('the home-path patterns cover each kind', () => {
-  const samples = { 'macOS home': HOME, 'Linux home': '/' + 'ho' + 'me/' + 'someone/x', 'Windows home': 'C:\\' + 'Us' + 'ers\\someone' };
-  for (const [kind, sample] of Object.entries(samples)) {
-    assert.ok(findHits(sample, null).some((h) => h.what === kind), kind);
+  const samples = [['macOS home', HOME], ['Linux home', '/' + 'ho' + 'me/' + 'someone/x'],
+    ['Windows home', 'C:\\' + 'Us' + 'ers\\someone'], ['macOS temp dir', '/' + 'priv' + 'ate/tmp/x'],
+    ['macOS temp dir', '/' + 'priv' + 'ate/var/x'], ['macOS temp dir', '/var/' + 'fol' + 'ders/ab/x']];
+  for (const [kind, sample] of samples) {
+    assert.ok(findHits(sample, null).some((h) => h.what === kind), `${kind}: ${sample}`);
   }
   assert.equal(HOME_PATTERNS.length, 5);
 });

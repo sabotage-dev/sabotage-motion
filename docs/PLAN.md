@@ -592,13 +592,17 @@ Suites:
   and none of the clean cases is. Mutation: disabling any one detector fails a test.
 - **Leak check** (D10): nothing published contains a private home-directory path or any string from the owner's
   denylist (brand names, private paths, the owner's voice id). The denylist is never committed and is not stored on
-  GitHub: it is a file on the owner's machine, read by the pre-push hook (`.githooks/pre-push`, `scripts/leak.mjs`),
-  which checks every commit a push would publish (message, author and committer, new paths, added lines) and blocks
-  the push on a hit or when it finds no denylist. CI checks home paths in every tracked file, and tests the hook on
-  throwaway repos with a made-up denylist: a hit in each place it looks, a leak in an earlier commit of the same push,
-  one introduced by a merge, an annotated tag, commits already on the remote skipped, a commit that removes a leak
-  allowed, and no denylist blocking. Hits name the entry's number, never its text. The path patterns are built from
-  parts, so the check and this plan do not trip it.
+  GitHub: it is a file on the owner's machine, read by the pre-push hook (`.githooks/pre-push`, `scripts/leak.mjs`).
+  The hook checks everything a push would publish that the remote does not already have, asking the remote itself
+  (`git ls-remote`) rather than trusting local tracking refs: each commit's message, author and committer, the paths
+  new in it (merges included) and its added lines; every tag object in a pushed tag's chain, and a tree or blob a tag
+  points at; the branch and tag names. It blocks the push on a hit or when it finds no denylist. `history` checks
+  every commit, tag and ref name in the clone. CI checks home paths in every tracked file, and tests the hook on
+  throwaway repos (a bare repo as the remote) with a made-up denylist: a hit in each place it looks, a leak in an
+  earlier commit of the same push, content and a new path introduced by a merge, nested and blob or tree tags, a
+  stale tracking ref, ref names, commits already on the remote skipped, a commit that removes a leak allowed, and no
+  denylist blocking. Hits name the entry's number, never its text; a path or ref name prints with the entry masked.
+  The path patterns are built from parts, so the check and this plan do not trip it.
 - **Asset inventory**: `ASSETS.md` lists every binary file in the repo (fonts, audio, images, sequences) with its
   source and licence; the test fails on any binary not listed, and on any listed file that is missing.
 

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makePiece, render, ffprobe, countFrames, readWav, peakIn, templateDir } from './helpers.mjs';
+import { makePiece, render, ffprobe, countFrames, readWav, peakIn, templateDir, fixturesDir } from './helpers.mjs';
 
 const dir = makePiece('scene-swap');
 const P = (f) => path.join(dir, f);
@@ -43,6 +43,11 @@ test('a scene may set CFG.DUR in init: the slate with --param dur=1.5 is 45 fram
 });
 
 test('a non-silent alternate scene passes its own TL and length to audio.js', () => {
+  // alt.js must start with an empty TL and fill it in init; otherwise this test cannot tell whether audio.js
+  // got the TL before or after init.
+  const alt = fs.readFileSync(path.join(fixturesDir, 'fixture-clean', 'alt.js'), 'utf8');
+  assert.match(alt, /export const TL = \{\};/, 'alt.js TL must be empty until init');
+  assert.match(alt, /init\([^)]*\)\s*\{[^}]*TL\.hits = \[0\.25\]/, 'alt.js must fill TL.hits in init');
   const r = render(dir, ['audio', '--scene', 'alt.js', '--target', 'tiktok']);
   assert.ok(!r.stdout.includes('fixture: scene.js evaluated'), 'alt render evaluated scene.js');
   assert.match(r.stdout, /fixture: cues \[0\.25\]/);
