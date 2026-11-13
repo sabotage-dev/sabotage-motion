@@ -1,7 +1,7 @@
 // Alpha (plan section 16): ProRes 4444 with a non-constant alpha plane; the WebM, decoded with
-// libvpx-vp9, has one too. render.mjs encodes ProRes from yuva444p10le; ffmpeg 6 decodes that file
-// as yuva444p10le and newer ffmpeg (measured on 9.0) as yuva444p12le, since 4444 carries up to
-// 12 bits. Both are accepted; the profile (4444) and the ap4h tag are what identify the file.
+// libvpx-vp9, has one too. render.mjs encodes ProRes from yuva444p10le; what ffprobe reports for the
+// decoded file depends on the ffmpeg version (9.0 reports yuva444p12le, since 4444 carries up to
+// 12 bits). Both are accepted; the profile (4444) and the ap4h tag are what identify the file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
