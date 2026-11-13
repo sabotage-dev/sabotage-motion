@@ -234,9 +234,9 @@ Windows are built from a list of boundaries, so they are contiguous by construct
   `s = max(prevWordEnd, CUE[i] − lead)` (seconds into the raw take), with a 5 ms fade out before the zeros and a
   5 ms fade in after them so the cut cannot click. When the pause before the anchor is at least `lead`, the zeros
   land exactly on the silent run's window; when it is shorter, the splice falls at the previous word's end and the
-  window opens at most `lead` before the zeros. Either way nothing from the take plays inside the silent run except
-  that at most `lead` of pause, and no word is cut (the previous word has ended by `s`, and the anchor starts at or
-  after it). A take with no pause at all (`prevWordEnd ≥ CUE[i]`) splices at the anchor and warns that the take runs
+  window opens at most `lead` before the zeros, so the last moment of the previous word (under `lead`) carries
+  into the silent run, the way a J-cut would. No word is cut: the previous word has ended by `s`, and the anchor
+  starts at or after it. A take with no pause at all (`prevWordEnd ≥ CUE[i]`) splices at the anchor and warns that the take runs
   the words together. The quietest-point search and the `-50 dBFS` refusal belong to `gapBefore` only (section
   7.4). Later cues shift by `D`; the picture windows come from the shifted cues alone, so they stay contiguous.
   `GAPS[].at` is `s`.
