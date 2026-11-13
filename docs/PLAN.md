@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 1.0 (2026-11-12): first draft, for council round 1 |
+| Revision | 1.1 (2026-11-12): council round 1 folded (section 22) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (not created yet, D5), MIT |
 | Status | Plan under council review. Nothing is built yet. |
 | Decisions | D1-D8 in section 19, ruled by the owner on 2026-11-12 |
@@ -70,7 +70,8 @@ framework, no render service, no Python.
 | animatic | A render of the slate scene, timed by the board, muxed with the voice. |
 | take | A voice recording with timings (TTS or a transcribed human read). |
 | cue | Seconds into the voice where an anchor phrase starts. |
-| `VO_OFFSET` | Seconds from the first frame to the start of the voice. Written once, in `cues.js`, read by the scene and the mixer. |
+| picture time | Seconds from the first frame of the video. Every beat window, `TL` time and check time is in picture time. |
+| `VO_OFFSET` | Picture time at which `vo.wav` starts. Written once, in `cues.js`, read by the board helpers, captions and the mixer. A cue plus `VO_OFFSET` is picture time. |
 | stem | One audio input to the mix: voice, bed, effects, or an extra (a clip's own sound). |
 | master | The final file: picture copied untouched, mixed and loudness-normalized audio. |
 | target | A delivery preset: `tiktok`, `reels`, `shorts`, `youtube`, `square`, `feed45`, `web`, `none`. Sets size, fps and safe zones. |
@@ -86,11 +87,12 @@ The order the skill teaches. Steps marked (voice) are skipped for silent pieces 
 4. **(voice) Voice it**: `tools/voice-elevenlabs.mjs` from the board, or a human read transcribed elsewhere.
 5. **(voice) Cues**: `tools/cues.mjs` writes `cues.js` (`CUE`, `WORDS`, `VO_OFFSET`, `HOOK_END`) and refuses a take
    that fails the hook gate or misses an anchor.
-6. **(voice) Animatic**: render the slate scene full length and mix it with the voice. The person hears the pacing.
+6. **(voice) Animatic**: render the slate scene's picture and mix it with the voice alone. The person hears the
+   pacing.
 7. **Animate**: replace slates with the real scene beat by beat; review with `board`, `contact` and `stills`.
 8. **Sign-off on a rendered sample** before polishing (unchanged from the private skill).
-9. **Render** (`full`, or `video --alpha` for overlays), **mix and master** (`tools/mix.mjs`), **check**
-   (`node render.mjs check --file <master>`).
+9. **Check the source** (`node render.mjs check`), **render** (`full`, or `video --alpha` for overlays), **mix and
+   master** (`tools/mix.mjs`), **check the master** (`node render.mjs check --file <master>`).
 10. **Deliver**: the master's path, a preview encode when the chat tool caps attachments, the source left in place.
 
 ## 4. Repository and piece layout
@@ -140,8 +142,10 @@ The only harness changes in v1:
 | Change | Why | Where |
 |---|---|---|
 | `--scene <file>` (default `scene.js`), loaded by dynamic import | The slate scene and the real scene share one harness | `main.js`, `render.mjs` |
+| `renderAudio({ TL, CFG, params })` receives the selected scene's `TL` and `CFG` from the harness, after that scene's `init`; `audio.js` no longer imports `scene.js` | With a static import, a `--scene slate.js` render would schedule the real scene's cues (`audio.js` imports `scene.js` today, and `init` fills `TL.words` and `TL.hits`). A scene without sound exports `silent = true`, and `audio` renders silence | `main.js`, `audio.js` |
 | `--target <name>` | Size, fps and safe zones from `safezones.json` unless `CFG` sets them | `main.js`, `render.mjs` |
-| Optional `boxes(t)` export: `[{id, text, x, y, w, h, deco?}]` in design pixels | Lets `check` see text without OCR | scene contract |
+| Optional `boxes(t)` export: `[{id, text, x, y, w, h, group?, deco?}]` | Lets `check` see text without OCR. Semantics: one box per drawn run of text, in design pixels before the camera, bounds after any clip mask, and only while its alpha is above 0.05; `group` joins the words of one phrase or caption line (section 11) | scene contract |
+| `render.mjs` writes `out/<name>.render.json` after every `video`/`full` render | Ties a master to the source it came from (section 11.2) | `render.mjs` |
 | Optional `HOLDS` export: `[[t0, t1], ...]` | Marks deliberate holds (end cards hold to the last frame) | scene contract |
 | `window.renderProbe(t, opts)`: one frame at a given scale, subframes and post overrides (`grain: 0`), returned as luma bytes | `check`'s motion analysis without noise from grain | `main.js` |
 | Board composition in the page (section 6.2) | Captions under panels with the piece's own fonts; no ffmpeg `drawtext` | `main.js` |
@@ -175,13 +179,18 @@ export const BOARD = {
 };
 ```
 
-- A beat has either `vo` (a voice line) or `dur` (seconds, for silent beats). Mixed boards are allowed.
+- A beat has either `vo` (a voice line) or `dur` (seconds, for silent beats). Silent beats may lead, sit between
+  voiced beats, or trail (section 6.3).
+- Beat ids are unique and may not be `TAKE`, `VO_OFFSET` or `DUR`.
 - `anchor` defaults to the first four words of `vo`. `gapBefore` asks `cues.mjs` to open that much silence before
   the anchor (section 7.4). `hook: true` marks the hook beat for the gate. `hold: true` adds the beat's window to the
   holds `check` accepts.
-- The voice script is the beats' `vo` lines joined in order; no separate script file.
-- `lib.js` gains `beatWindow(id)` and `beatAt(t)`, computed from `cues.js` when it exists and from the estimate
-  otherwise, so the scene's `TL` is built from beats instead of hand-copied numbers.
+- `sfx` is a note for the person and a presence check (section 6.5); `sfxHit: true` asks for a transient instead;
+  `sfx: null` means silence on purpose.
+- The voice script is the voiced beats' `vo` lines joined in order; no separate script file.
+- `lib.js` gains `beatWindow(id)` (picture time, half-open `[start, end)`), `beatAt(t)` and `boardDur()`. The scene's
+  `TL` and `CFG.DUR` are built from them instead of hand-copied numbers; the template's `scene.js` and `slate.js`
+  both set `CFG.DUR = boardDur()`.
 
 ### 6.2 `render.mjs board`
 
@@ -197,28 +206,49 @@ One PNG (`board.png`), plus `board.md` beside it with the same content as a tabl
 The page renders each panel to an `ImageBitmap` at panel size and composes the sheet on its own canvas with the
 piece's fonts, so the captions use the same font check as everything else.
 
-### 6.3 Timing before a take exists
+### 6.3 Beat timing
 
-A beat with `vo` lasts `words / wps` seconds plus 0.25 s; a beat with `dur` lasts `dur`. The board and the animatic
-are usable before any voice exists. Once `cues.js` exists, every window comes from the cues (a beat runs from its
-anchor's cue minus 0.1 s to the next beat's), and the estimate is never used again for that piece.
+All windows are picture time, half-open, contiguous, and together cover `[0, boardDur())`. Defaults: `lead` 0.10 s
+(a voiced beat's window opens this long before its anchor), `tail` 0.40 s (the last voiced beat's window closes
+this long after its last word), both settable on the board.
+
+**Before a take exists (estimate).** Beats run back to back in board order: a voiced beat lasts
+`words / wps + 0.25` s, a silent beat lasts its `dur`. `VO_OFFSET` is the summed `dur` of any leading silent beats
+plus `lead`. The board sheet and animatic say "estimated timing".
+
+**Once `cues.js` exists.** The take is the only source for voiced beats; the estimate is never used again for them.
+
+- Leading silent beats keep their `dur` and run back to back from 0. `VO_OFFSET` = their sum + `lead`, so the voice
+  starts after them.
+- A voiced beat starts at `VO_OFFSET + cue − lead` and ends where the next beat starts.
+- An interleaved silent beat gets its room in the voice: `cues.mjs` opens `dur` seconds of silence before the next
+  voiced beat's anchor (the gap tool, section 7.4) and records the gap's picture-time start. The silent beat runs
+  from that point for `dur`; the previous voiced beat ends there.
+- Trailing silent beats start at `VO_OFFSET + lastWordEnd + tail` and run back to back. `boardDur()` is the end of
+  the last beat (with no trailing beat, `VO_OFFSET + lastWordEnd + tail`).
+- `cues.js` keeps take facts apart from beat cues: `CUE` holds only beat ids; `TAKE = { duration, lastWordEnd }`
+  holds the rest, so no beat id can collide with a take field.
+
+`VO_OFFSET` is applied in exactly one place for each consumer: `beatWindow`, `captions`, and `mix.mjs`'s voice
+delay and `--bed-at cue:<id>`.
 
 ### 6.4 Slate scene and animatic
 
 `slate.js` is a complete scene that reads `BOARD` and draws, for the beat under `t`: the beat id small at the top,
 the on-screen copy large and auto-fitted inside the safe zones, the visual note in a muted line, and a progress bar.
-It is designed to be replaced beat by beat, not shipped. The animatic is
-`node render.mjs full --scene slate.js --out out/animatic.mp4`, then `node tools/mix.mjs animatic --no-bed`.
+It is designed to be replaced beat by beat, not shipped. It exports `silent = true`. The animatic is the slate
+picture plus the voice alone: `node render.mjs video --scene slate.js --out out/animatic.mp4`, then
+`node tools/mix.mjs animatic --no-bed --no-sfx`.
 
 ### 6.5 Board checks (part of `check`)
 
 | Check | Level | Rule |
 |---|---|---|
-| `board_order` | FAIL | Beat windows are in order, do not overlap, and the last ends at or before `DUR`. |
-| `board_copy_missing` | WARN | A string in a beat's `on` is never inside a `boxes(t)` text during that beat's window. Needs `boxes(t)`; otherwise reported as not checked. |
-| `board_copy_unread` | WARN | A string in `on` is visible for less than `max(1.0, 0.25 × words)` seconds in total. |
-| `board_sfx_silent` | WARN | A beat with an `sfx` note has no onset in the effects stem inside its window (an onset is a 10 ms window more than 12 dB above the preceding 100 ms and above -40 dBFS). |
-| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. |
+| `board_order` | FAIL | Beat windows are contiguous and in order, and `CFG.DUR` equals `boardDur()` within one frame. |
+| `board_copy_missing` | WARN | A string in a beat's `on` is never found during that beat's window. Matching: at each sample, the visible boxes of one `group` (or, without groups, all visible boxes) are joined in reading order (top to bottom, then left to right) and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
+| `board_copy_unread` | WARN | A string in `on` is found for less than `max(1.0, 0.25 × words)` seconds in total. |
+| `board_sfx_missing` | WARN | A beat with an `sfx` note has no 50 ms window above -40 dBFS RMS in the effects stem inside its window. With `sfxHit: true`, it needs a transient instead: a 10 ms window more than 12 dB above the RMS of the preceding 100 ms and above -40 dBFS. `sfx: null` is never checked. |
+| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. On a master, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
 
 ## 7. Voice-driven timing
 
@@ -246,13 +276,16 @@ match, case-sensitive) and the word sequence otherwise (case-sensitive, punctuat
 
 ```js
 // generated by tools/cues.mjs; do not edit
-export const VO_OFFSET = 0.10;
-export const CUE = { hook: 0.0, save: 3.67, end: 12.48, last_char: 12.40 };
-export const HOOK_END = 2.72;
+export const VO_OFFSET = 0.10;                          // picture time where vo.wav starts
+export const CUE = { hook: 0.12, save: 3.67 };           // seconds into vo.wav, beat ids only
+export const TAKE = { duration: 12.48, lastWordEnd: 12.40 };
+export const GAPS = [{ beat: 'cta', at: 9.85, dur: 1.5 }]; // silence opened for interleaved silent beats (seconds into vo.wav)
+export const HOOK_END = 2.72;                            // seconds into vo.wav
 export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 ```
 
 - One cue per beat with `vo`, keyed by beat id, from its anchor (with an occurrence count when a phrase repeats).
+  Every time in `cues.js` except `VO_OFFSET` is seconds into `vo.wav`; the board helpers convert to picture time.
 - A missing anchor stops the tool with the phrase it could not find. It checks every anchor before it writes
   anything, so a bad take never replaces a good `cues.js`.
 - `VO_OFFSET` is set once (`--offset`, default 0.10 s) and read by the scene and by `mix.mjs`. The private version
@@ -264,7 +297,8 @@ export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 `gapBefore` opens silence before a beat's anchor: the cut goes at the quietest 10 ms between the previous character
 or word's end and the anchor's start; it refuses when that point is louder than -50 dBFS (it would split speech) or
 when there is no pause at all; every later timing shifts by the gap. Ported from the private helper, which has used
-it on every voiced piece. The voice file with gaps is `vo.wav`; the raw take is kept as `take-raw.wav`.
+it on every voiced piece. The same tool opens the room for each interleaved silent beat (section 6.3), with the
+beat's `dur` as the gap. The voice file with gaps is `vo.wav`; the raw take is kept as `take-raw.wav`.
 
 ### 7.5 Hook gate
 
@@ -291,8 +325,22 @@ and places the block inside the target's safe zones. It returns its text boxes s
 ```
 node tools/mix.mjs <name> [--vo vo.wav] [--bed bed.mp3] [--stem file[:gain[:delay_s]]]...
                    [--bed-gain 0.22] [--sfx-gain 0.9] [--vo-gain 3.2] [--bed-skip s] [--bed-at s|cue:<id>]
-                   [--mute a-b[:ramp],...] [--no-bed] [--sfx-only] [--target-lufs -14] [--tp -2.0]
+                   [--mute a-b[:ramp],...] [--no-bed] [--no-sfx] [--master-only | --sting]
+                   [--target-lufs -14] [--tp -2.0]
 ```
+
+Modes and targets (one table, also used by `references/delivery.md` section 5):
+
+| Mode | Inputs | Target |
+|---|---|---|
+| default | voice, optional bed, effects, extra stems | -14 LUFS integrated, -2.0 dBTP |
+| `--master-only` | the synthesized soundtrack alone (no voice, no bed) | -14 LUFS, -2.0 dBTP (the private master script's behaviour) |
+| `--sting` | the synthesized soundtrack alone, for an asset cut into someone else's video | -20 LUFS, -3.0 dBTP |
+| any | `--target-lufs`, `--tp` | override the mode's numbers |
+
+`mix.mjs` writes `out/<name>.master.json` beside the master: the mode, the target loudness and true peak, the
+voice delay it applied, a hash of every input stem, the path and hash of the `render.json` it read, and the
+decoded video hash of the master it wrote (section 11.2).
 
 Ported from the private mix and master scripts, behaviour kept:
 
@@ -304,9 +352,9 @@ Ported from the private mix and master scripts, behaviour kept:
   it is shorter than the picture and 2.6 s if longer, is silenced over `--mute` windows, and is ducked by the voice
   through a sidechain compressor (threshold 0.02, ratio 5, attack 25 ms, release 350 ms).
 - All stems are resampled to 48 kHz stereo, mixed without normalization, limited at -6 dBFS, then loudness-normalized
-  in two passes (`loudnorm` I -14, TP -2.0, LRA 11, linear), encoded AAC 256 kb/s at 48 kHz, with the picture
-  stream copied and `+faststart`.
-- `--sfx-only` (no voice, no bed): target -20 LUFS, true peak -3.0 dBTP.
+  in two passes (`loudnorm` at the mode's target, LRA 11, linear), encoded AAC 256 kb/s at 48 kHz, with the picture
+  stream copied and `+faststart`. AAC adds about 0.5 dB of true peak (measured on the private masters), which is
+  why the targets sit below the -1.0 dBTP ceiling `check` enforces.
 - Prints the voice level and gain, the bed placement, the premix's measured loudness, and the final integrated
   loudness and true peak.
 - The defaults (bed 0.22, effects 0.9, voice 3.2 after levelling) are the private mixer's, which put the ducked bed
@@ -326,25 +374,45 @@ says to crop and scale in `--vf` to the size the scene draws, because every fram
 ## 11. `check`
 
 ```
-node render.mjs check [--file out/<name>-final.mp4] [--target tiktok] [--json] [--strict]
+node render.mjs check                                   source checks on the piece
+node render.mjs check --file out/<name>-final.mp4       the same, plus artifact checks on that file
+               [--target tiktok] [--lufs -14 --tp -1.0] [--json] [--strict]
 ```
 
 Runs every check it can, says which it could not run and why, prints one line per result, and exits 1 on any FAIL
 (with `--strict`, on any WARN too). `--json` prints the same results as an array of
-`{id, level, t?, detail, measured, threshold}`.
+`{id, scope, level, t?, detail, measured, threshold}`.
+
+### 11.1 Source checks (the piece as it is now)
 
 | Check | Level | How it is measured |
 |---|---|---|
-| `file_spec` | FAIL | `ffprobe`: width, height, fps and pixel format match the piece; the frame count (`-count_frames`) equals `round(DUR × FPS)`; the duration matches within one frame; an audio stream exists when the piece has sound. |
-| `faststart` | WARN | For `.mp4`: the `moov` atom comes before `mdat`. |
-| `loudness` | FAIL | `ebur128=peak=true` on the file: integrated within 1 LU of the target (-14, or -20 for `--sfx-only` pieces); true peak at or under -1.0 dBTP. |
-| `audio_spike` | WARN | The existing 50 ms window analysis on the effects stem: a peak more than 18 dB above the 90th percentile window. |
-| `motion_dead` | WARN | `renderProbe` at 1/4 scale, 1 subframe, grain 0, every frame: mean absolute luma difference between frames; flags any run of 3.0 s or more under 0.5/255 that is not inside `HOLDS` or a `hold: true` beat. |
-| `first_frame_empty` | WARN | `renderProbe(0)`: luma standard deviation under 4/255 (a flat first frame is a blank thumbnail). |
-| `text_safe` | FAIL | Every non-`deco` box from `boxes(t)`, sampled at 10 Hz, lies inside the target's safe area. Not run without `boxes(t)`. |
-| `text_overlap` | WARN | Two non-`deco` text boxes intersect by more than 2% of the smaller one's area at the same sample. |
-| `board_*`, `hook_long` | as 6.5 | Section 6.5. |
 | `fonts` | FAIL | Every `CFG.FONTS` family loads (the existing throw, reported as a result instead). |
+| `board_*`, `hook_long` | as 6.5 | Section 6.5. |
+| `motion_dead` | WARN | A heuristic. `renderProbe` at 1/4 scale, 1 subframe, grain 0, every frame. Each probe is split into a grid of tiles (9×16 for 9:16, 16×9 for 16:9); a frame pair counts as moving when any tile's mean absolute luma difference is at least 1/255, so a small element moving on a held card counts. Flags any run of 3.0 s or more with no moving pair that is not inside `HOLDS` or a `hold: true` beat. |
+| `first_frame_empty` | WARN | `renderProbe(0)`: luma standard deviation under 4/255 (a flat first frame is a blank thumbnail). |
+| `text_safe` | FAIL (WARN while the target's zones are an estimate) | `boxes(t)` evaluated at every frame's shutter centre (`t + 0.25 / FPS`), mapped through that frame's `cam` from `frame(t)` (zoom, rotation, pan, as the composite shader applies it). A non-`deco` box outside the safe area for more than 0.25 s in total within one beat is a FAIL; any shorter excursion (a slam entrance, a whip) is a WARN. Not run without `boxes(t)`. |
+| `text_overlap` | WARN | At the same samples, two non-`deco` boxes from different groups intersect by more than 2% of the smaller one's area. |
+| `audio_spike` | WARN | The existing 50 ms window analysis on the effects stem: a peak more than 18 dB above the 90th percentile window. |
+
+### 11.2 Artifact checks (`--file`)
+
+A master is only as good as the source it came from, so the artifact checks first prove which source that was.
+
+- `render.mjs` writes `out/<name>.render.json` after every `video` or `full` render: a hash over the piece's source
+  (every file except `out/`, `stills/`, `node_modules/` and the review sheets), the scene file, params, size, fps,
+  subframes and alpha mode, and a hash of the rendered file's decoded video (`ffmpeg -map 0:v -f hash -hash sha256`).
+- `mix.mjs` writes `out/<name>.master.json` (section 9).
+
+| Check | Level | How it is measured |
+|---|---|---|
+| `provenance` | FAIL | `master.json` and its `render.json` exist; the piece's current source hash equals the recorded one (otherwise the master is stale: re-render); the decoded video hash of `--file` equals the render's (the mixer copied the picture untouched). Only then do the 11.1 results stand for this file. Without `master.json`, `--file` is checked as a plain file and the report says the source checks do not apply to it. |
+| `file_spec` | FAIL | `ffprobe`: width, height, fps and pixel format match the piece; the frame count (`-count_frames`) equals `round(DUR × FPS)`; the duration matches within one frame; an audio stream exists unless the scene is `silent`. |
+| `faststart` | WARN | For `.mp4`: the `moov` atom comes before `mdat`. |
+| `loudness` | FAIL | `ebur128=peak=true` on the file: integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). With neither, reported as not checked. |
+| `vo_delay` | FAIL | The voice delay `master.json` records equals `cues.js`'s `VO_OFFSET`. |
+
+### 11.3 Thresholds
 
 The thresholds above are starting values. P3 tunes them on the three examples and on recorded renders of real
 pieces, so that clean pieces pass and the planted defects in section 16 fail; the tuned numbers go in
@@ -358,6 +426,9 @@ with a `source` line and a `measured` date per number. Until an entry is measure
 
 - v1 ships `tiktok` from the owner's posted pieces (text column from x 84 to 936; content above y 1480 on 1080×1920)
   and leaves its top edge, `reels` and `shorts` to the P3 measurement (Q3).
+- While a target is an estimate, `text_safe` reports WARN instead of FAIL for it.
+- `references/delivery.md` drops its own percentages and points at `safezones.json`, so the guide and the check
+  never disagree.
 - Overlays: `contact --safe` and `board --safe` shade the unsafe area on every panel.
 - The 9:16 review sheet at phone width is a documented flag combination (`contact --scale 0.333`), not a new mode.
 
@@ -392,19 +463,28 @@ defaults, gotchas, references) and changing:
   drop the ones tied to private pipelines.
 - A short "when to use something else" section: Remotion or HyperFrames when a team writes React or HTML, needs a
   studio with a scrubber, or renders at scale in the cloud.
-- `references/techniques.md` keeps its catalog; pointers into the private examples become pointers into the public
-  ones, and brand-specific advice becomes general ("for a SaaS promo...").
+- Every shipped reference is rewritten the same way, not only SKILL.md. `references/techniques.md` keeps its
+  catalog; pointers into the private examples become pointers into the public ones, and brand-specific advice
+  becomes general ("for a SaaS promo..."). `references/delivery.md` loses its private-pipeline material: the
+  compositing notes tied to a private sting and a private Python pipeline, the gain one private asset ships at, and
+  the chat tool's attachment cap; its safe-zone and loudness numbers come from `safezones.json` and section 9's
+  table.
 
 ## 15. Examples
 
 Each is a full piece (template plus its own scene and board), runnable from its folder, with a committed
 `contact.png` and `board.png` and no other outputs.
 
-- `showreel/` (20 s, 16:9, 60 fps): the private skill's showreel ported to the current harness. Its fonts are macOS
-  system fonts today; they are replaced with open-licence faces, and the visual drift is accepted.
+- `showreel/` (20 s, 16:9, 60 fps): the private skill's showreel ported to the current harness. Before any frame
+  of it is committed, its lockup is replaced: today it ends on a third-party product name as a wordmark, a
+  "Motion Designer" subtitle, the same name in the HUD, and that product's spark mark. The public reel ends on a
+  fictional name and mark. Its fonts are macOS system fonts today; they are replaced with open-licence faces, and
+  the visual drift is accepted.
+- No example contains a third-party name, logo or trademark.
 - `explainer-beat/` (about 15 s, 9:16): a made-up three-beat explainer built the section 3 way: board, voice take,
   cues, captions, a bed, `mix.mjs`, `check` clean. Its voice comes from an openly licensed TTS voice whose licence
-  allows redistribution, recorded in the folder (Q2). Never the owner's voice.
+  allows redistribution (Q2), never the owner's voice. `VOICE.md` in the folder names the engine, the voice, its
+  licence and the licence URL, and `take.json`'s `source` names the same engine.
 - `lower-third/` (5 s, 16:9, alpha): a name strap rendered `--alpha` to ProRes 4444 and WebM, plus the
   `delivery.md` recipe that composites it onto a generated test pattern.
 
@@ -412,30 +492,54 @@ The private skill's two brand examples (a news sting and an app end card) are no
 
 ## 16. Tests
 
-`node:test`, run in CI on `macos-latest` and `ubuntu-latest`, Node 22 and 24. A fixture piece (2 s, 1080×1920
-rendered at scale 0.25) plus a planted-defect copy of it.
+`node:test`, run in CI on `macos-latest` and `ubuntu-latest`, Node 22 and 24. Two fixture pieces, both 1080×1920
+rendered at scale 0.25:
+
+- `fixture-clean` (2 s): engine tests.
+- `fixture-check` (12 s): moving content before and after every planted defect, plus clean cases that must not be
+  flagged: an end card inside `HOLDS`, grain on, a single 10 px dot moving 1 px per frame on an otherwise held card,
+  a slow drift, word-by-word captions, a slam entrance that briefly leaves the safe area.
+
+Suites:
 
 - **Determinism**: the same frame rendered twice is byte-identical; frame `t` rendered after a different frame is
   identical to frame `t` rendered first (catches state carried between calls). Compared within one machine only
   (Q9).
-- **Frame count and container**: `video` writes exactly `round(DUR × FPS)` frames; the extension follows the codec.
+- **Frame count and container**: `video` writes exactly `round(DUR × FPS)` frames; the extension follows the codec;
+  `render.json` is written with the source and decoded-video hashes.
 - **Alpha**: the ProRes file is `yuva444p10le` with a non-constant alpha plane; the WebM, decoded with
   `libvpx-vp9`, has one too.
+- **Scene swap**: a `--scene slate.js` render of a piece whose real scene has a different `TL` and duration renders
+  the slate's length with silent effects, and never evaluates the real scene's cues.
 - **Cues**: each adapter on a recorded fixture gives the expected cues; a missing anchor stops before any write; the
   occurrence count works; a gap at a silent point shifts later timings by exactly the gap; a gap that would split
-  speech is refused; the hook gate refuses a late take.
-- **Board**: windows from the estimate and from cues; `board_order` catches overlap; the board sheet renders with
-  slates and with a real scene; `beatWindow` agrees with `cues.js`.
-- **Mix**: synthetic stems (voice as tone bursts, a noise bed, clicks as effects) give a master within 0.5 LU of
-  -14 LUFS with true peak at or under -1.5 dBTP; the bed is at least 10 dB lower inside voice bursts than between
-  them; a mute window is silent; an end-aligned bed ends on the last frame; a near-silent voice stops the mix.
+  speech is refused; the hook gate refuses a late take; `CUE` holds only beat ids.
+- **Board timing**: estimate and cue-based windows for boards with leading, interleaved and trailing silent beats
+  (the interleaved one gets its gap in `vo.wav`); windows are contiguous and half-open; `boardDur()` equals
+  `CFG.DUR`; `VO_OFFSET` is applied once (a 0.10 s and a 2.10 s offset both land beat starts, captions and
+  `--bed-at cue:` on the same picture frames as a hand calculation); `board_order` catches a bad board; the board
+  sheet renders with slates and with a real scene.
+- **Mix**: synthetic stems (voice as tone bursts, a noise bed, clicks as effects). For each mode in section 9 and for
+  a custom target: integrated loudness within 0.5 LU of the target and true peak at or under -1.0 dBTP (the same
+  ceiling `check` uses). Each control on its own, with non-default values: a 0.35 s and a 2.10 s voice delay (the
+  voice's first burst lands on the right sample), `--bed-skip`, `--bed-at` in seconds and as a cue, both fade
+  branches (a bed shorter and a bed longer than the picture), a mute window (silent inside, unchanged outside),
+  ducking (the bed at least 10 dB lower inside voice bursts than between them), an extra stem with a delay, and a
+  near-silent voice stopping the mix. `master.json` records what was applied.
 - **Footage**: the sequence count equals `round(dur × fps)`; `seqAt` indexes, loops and holds correctly.
-- **Check**: the planted-defect piece has one of each: a 4 s freeze outside any hold, a flat first frame, a text box
-  outside the safe area, two overlapping boxes, a word on screen for 0.2 s, a board beat whose copy never appears, a
-  beat with a sound note and no onset, a wrong `DUR` in the file. Each is reported with the right id and level, and
-  the clean fixture reports none. Mutation: disabling any one detector fails a test.
-- **Leak test**: no file in the repo contains an absolute home path, `~/dev/`, or any string from a denylist the
-  owner keeps outside the repo (the test reads it from `SM_DENYLIST` when set, and the owner's pre-push run sets it).
+- **Check**: `fixture-check` has one of each planted defect: a 4 s freeze outside any hold, a flat first frame, a
+  text box outside the safe area for 0.5 s, two overlapping boxes, a word found for 0.2 s, a board beat whose copy
+  never appears, a beat with a sound note and no sound in its window, a beat with `sfxHit` and only a sustained
+  sound, a master whose source changed after render (stale), a master whose voice delay differs from `VO_OFFSET`, a
+  master at the wrong loudness, a master with a wrong frame count. Each is reported with the right id and level,
+  and none of the clean cases is. Mutation: disabling any one detector fails a test.
+- **Leak test**: no tracked file contains a private home-directory path or any string from the owner's denylist. The
+  denylist (brand names, private paths, the owner's voice id) is never committed: CI reads it from the
+  `SM_DENYLIST` Actions secret, and the test FAILs in CI when it is missing, except on pull requests from forks,
+  where it reports "skipped: no denylist" in the job summary. The path patterns are built in the test from parts, so
+  the test and this plan do not trip it.
+- **Asset inventory**: `ASSETS.md` lists every binary file in the repo (fonts, audio, images, sequences) with its
+  source and licence; the test fails on any binary not listed, and on any listed file that is missing.
 
 ## 17. Build phases
 
@@ -446,9 +550,9 @@ mutations before the round.
 |---|---|---|---|
 | **P0** Scaffold | Repo layout, plugin manifest, CI, the template copied from the private skill with private material removed, bundled fonts, `--scene` and `--target`, `doctor` | CI green on both OSes running the determinism, frame-count and alpha tests on the fixture; `doctor` passes on macOS and on the Linux runner and prints the WebGL renderer; Linux ms per frame recorded in the README; leak test green with the owner's denylist | M |
 | **P1** Board and voice | `board.js` format, `beatWindow`/`beatAt`, `board` mode, slate scene, `cues.mjs` with all three adapters, gaps, hook gate, `voice-elevenlabs.mjs`, captions helper | Board and cues tests above; one opt-in live ElevenLabs smoke on the owner's account (`SM_LIVE=elevenlabs`) producing a take whose cues match its own `chars` | M |
-| **P2** Mix and footage | `mix.mjs`, `frames.mjs`, `loadSeq`/`seqAt` | Mix and footage tests above; parity, run by the owner on private stems that are never committed: `mix.mjs` and the private mixer on the same picture and stems land within 0.5 LU integrated and 0.5 dB true peak of each other | M |
-| **P3** Check and safe zones | `check` and every detector, `boxes(t)`, `HOLDS`, `renderProbe`, `safezones.json`, `--safe` overlays, threshold tuning | Planted-defect suite above; the three examples and at least three recorded real renders pass with no FAIL and no WARN that is not deliberate; safe-zone numbers measured for each target the release names, with the date and method in `safezones.json` | M |
-| **P4** Skill text and examples | SKILL.md, the five references, the three examples | Examples render and pass `check`; a fresh Claude Code session with only the plugin installed, given two written briefs (a 9:16 end card, and a 15 s voiced beat with a board), produces both with no help; time, renders, retries and every stumble recorded, and the skill text fixed where it stumbled | M |
+| **P2** Mix and footage | `mix.mjs`, `frames.mjs`, `loadSeq`/`seqAt` | Mix and footage tests above; parity, run by the owner on private stems that are never committed, for the voiced graph against the private mixer and for `--master-only` against the private master script: the two premixes (before loudness normalization), aligned on the first sample, have 100 ms RMS envelopes within 0.5 dB on at least 95% of windows, and the masters land within 0.5 LU integrated and 0.5 dB true peak; once with default settings and once with a non-default voice delay, bed skip, bed start and a mute window | M |
+| **P3** Check and safe zones | `check` and every detector, `boxes(t)`, `HOLDS`, `renderProbe`, `safezones.json`, `--safe` overlays, threshold tuning | `fixture-check` suite above; the three examples and at least three recorded real renders pass with no FAIL and no WARN that is not deliberate; safe-zone numbers measured for each target the release names, with the date and method in `safezones.json` | M |
+| **P4** Skill text and examples | SKILL.md, the five references, the three examples, `ASSETS.md` | Examples render and pass `check` and `check --file`; `explainer-beat/VOICE.md` exists, names a licence that allows redistribution, and matches `take.json`'s `source`; the owner listens to it and confirms it is not their voice; the asset inventory test passes; a fresh Claude Code session with only the plugin installed, given two written briefs (a 9:16 end card, and a 15 s voiced beat with a board), produces both with no help; time, renders, retries and every stumble recorded, and the skill text fixed where it stumbled | M |
 | **P5** Release 0.1.0 | README, install routes, public repo, tag | Each install route tested on a clean user account: personal skill copy, plugin from this repo's marketplace, and skills.sh if listed (Q6); a first piece rendered from the README alone | S |
 
 ## 18. Parity with the private skill
@@ -464,7 +568,7 @@ mutations before the round.
 | Title-line end time refused over a limit | 7.5 and 6.5 (`hook_long`) |
 | Voice delay as a scene constant and a mixer variable | 7.3: one `VO_OFFSET` |
 | Voice levelling, bed skip and placement, fades, mute windows, sidechain duck, limiter, two-pass loudnorm, AAC, faststart | 9 |
-| Separate master script for effects-only renders | 9, `--sfx-only` |
+| Separate master script that normalizes the synthesized soundtrack to -14 LUFS | 9, `--master-only` |
 | Footage frame sequences with a manifest and a frame-index helper | 10 |
 | Per-brand project notes | Removed; brand notes live in each project's CLAUDE.md (14) |
 | Brand examples (a news sting, an app end card) | Removed (15) |
@@ -491,7 +595,7 @@ mutations before the round.
 | Q1 | Port the private Python and shell tools to Node? | Yes: one runtime (D6). |
 | Q2 | Where does the example's voice come from? | An openly licensed TTS voice whose licence allows redistribution, licence file in the example folder; chosen in P4. Never the owner's voice. |
 | Q3 | How are safe zones measured? | The owner posts a private or unlisted 1080×1920 grid test video to each platform in P3 and measures the overlays from screenshots in each app. Targets not measured by release ship as `"estimate": true`. |
-| Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a wrong file, wrong loudness, a late hook, text outside the safe area, a missing font; WARN for craft. `--strict` makes WARN fail. |
+| Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a stale or unmatched master, a wrong file, wrong loudness, a voice delay that differs from `VO_OFFSET`, a late hook, text outside a measured safe area for more than 0.25 s in a beat, a missing font; WARN for craft and for anything measured against an estimate. `--strict` makes WARN fail. |
 | Q5 | Require Google Chrome, or also allow Playwright's own Chromium? | Chrome or `CHROME_PATH`. Playwright's Chromium is documented only if P0 shows WebGL2 working in it headless on both OSes. |
 | Q6 | List on skills.sh? | Yes, if the P5 install test passes. |
 | Q7 | Keep the private description's "no After Effects, HyperFrames or Remotion"? | No; other products are named only in the "when to use something else" section. |
@@ -506,7 +610,9 @@ mutations before the round.
 | Headless WebGL2 on Linux CI may be missing or very slow under SwiftShader. | P0 runs `doctor` and the fixture on `ubuntu-latest` first; the fixture renders at scale 0.25. If WebGL2 does not come up, P0 stops and the plan is revised before anything else is built. |
 | Google Chrome may not be on the CI runners, or not where Playwright looks. | `doctor` reports it; CI installs it if needed; `CHROME_PATH` overrides. |
 | Long frame sequences use a lot of memory, since every frame is decoded and held. | `delivery.md` says to scale clips to their drawn size; P2 measures memory for a 20 s sequence at 960 px wide and states the limit. |
-| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards). | Grain off in the probe, `HOLDS` and `hold: true`, tuning in P3 against real renders, WARN rather than FAIL for craft. |
+| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. |
+| The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. |
+| The leak denylist lives in a CI secret; a fork PR cannot read it. | Fork PRs report the leak test as skipped in the job summary, and the owner's own pushes and release tags always run it. |
 | Timing formats move: the ElevenLabs alignment, openai-whisper's JSON, and other ASR tools differ. | Three adapters with recorded fixtures; the generic `words` format as the way in for everything else. |
 | ffmpeg builds differ (missing `libvpx` or `prores_ks`). | `doctor` lists each encoder and filter with what to install. |
 | A fresh agent finds the board and voice workflow heavier than the private one. | P4's usability test with two briefs; silent pieces skip the voice steps entirely. |
@@ -518,3 +624,29 @@ Not verified yet:
 - The ElevenLabs and openai-whisper field names (P1 re-checks both against current docs).
 - The plugin marketplace file format and the skills.sh install flow (P5).
 - Safe-zone numbers for Reels and Shorts, and the top edge for TikTok (P3).
+- That the decoded video of a master hashes the same as its render (P3).
+- Whether every scene's camera config can be read at an arbitrary `t` without rendering (`frame(t)` returns it today,
+  so `check` calls `frame` on a scratch context; P3 confirms the cost).
+
+## 22. Council rounds
+
+| Round | Seats (ratified from each CLI's record) | Result |
+|---|---|---|
+| 1 (2026-11-12, rev 1.0 at `51e4b7a`) | codex `gpt-6.1-sol` effort high (relaunched once after a usage-limit stop with no review); grok `grok-4.7`. The third seat did not run: its CLI was signed out. Two-seat round. | grok SHIP-WITH-FIXES (2 HIGH, 3 MEDIUM); codex NEEDS-WORK (2 HIGH, 8 MEDIUM). All 15 findings verified against the plan and the private sources and folded in rev 1.1; none refuted. |
+
+Round 1 fold map (seat finding: where it landed):
+
+| Finding | Seats | Fold |
+|---|---|---|
+| Cue windows dropped `VO_OFFSET`; mixed boards (leading, interleaved, trailing silent beats) had no timing; `CFG.DUR` never came from the board; a take field shared the beat-id namespace | grok F1, codex F1 | 2, 6.1, 6.3, 7.3, 7.4, 16 |
+| The showreel ships a third-party wordmark and mark; `delivery.md` keeps private material; the leak test passes in CI without the denylist | grok F2 | 14, 15, 16 |
+| Text checks: no camera transform, no grouping of word boxes, 10 Hz sampling, slam entrances fail, guide and check disagree on zones | grok F3, codex F5 | 5, 6.5, 11.1, 12 |
+| `check` had no way to know a master's loudness target; the effects-only master did not match the private one | grok F4, codex F8 | 9, 11.2, 16, 18 |
+| The example voice's licence was not an acceptance check | grok F5 | 15, 17 (P4) |
+| A slate render still scheduled the real scene's sound cues | codex F2 | 5, 6.4, 16 |
+| The leak test's own patterns appeared literally in this plan; no asset inventory | codex F3 | 16, 17 |
+| Source probes could pass a stale or mismatched master | codex F4 | 5, 9, 11.2, 16 |
+| Whole-frame motion averaging misses small moving elements | codex F6 | 11.1, 16, 21 |
+| "No onset" is not "no sound" | codex F7 | 6.1, 6.5, 16 |
+| The 2 s fixture cannot hold a 4 s freeze | codex F9 | 16 |
+| Matching loudness numbers do not prove mix parity | codex F10 | 16, 17 (P2) |
