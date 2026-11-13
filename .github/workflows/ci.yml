@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: engine (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_ENV_HINTS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Google Chrome
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          else
+            CHROME="$(command -v google-chrome || echo /opt/google/chrome/chrome)"
+          fi
+          if ! "$CHROME" --version; then
+            echo "Google Chrome not found; installing it"
+            npx --yes playwright-core install --with-deps chrome
+            "$CHROME" --version
+          fi
+
+      - run: npm ci
+
+      - name: doctor
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run --silent doctor 2>&1 | tee doctor.txt
+          { echo "### doctor (${{ matrix.os }}, node ${{ matrix.node }})"; echo '```'; cat doctor.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ms per frame at full size (1080x1920, 8 subframes, 1 s of the default scene)
+        shell: bash
+        working-directory: skills/sabotage-motion/template
+        run: |
+          set -o pipefail
+          node render.mjs video --to 1 --out out/bench.mp4 2>&1 | tee bench.txt
+          { echo "### render speed (${{ matrix.os }}, node ${{ matrix.node }})"; echo '```'; grep -E '^video:|ms/frame' bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: tests (determinism, frame count and container, alpha, scene swap, asset inventory)
+        run: npm run test:engine && node --test test/assets.test.mjs
+
+  leak:
+    name: leak test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: leak test (denylist from the SM_DENYLIST secret)
+        env:
+          SM_DENYLIST: ${{ secrets.SM_DENYLIST }}
+          SM_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: node --test test/leak.test.mjs

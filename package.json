@@ -1,0 +1,17 @@
+{
+  "name": "sabotage-motion",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Motion graphics for short-form video, written in code by your coding agent",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "doctor": "node skills/sabotage-motion/template/render.mjs doctor",
+    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
+    "test:engine": "node --test --test-concurrency=1 test/determinism.test.mjs test/frames.test.mjs test/alpha.test.mjs test/scene-swap.test.mjs",
+    "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.0"
+  }
+}
