@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 1.2 (2026-11-12): council rounds 1-2 folded (section 22) |
+| Revision | 1.3 (2026-11-12): council rounds 1-3 folded (section 22) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (not created yet, D5), MIT |
 | Status | Plan under council review. Nothing is built yet. |
 | Decisions | D1-D8 in section 19, ruled by the owner on 2026-11-12 |
@@ -230,13 +230,16 @@ Windows are built from a list of boundaries, so they are contiguous by construct
   back to back in board order. Trailing silent beats start at `VO_OFFSET + TAKE.lastWordEnd + tail`, back to back.
   Each beat ends where the next starts; `boardDur()` is the last end (with no trailing beat,
   `VO_OFFSET + TAKE.lastWordEnd + tail`).
-- **Room in the voice for interleaved silent beats.** `cues.mjs` splices `D` seconds of zeros into `vo.wav` before
-  voiced beat *i*'s anchor: at the quietest 10 ms between the previous word's end and the anchor's start when that
-  window is at least 10 ms long, otherwise exactly at the anchor's start (with a warning that the take runs the
-  words together; the `-50 dBFS` refusal applies only to `gapBefore`, section 7.4). Later cues shift by `D`. The
-  picture windows above come from the shifted cues alone, so they stay contiguous wherever the splice lands; the
-  silence in the voice sits within `lead` of its beat's window. `GAPS[].at` is the splice point in seconds into
-  `vo.wav`.
+- **Room in the voice for interleaved silent beats.** `cues.mjs` splices `D` seconds of zeros into `vo.wav` at
+  `s = max(prevWordEnd, CUE[i] − lead)` (seconds into the raw take), with a 5 ms fade out before the zeros and a
+  5 ms fade in after them so the cut cannot click. When the pause before the anchor is at least `lead`, the zeros
+  land exactly on the silent run's window; when it is shorter, the splice falls at the previous word's end and the
+  window opens at most `lead` before the zeros. Either way nothing from the take plays inside the silent run except
+  that at most `lead` of pause, and no word is cut (the previous word has ended by `s`, and the anchor starts at or
+  after it). A take with no pause at all (`prevWordEnd ≥ CUE[i]`) splices at the anchor and warns that the take runs
+  the words together. The quietest-point search and the `-50 dBFS` refusal belong to `gapBefore` only (section
+  7.4). Later cues shift by `D`; the picture windows come from the shifted cues alone, so they stay contiguous.
+  `GAPS[].at` is `s`.
 - **Validation.** `cues.mjs` refuses a board whose windows would have zero or negative length (two anchors closer
   than `lead`, or a `dur` of 0) and names the beats.
 - `cues.js` keeps take facts apart from beat cues: `CUE` holds only beat ids; `TAKE = { duration, lastWordEnd }`
@@ -259,10 +262,10 @@ silent `video` render is enough).
 | Check | Level | Rule |
 |---|---|---|
 | `board_order` | FAIL | Beat windows are contiguous and in order, and `CFG.DUR` equals `boardDur()` within one frame. |
-| `board_copy_missing` | WARN | A string in a beat's `on` is never found in that beat's window. Matching works across the whole window, not per sample, so words that appear one at a time still match: for each `group` (or for all boxes, without groups), the distinct box texts seen at any sample inside the window are joined in order of first appearance (ties in reading order), and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
+| `board_copy_missing` | WARN | A string in a beat's `on` is never found in that beat's window. Matching works across the whole window, not per sample, so words that appear one at a time still match: for each `group` (or for all boxes, without groups), the box texts seen at any sample inside the window are joined in order of first appearance (ties in reading order), one entry per box `id` (so a box seen at many samples counts once, and two boxes that both say "go" give "go go"), and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
 | `board_copy_unread` | WARN | A string in `on` is found for less than `max(1.0, 0.25 × words)` seconds in total. |
 | `board_sfx_missing` | WARN | A beat with an `sfx` note has no 50 ms window above -40 dBFS RMS in the effects stem inside its window. With `sfxHit: true`, it needs a transient instead: a 10 ms window more than 12 dB above the RMS of the preceding 100 ms and above -40 dBFS. `sfx: null` is never checked. |
-| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. On a master, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
+| `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. On a master mixed with a voice, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
 
 ## 7. Voice-driven timing
 
@@ -423,7 +426,7 @@ A master is only as good as the source it came from, so the artifact checks firs
 | Check | Level | How it is measured |
 |---|---|---|
 | `provenance` | FAIL | `master.json` exists (a `--file` without one FAILs; `--plain` checks a foreign file as a plain file, and then only `file_spec`, `faststart` and `loudness` with `--lufs` run); the SHA-256 of the whole `--file` equals the master hash `master.json` records (any other mix of the same picture fails); the `render.json` it names exists and its SHA-256 equals the one recorded; the piece's current source hash equals the one in `render.json` (otherwise the master is stale: re-render). The decoded video hash `master.json` records equals the one in `render.json` (the mixer copied the picture untouched; section 21). Only then do the 11.1 results stand for this file, and `check --file` runs the 11.1 checks with the scene, params, size, fps, subframes and alpha mode recorded in `render.json`, not the command line's. |
-| `file_spec` | FAIL | `ffprobe`: width, height, fps and pixel format match the piece; the frame count (`-count_frames`) equals `round(DUR × FPS)`; the duration matches within one frame; an audio stream exists unless the scene is `silent`. |
+| `file_spec` | FAIL | `ffprobe`: width, height, fps and pixel format match the ones `render.json` records; the frame count (`-count_frames`) equals `round(DUR × FPS)` for that render's scene; the duration matches within one frame; an audio stream exists unless that scene is `silent`. With `--plain`, they are compared with the piece's current settings. |
 | `faststart` | WARN | For `.mp4`: the `moov` atom comes before `mdat`. |
 | `loudness` | FAIL | `ebur128=peak=true` on the file: integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). With neither, reported as not checked. |
 | `vo_delay` | FAIL | Only for a master mixed with a voice: the voice delay `master.json` records equals `cues.js`'s `VO_OFFSET`. The record is trusted because `provenance` has bound it to this exact file and `mix.mjs` applied it; `--master-only` and `--sting` masters skip this check. |
@@ -534,8 +537,11 @@ Suites:
 - **Board timing**: estimate and cue-based windows for boards with leading, interleaved and trailing silent beats;
   windows are contiguous, half-open and start at 0 in every case, including: a single voiced beat whose first cue is
   later than `lead`; the five-beat board `cold (dur 1) / hook (vo) / mid (dur 1.5) / save (vo) / end (dur 2.5)`; an
-  interleaved beat whose splice lands at a quiet point 0.3 s before the next anchor; a take with no pause before
-  the next anchor (splice at the anchor, with the warning). `--offset` below the leading silent sum is refused;
+  interleaved beat with a 1.0 s pause before the next anchor and a breath 0.4 s into that pause (the breath must
+  play inside the previous voiced beat's window, not the silent run's); a take with no pause before
+  the next anchor (splice at the anchor, with the warning). For every interleaved case the test also asserts the
+  zeros' picture-time interval against the silent run's window: equal when the pause is at least `lead`, otherwise
+  opening at most `lead` after it. `--offset` below the leading silent sum is refused;
   two anchors closer than `lead` are refused; `boardDur()` equals
   `CFG.DUR`; `VO_OFFSET` is applied once (a 0.10 s and a 2.10 s offset both land beat starts, captions and
   `--bed-at cue:` on the same picture frames as a hand calculation); `board_order` catches a bad board; the board
@@ -659,6 +665,7 @@ Not verified yet:
 |---|---|---|
 | 1 (2026-11-12, rev 1.0 at `51e4b7a`) | codex `gpt-6.1-sol` effort high (relaunched once after a usage-limit stop with no review); grok `grok-4.7`. The third seat did not run: its CLI was signed out. Two-seat round. | grok SHIP-WITH-FIXES (2 HIGH, 3 MEDIUM); codex NEEDS-WORK (2 HIGH, 8 MEDIUM). All 15 findings verified against the plan and the private sources and folded in rev 1.1; none refuted. |
 | 2 (2026-11-12, rev 1.1 at `3b6ae3f`, delta) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Third seat signed out again. Two-seat round. | Both NEEDS-WORK. Of the 15 round 1 items, 9 were closed by both seats and 6 called half-closed by at least one (timing, text checks, provenance, motion). New: grok 1 HIGH + 3 MEDIUM, codex 3 HIGH + 3 MEDIUM. All verified and folded in rev 1.2; none refuted. |
+| 3 (2026-11-12, rev 1.2 at `92355c5`, delta, convergence) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Two-seat round. | Both SHIP-WITH-FIXES. Of the 10 round 2 items both seats closed 9 and called the splice half-closed. One HIGH, raised by both seats: the spliced silence could sit more than `lead` off its silent beat. Folded in rev 1.3 (6.3: splice at `max(prevWordEnd, CUE − lead)`, which gives exact alignment when the pause allows and never cuts a word; both seats proposed splicing at the anchor, which keeps the error at exactly `lead`). Three non-blocking follow-ups folded too: `file_spec` reads `render.json`'s settings, `hook_long` on a master applies only to voiced mixes, copy matching keeps repeated words. No round 4: the fold is one rule in 6.3, and P1's board-timing test asserts it. |
 
 Round 1 fold map (seat finding: where it landed):
 
