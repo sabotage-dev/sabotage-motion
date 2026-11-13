@@ -82,12 +82,12 @@ function scratchRepo() {
 }
 
 // Runs the hook as git would for `git push origin <ref>` (remoteSha null = a new ref on the remote).
-function prePush(repo, { deny = DENY, ref = 'refs/heads/main', remoteRef = ref, localSha, remoteSha = null } = {}) {
+function prePush(repo, { deny = DENY, ref = 'refs/heads/main', remoteRef = ref, localSha, remoteSha = null, url = repo.bare } = {}) {
   const env = { ...process.env, SM_DENYLIST: deny, SM_DENYLIST_FILE: path.join(repo.dir, 'no-such-denylist.txt') };
   if (!deny) delete env.SM_DENYLIST;
   const zero = '0'.repeat(40);
   const stdin = `${ref} ${localSha} ${remoteRef} ${remoteSha || zero}\n`;
-  const r = spawnSync(process.execPath, [leakScript, 'pre-push', 'origin', repo.bare], { cwd: repo.dir, input: stdin, encoding: 'utf8', env });
+  const r = spawnSync(process.execPath, [leakScript, 'pre-push', 'origin', url], { cwd: repo.dir, input: stdin, encoding: 'utf8', env });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
 
@@ -327,6 +327,17 @@ test('pre-push: with no denylist the push is blocked, not waved through', () => 
   const r = prePush(repo, { deny: null, localSha: sha });
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /no denylist at .*no-such-denylist\.txt, so nothing is pushed/);
+});
+
+test('pre-push: a git failure blocks the push and prints its error with the entries masked', () => {
+  // The remote cannot be reached and its URL holds an entry: git's error names the URL.
+  const repo = scratchRepo();
+  const sha = repo.commit('a.txt', 'x\n');
+  const r = prePush(repo, { localSha: sha, url: path.join(repo.dir, `no-such-${LEAK}-remote.git`) });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /leak check: failed, so nothing is pushed/);
+  assert.match(r.out, /no-such-\[#2\]-remote/);
+  assert.ok(!r.out.toLowerCase().includes(LEAK), 'the entry text must not be printed');
 });
 
 test('pre-push: a branch delete publishes nothing and passes', () => {

@@ -78,8 +78,9 @@ export function mask(name, entries) {
   return out;
 }
 
+// git's stderr is captured, not passed through, so an error message is printed only after masking.
 const git = (args, cwd, input) => execFileSync('git', ['-c', 'core.quotePath=false', ...args],
-  { cwd, encoding: 'utf8', maxBuffer: 256 << 20, ...(input === undefined ? {} : { input }) });
+  { cwd, encoding: 'utf8', maxBuffer: 256 << 20, stdio: ['pipe', 'pipe', 'pipe'], ...(input === undefined ? {} : { input }) });
 
 const typeOf = (oid, cwd) => git(['cat-file', '-t', oid], cwd).trim();
 const treePaths = (rev, cwd) => git(['ls-tree', '-r', '-z', '--full-tree', '--name-only', rev], cwd).split('\0').filter(Boolean);
@@ -237,9 +238,22 @@ function run(argv, { stdin = '', env = process.env, cwd = process.cwd() } = {}) 
   return { code: 0, lines: [`leak check: ${what} clean against ${entries.length} denylist entries and the home-path patterns`] };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Any failure (git unable to reach the remote, a bad object, an unreadable denylist) blocks the push, and its
+// message, which can hold the remote URL, a ref or a path, is printed with the denylist entries masked.
+function main() {
   const stdin = process.argv[2] === 'pre-push' ? fs.readFileSync(0, 'utf8') : '';
-  const { code, lines } = run(process.argv.slice(2), { stdin });
+  try {
+    return run(process.argv.slice(2), { stdin });
+  } catch (err) {
+    let entries = null;
+    try { entries = loadDenylist()?.entries; } catch { /* masked with nothing; the message says what failed */ }
+    const detail = mask(String((err && err.message) || err), entries).trim();
+    return { code: 1, lines: ['leak check: failed, so nothing is pushed.', detail] };
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { code, lines } = main();
   (code ? console.error : console.log)(lines.join('\n'));
   process.exit(code);
 }
