@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 1.1 (2026-11-12): council round 1 folded (section 22) |
+| Revision | 1.2 (2026-11-12): council rounds 1-2 folded (section 22) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (not created yet, D5), MIT |
 | Status | Plan under council review. Nothing is built yet. |
 | Decisions | D1-D8 in section 19, ruled by the owner on 2026-11-12 |
@@ -217,15 +217,28 @@ this long after its last word), both settable on the board.
 plus `lead`. The board sheet and animatic say "estimated timing".
 
 **Once `cues.js` exists.** The take is the only source for voiced beats; the estimate is never used again for them.
+Windows are built from a list of boundaries, so they are contiguous by construction:
 
-- Leading silent beats keep their `dur` and run back to back from 0. `VO_OFFSET` = their sum + `lead`, so the voice
-  starts after them.
-- A voiced beat starts at `VO_OFFSET + cue − lead` and ends where the next beat starts.
-- An interleaved silent beat gets its room in the voice: `cues.mjs` opens `dur` seconds of silence before the next
-  voiced beat's anchor (the gap tool, section 7.4) and records the gap's picture-time start. The silent beat runs
-  from that point for `dur`; the previous voiced beat ends there.
-- Trailing silent beats start at `VO_OFFSET + lastWordEnd + tail` and run back to back. `boardDur()` is the end of
-  the last beat (with no trailing beat, `VO_OFFSET + lastWordEnd + tail`).
+- **`VO_OFFSET` has one writer, `cues.mjs`.** Default: the summed `dur` of the leading silent beats plus `lead`.
+  `--offset` replaces the default and is refused if it is smaller than that sum (the voice would play over the
+  leading silent beats). Every time in `cues.js` other than `VO_OFFSET` is seconds into `vo.wav`.
+- **Anchor time** of voiced beat *i*: `A(i) = VO_OFFSET + CUE[i]` (picture time).
+- **Boundaries.** The first beat starts at 0, whatever it is. Leading silent beats run back to back from 0. The
+  first voiced beat starts where the leading silent beats end (0 if there are none), so the voice's `lead` falls
+  inside it. Every later voiced beat *i* starts at `A(i) − lead`. A run of interleaved silent beats with total
+  duration `D` that sits before voiced beat *i* ends at `A(i) − lead` and starts at `A(i) − lead − D`, its beats
+  back to back in board order. Trailing silent beats start at `VO_OFFSET + TAKE.lastWordEnd + tail`, back to back.
+  Each beat ends where the next starts; `boardDur()` is the last end (with no trailing beat,
+  `VO_OFFSET + TAKE.lastWordEnd + tail`).
+- **Room in the voice for interleaved silent beats.** `cues.mjs` splices `D` seconds of zeros into `vo.wav` before
+  voiced beat *i*'s anchor: at the quietest 10 ms between the previous word's end and the anchor's start when that
+  window is at least 10 ms long, otherwise exactly at the anchor's start (with a warning that the take runs the
+  words together; the `-50 dBFS` refusal applies only to `gapBefore`, section 7.4). Later cues shift by `D`. The
+  picture windows above come from the shifted cues alone, so they stay contiguous wherever the splice lands; the
+  silence in the voice sits within `lead` of its beat's window. `GAPS[].at` is the splice point in seconds into
+  `vo.wav`.
+- **Validation.** `cues.mjs` refuses a board whose windows would have zero or negative length (two anchors closer
+  than `lead`, or a `dur` of 0) and names the beats.
 - `cues.js` keeps take facts apart from beat cues: `CUE` holds only beat ids; `TAKE = { duration, lastWordEnd }`
   holds the rest, so no beat id can collide with a take field.
 
@@ -238,14 +251,15 @@ delay and `--bed-at cue:<id>`.
 the on-screen copy large and auto-fitted inside the safe zones, the visual note in a muted line, and a progress bar.
 It is designed to be replaced beat by beat, not shipped. It exports `silent = true`. The animatic is the slate
 picture plus the voice alone: `node render.mjs video --scene slate.js --out out/animatic.mp4`, then
-`node tools/mix.mjs animatic --no-bed --no-sfx`.
+`node tools/mix.mjs animatic --no-bed --no-sfx` (with `--no-sfx`, a missing effects stem is silence, so the
+silent `video` render is enough).
 
 ### 6.5 Board checks (part of `check`)
 
 | Check | Level | Rule |
 |---|---|---|
 | `board_order` | FAIL | Beat windows are contiguous and in order, and `CFG.DUR` equals `boardDur()` within one frame. |
-| `board_copy_missing` | WARN | A string in a beat's `on` is never found during that beat's window. Matching: at each sample, the visible boxes of one `group` (or, without groups, all visible boxes) are joined in reading order (top to bottom, then left to right) and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
+| `board_copy_missing` | WARN | A string in a beat's `on` is never found in that beat's window. Matching works across the whole window, not per sample, so words that appear one at a time still match: for each `group` (or for all boxes, without groups), the distinct box texts seen at any sample inside the window are joined in order of first appearance (ties in reading order), and the `on` string is searched in that text, case-insensitive, whitespace collapsed. Needs `boxes(t)`; otherwise reported as not checked. |
 | `board_copy_unread` | WARN | A string in `on` is found for less than `max(1.0, 0.25 × words)` seconds in total. |
 | `board_sfx_missing` | WARN | A beat with an `sfx` note has no 50 ms window above -40 dBFS RMS in the effects stem inside its window. With `sfxHit: true`, it needs a transient instead: a 10 ms window more than 12 dB above the RMS of the preceding 100 ms and above -40 dBFS. `sfx: null` is never checked. |
 | `hook_long` | FAIL | With `hookMax` set: `VO_OFFSET` + the hook beat's last word end is later than `hookMax`. On a master, also requires the voice delay `mix.mjs` recorded to equal `VO_OFFSET` (section 11.2). |
@@ -276,10 +290,10 @@ match, case-sensitive) and the word sequence otherwise (case-sensitive, punctuat
 
 ```js
 // generated by tools/cues.mjs; do not edit
-export const VO_OFFSET = 0.10;                          // picture time where vo.wav starts
+export const VO_OFFSET = 0.10;                          // picture time where vo.wav starts (section 6.3)
 export const CUE = { hook: 0.12, save: 3.67 };           // seconds into vo.wav, beat ids only
 export const TAKE = { duration: 12.48, lastWordEnd: 12.40 };
-export const GAPS = [{ beat: 'cta', at: 9.85, dur: 1.5 }]; // silence opened for interleaved silent beats (seconds into vo.wav)
+export const GAPS = [{ before: 'cta', at: 9.85, dur: 1.5 }]; // zeros spliced for interleaved silent beats (seconds into vo.wav)
 export const HOOK_END = 2.72;                            // seconds into vo.wav
 export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 ```
@@ -288,8 +302,9 @@ export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
   Every time in `cues.js` except `VO_OFFSET` is seconds into `vo.wav`; the board helpers convert to picture time.
 - A missing anchor stops the tool with the phrase it could not find. It checks every anchor before it writes
   anything, so a bad take never replaces a good `cues.js`.
-- `VO_OFFSET` is set once (`--offset`, default 0.10 s) and read by the scene and by `mix.mjs`. The private version
-  keeps it in two places (a constant in the scene and an environment variable for the mixer), which can drift.
+- `VO_OFFSET` is written once, by `cues.mjs` (section 6.3), and read by the board helpers, captions and `mix.mjs`.
+  The private version keeps it in two places (a constant in the scene and an environment variable for the mixer),
+  which can drift.
 - `cues.json` is written beside it for the Node tools.
 
 ### 7.4 Gaps
@@ -297,8 +312,7 @@ export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 `gapBefore` opens silence before a beat's anchor: the cut goes at the quietest 10 ms between the previous character
 or word's end and the anchor's start; it refuses when that point is louder than -50 dBFS (it would split speech) or
 when there is no pause at all; every later timing shifts by the gap. Ported from the private helper, which has used
-it on every voiced piece. The same tool opens the room for each interleaved silent beat (section 6.3), with the
-beat's `dur` as the gap. The voice file with gaps is `vo.wav`; the raw take is kept as `take-raw.wav`.
+it on every voiced piece. Interleaved silent beats use the same splice without the refusal (section 6.3). The voice file with gaps is `vo.wav`; the raw take is kept as `take-raw.wav`.
 
 ### 7.5 Hook gate
 
@@ -339,8 +353,9 @@ Modes and targets (one table, also used by `references/delivery.md` section 5):
 | any | `--target-lufs`, `--tp` | override the mode's numbers |
 
 `mix.mjs` writes `out/<name>.master.json` beside the master: the mode, the target loudness and true peak, the
-voice delay it applied, a hash of every input stem, the path and hash of the `render.json` it read, and the
-decoded video hash of the master it wrote (section 11.2).
+voice delay it applied (none for `--master-only` and `--sting`), a hash of every input stem, the path and
+SHA-256 of the `render.json` it read, the decoded video hash of the master, and the SHA-256 of the whole master
+file it wrote (section 11.2).
 
 Ported from the private mix and master scripts, behaviour kept:
 
@@ -389,9 +404,9 @@ Runs every check it can, says which it could not run and why, prints one line pe
 |---|---|---|
 | `fonts` | FAIL | Every `CFG.FONTS` family loads (the existing throw, reported as a result instead). |
 | `board_*`, `hook_long` | as 6.5 | Section 6.5. |
-| `motion_dead` | WARN | A heuristic. `renderProbe` at 1/4 scale, 1 subframe, grain 0, every frame. Each probe is split into a grid of tiles (9×16 for 9:16, 16×9 for 16:9); a frame pair counts as moving when any tile's mean absolute luma difference is at least 1/255, so a small element moving on a held card counts. Flags any run of 3.0 s or more with no moving pair that is not inside `HOLDS` or a `hold: true` beat. |
+| `motion_dead` | WARN | A heuristic. `renderProbe` at 1/2 scale, 1 subframe, grain 0, every frame; with grain off and a single subframe a held frame repeats exactly, so any change is real. A frame pair counts as moving when at least 4 probe pixels change by 2/255 or more in luma. Flags any run of 3.0 s or more with no moving pair that is not inside `HOLDS` or a `hold: true` beat. The clean fixture's small mover (a 10×10 design-pixel dot moving 1 design pixel per frame, 5×5 probe pixels moving 0.5) changes about 10 probe pixels by well over 2/255 per pair, so it counts as moving; P3 confirms on the fixture. |
 | `first_frame_empty` | WARN | `renderProbe(0)`: luma standard deviation under 4/255 (a flat first frame is a blank thumbnail). |
-| `text_safe` | FAIL (WARN while the target's zones are an estimate) | `boxes(t)` evaluated at every frame's shutter centre (`t + 0.25 / FPS`), mapped through that frame's `cam` from `frame(t)` (zoom, rotation, pan, as the composite shader applies it). A non-`deco` box outside the safe area for more than 0.25 s in total within one beat is a FAIL; any shorter excursion (a slam entrance, a whip) is a WARN. Not run without `boxes(t)`. |
+| `text_safe` | FAIL (WARN while the target's zones are an estimate) | `boxes(t)` evaluated at every subframe time the render uses (the same `n = round(sub × subBoost(t))` samples across the 180-degree shutter), each mapped through the `cam` that `frame(t)` returns for that sample (zoom, rotation, pan, as the composite shader applies it). A sample outside the safe area contributes `1 / (n × FPS)` seconds of exposure. A non-`deco` box with more than 0.25 s of exposure in total within one beat is a FAIL; any smaller exposure (a slam entrance, a whip) is a WARN. Not run without `boxes(t)`. |
 | `text_overlap` | WARN | At the same samples, two non-`deco` boxes from different groups intersect by more than 2% of the smaller one's area. |
 | `audio_spike` | WARN | The existing 50 ms window analysis on the effects stem: a peak more than 18 dB above the 90th percentile window. |
 
@@ -402,15 +417,16 @@ A master is only as good as the source it came from, so the artifact checks firs
 - `render.mjs` writes `out/<name>.render.json` after every `video` or `full` render: a hash over the piece's source
   (every file except `out/`, `stills/`, `node_modules/` and the review sheets), the scene file, params, size, fps,
   subframes and alpha mode, and a hash of the rendered file's decoded video (`ffmpeg -map 0:v -f hash -hash sha256`).
-- `mix.mjs` writes `out/<name>.master.json` (section 9).
+- `mix.mjs` writes `out/<name>.master.json` (section 9), including the SHA-256 of the whole master file. Any change
+  to the file after the mix (another audio track, a re-encode) breaks the match.
 
 | Check | Level | How it is measured |
 |---|---|---|
-| `provenance` | FAIL | `master.json` and its `render.json` exist; the piece's current source hash equals the recorded one (otherwise the master is stale: re-render); the decoded video hash of `--file` equals the render's (the mixer copied the picture untouched). Only then do the 11.1 results stand for this file. Without `master.json`, `--file` is checked as a plain file and the report says the source checks do not apply to it. |
+| `provenance` | FAIL | `master.json` exists (a `--file` without one FAILs; `--plain` checks a foreign file as a plain file, and then only `file_spec`, `faststart` and `loudness` with `--lufs` run); the SHA-256 of the whole `--file` equals the master hash `master.json` records (any other mix of the same picture fails); the `render.json` it names exists and its SHA-256 equals the one recorded; the piece's current source hash equals the one in `render.json` (otherwise the master is stale: re-render). The decoded video hash `master.json` records equals the one in `render.json` (the mixer copied the picture untouched; section 21). Only then do the 11.1 results stand for this file, and `check --file` runs the 11.1 checks with the scene, params, size, fps, subframes and alpha mode recorded in `render.json`, not the command line's. |
 | `file_spec` | FAIL | `ffprobe`: width, height, fps and pixel format match the piece; the frame count (`-count_frames`) equals `round(DUR × FPS)`; the duration matches within one frame; an audio stream exists unless the scene is `silent`. |
 | `faststart` | WARN | For `.mp4`: the `moov` atom comes before `mdat`. |
 | `loudness` | FAIL | `ebur128=peak=true` on the file: integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). With neither, reported as not checked. |
-| `vo_delay` | FAIL | The voice delay `master.json` records equals `cues.js`'s `VO_OFFSET`. |
+| `vo_delay` | FAIL | Only for a master mixed with a voice: the voice delay `master.json` records equals `cues.js`'s `VO_OFFSET`. The record is trusted because `provenance` has bound it to this exact file and `mix.mjs` applied it; `--master-only` and `--sting` masters skip this check. |
 
 ### 11.3 Thresholds
 
@@ -498,7 +514,8 @@ rendered at scale 0.25:
 - `fixture-clean` (2 s): engine tests.
 - `fixture-check` (12 s): moving content before and after every planted defect, plus clean cases that must not be
   flagged: an end card inside `HOLDS`, grain on, a single 10 px dot moving 1 px per frame on an otherwise held card,
-  a slow drift, word-by-word captions, a slam entrance that briefly leaves the safe area.
+  a slow drift, word-by-word captions, a slam entrance that briefly leaves the safe area. Sizes in these fixtures
+  are stated in design pixels.
 
 Suites:
 
@@ -514,8 +531,12 @@ Suites:
 - **Cues**: each adapter on a recorded fixture gives the expected cues; a missing anchor stops before any write; the
   occurrence count works; a gap at a silent point shifts later timings by exactly the gap; a gap that would split
   speech is refused; the hook gate refuses a late take; `CUE` holds only beat ids.
-- **Board timing**: estimate and cue-based windows for boards with leading, interleaved and trailing silent beats
-  (the interleaved one gets its gap in `vo.wav`); windows are contiguous and half-open; `boardDur()` equals
+- **Board timing**: estimate and cue-based windows for boards with leading, interleaved and trailing silent beats;
+  windows are contiguous, half-open and start at 0 in every case, including: a single voiced beat whose first cue is
+  later than `lead`; the five-beat board `cold (dur 1) / hook (vo) / mid (dur 1.5) / save (vo) / end (dur 2.5)`; an
+  interleaved beat whose splice lands at a quiet point 0.3 s before the next anchor; a take with no pause before
+  the next anchor (splice at the anchor, with the warning). `--offset` below the leading silent sum is refused;
+  two anchors closer than `lead` are refused; `boardDur()` equals
   `CFG.DUR`; `VO_OFFSET` is applied once (a 0.10 s and a 2.10 s offset both land beat starts, captions and
   `--bed-at cue:` on the same picture frames as a hand calculation); `board_order` catches a bad board; the board
   sheet renders with slates and with a real scene.
@@ -524,14 +545,18 @@ Suites:
   ceiling `check` uses). Each control on its own, with non-default values: a 0.35 s and a 2.10 s voice delay (the
   voice's first burst lands on the right sample), `--bed-skip`, `--bed-at` in seconds and as a cue, both fade
   branches (a bed shorter and a bed longer than the picture), a mute window (silent inside, unchanged outside),
-  ducking (the bed at least 10 dB lower inside voice bursts than between them), an extra stem with a delay, and a
-  near-silent voice stopping the mix. `master.json` records what was applied.
+  ducking (the bed at least 10 dB lower inside voice bursts than between them), an extra stem with a delay, a
+  `--no-sfx` mix with no effects stem on disk, and a near-silent voice stopping the mix. `master.json` records what was applied.
 - **Footage**: the sequence count equals `round(dur × fps)`; `seqAt` indexes, loops and holds correctly.
 - **Check**: `fixture-check` has one of each planted defect: a 4 s freeze outside any hold, a flat first frame, a
   text box outside the safe area for 0.5 s, two overlapping boxes, a word found for 0.2 s, a board beat whose copy
   never appears, a beat with a sound note and no sound in its window, a beat with `sfxHit` and only a sustained
   sound, a master whose source changed after render (stale), a master whose voice delay differs from `VO_OFFSET`, a
-  master at the wrong loudness, a master with a wrong frame count. Each is reported with the right id and level,
+  master at the wrong loudness, a master with a wrong frame count, a second mix of the same picture with the voice
+  2 s later substituted under the first mix's `master.json`, a `--file` with no `master.json`, a render made with a
+  non-default param that puts text outside the safe area (checked with default params on the command line), and
+  text outside the safe area only at the first and last subframes of each frame. Clean cases that must pass: a
+  `--master-only` master (no `vo_delay`), a render of an alternate `--scene` checked through its `render.json`. Each is reported with the right id and level,
   and none of the clean cases is. Mutation: disabling any one detector fails a test.
 - **Leak test**: no tracked file contains a private home-directory path or any string from the owner's denylist. The
   denylist (brand names, private paths, the owner's voice id) is never committed: CI reads it from the
@@ -633,6 +658,7 @@ Not verified yet:
 | Round | Seats (ratified from each CLI's record) | Result |
 |---|---|---|
 | 1 (2026-11-12, rev 1.0 at `51e4b7a`) | codex `gpt-6.1-sol` effort high (relaunched once after a usage-limit stop with no review); grok `grok-4.7`. The third seat did not run: its CLI was signed out. Two-seat round. | grok SHIP-WITH-FIXES (2 HIGH, 3 MEDIUM); codex NEEDS-WORK (2 HIGH, 8 MEDIUM). All 15 findings verified against the plan and the private sources and folded in rev 1.1; none refuted. |
+| 2 (2026-11-12, rev 1.1 at `3b6ae3f`, delta) | codex `gpt-6.1-sol` effort high; grok `grok-4.7`. Third seat signed out again. Two-seat round. | Both NEEDS-WORK. Of the 15 round 1 items, 9 were closed by both seats and 6 called half-closed by at least one (timing, text checks, provenance, motion). New: grok 1 HIGH + 3 MEDIUM, codex 3 HIGH + 3 MEDIUM. All verified and folded in rev 1.2; none refuted. |
 
 Round 1 fold map (seat finding: where it landed):
 
@@ -650,3 +676,15 @@ Round 1 fold map (seat finding: where it landed):
 | "No onset" is not "no sound" | codex F7 | 6.1, 6.5, 16 |
 | The 2 s fixture cannot hold a 4 s freeze | codex F9 | 16 |
 | Matching loudness numbers do not prove mix parity | codex F10 | 16, 17 (P2) |
+
+Round 2 fold map:
+
+| Finding | Seats | Fold |
+|---|---|---|
+| Cue-based windows left a hole at the start and a hole or overlap around interleaved silent beats; `VO_OFFSET` had two definitions; the splice refused a continuous take | grok F1, codex F1, codex F2 | 6.3 (boundary list, one writer for `VO_OFFSET`, splice without refusal), 7.3, 7.4, 16 |
+| The animatic's mix needed an effects stem that `video` never writes | grok F2 | 6.4, 16 |
+| A swapped audio mix under an old `master.json` passed; a missing `master.json` passed; `vo_delay` failed voiceless masters | grok F3, codex F3 | 9, 11.2 (`provenance` binds the whole master file; `vo_delay` voiced only), 16 |
+| Source checks did not replay the render's recorded scene and params | codex F4 | 11.2, 16 |
+| Copy matching per sample missed words that appear one at a time | grok F4 | 6.5, 16 |
+| Shutter-centre sampling missed text visible at other subframes | codex F5 | 11.1, 16 |
+| The motion threshold called the clean fixture's small mover frozen | codex F6 | 11.1 (changed-pixel count at 1/2 scale), 16 |
