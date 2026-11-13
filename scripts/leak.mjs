@@ -6,7 +6,9 @@
 // ~/.config/sabotage-motion/denylist.txt ($XDG_CONFIG_HOME/sabotage-motion/denylist.txt when that is set).
 // SM_DENYLIST, the strings themselves (newline-separated), overrides the file; the tests use it.
 //
-//   node scripts/leak.mjs pre-push <remote> [url]   the git pre-push hook (.githooks/pre-push). Checks
+//   node scripts/leak.mjs install                   (npm run hooks) writes the pre-push hook into this clone's
+//       .git/hooks, once per clone. See HOOK below for why it does not live in the working tree.
+//   node scripts/leak.mjs pre-push <remote> [url]   what that hook runs. Checks
 //       everything the push would publish that the destination does not already have: each commit's message,
 //       author and committer, the paths that are new in it (merges included) and the lines it adds; every
 //       tag object in a pushed tag's chain; a tag's tree or blob; the ref names being created or updated.
@@ -70,12 +72,26 @@ export function findHits(text, entries) {
 }
 
 // A name safe to print: each denylist entry in it replaced by [#N].
+// Every place any entry matches is found first, and overlapping matches are replaced as one span naming all of
+// their entries ([#1,#2]), so no part of one entry is left showing when it overlaps or contains another.
 export function mask(name, entries) {
-  let out = String(name);
+  const s = String(name);
+  const spans = [];
   (entries || []).forEach((e, i) => {
-    out = out.replace(new RegExp(e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), `[#${i + 1}]`);
+    const re = new RegExp(e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    for (const m of s.matchAll(re)) spans.push([m.index, m.index + m[0].length, i + 1]);
   });
-  return out;
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let out = '';
+  let at = 0;
+  for (let k = 0; k < spans.length;) {
+    let [start, end] = spans[k];
+    const ids = new Set();
+    for (; k < spans.length && spans[k][0] < end; k++) { end = Math.max(end, spans[k][1]); ids.add(spans[k][2]); }
+    out += s.slice(at, start) + `[#${[...ids].sort((a, b) => a - b).join(',#')}]`;
+    at = end;
+  }
+  return out + s.slice(at);
 }
 
 // git's stderr is captured, not passed through, so an error message is printed only after masking.
@@ -208,10 +224,52 @@ function everything(cwd) {
   return { commits, tags: [...tags], loose, refs };
 }
 
+// The pre-push hook. It lives in the clone's own hooks directory, not in the working tree: git skips a hooks
+// directory that does not exist, so a hook kept in the tree (core.hooksPath=.githooks) stops running, silently,
+// on any checkout that predates it. This one stays put across checkouts and blocks the push when the checked-out
+// tree has no scripts/leak.mjs.
+const HOOK_MARK = '# sabotage-motion leak check';
+export const HOOK = `#!/bin/sh
+${HOOK_MARK}, written by \`npm run hooks\` (scripts/leak.mjs install); change that, not this file.
+# Runs the checked-out scripts/leak.mjs before every push. A checkout without one cannot push.
+top=$(git rev-parse --show-toplevel) || exit 1
+if [ ! -f "$top/scripts/leak.mjs" ]; then
+  echo "leak check: this checkout has no scripts/leak.mjs, so nothing is pushed." >&2
+  exit 1
+fi
+exec node "$top/scripts/leak.mjs" pre-push "$@"
+`;
+
+function install(cwd, env) {
+  const config = (...args) => { try { return git(['config', ...args], cwd).trim(); } catch { return ''; } };
+  // The first version of this check said to run `git config core.hooksPath .githooks`; that setting makes git
+  // ignore .git/hooks, so it is undone here.
+  if (config('--local', '--get', 'core.hooksPath') === '.githooks') git(['config', '--local', '--unset', 'core.hooksPath'], cwd);
+  const hooksPath = config('--get', 'core.hooksPath');
+  if (hooksPath) {
+    return { code: 1, lines: [
+      `leak check: core.hooksPath is set to ${hooksPath}, so git would not run a hook in .git/hooks. Nothing installed.`,
+      'Unset it (git config --unset core.hooksPath, with --global if it is set there), then run npm run hooks again.',
+    ] };
+  }
+  const dir = path.join(git(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd).trim(), 'hooks');
+  const file = path.join(dir, 'pre-push');
+  if (fs.existsSync(file) && !fs.readFileSync(file, 'utf8').includes(HOOK_MARK)) {
+    return { code: 1, lines: [`leak check: ${file} exists and this script did not write it. Nothing installed; merge the two by hand.`] };
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(file, HOOK);
+  fs.chmodSync(file, 0o755);
+  const lines = [`leak check: installed ${file}`];
+  if (!loadDenylist(env)) lines.push(`No denylist at ${denylistPath(env)} yet, so every push is blocked until it exists.`);
+  return { code: 0, lines };
+}
+
 function run(argv, { stdin = '', env = process.env, cwd = process.cwd() } = {}) {
   const [mode, remote, url] = argv;
+  if (mode === 'install') return install(cwd, env);
   if (mode !== 'pre-push' && mode !== 'history') {
-    return { code: 2, lines: ['usage: node scripts/leak.mjs pre-push <remote> [url] | history'] };
+    return { code: 2, lines: ['usage: node scripts/leak.mjs install | pre-push <remote> [url] | history'] };
   }
   const list = loadDenylist(env);
   if (!list) {
@@ -252,7 +310,10 @@ function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Run as a script however it was started: the real paths are compared, so a start through a symlinked directory
+// (where the path as given differs from the module's resolved path) still runs the check instead of exiting 0.
+const realPath = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+if (process.argv[1] && realPath(process.argv[1]) === realPath(fileURLToPath(import.meta.url))) {
   const { code, lines } = main();
   (code ? console.error : console.log)(lines.join('\n'));
   process.exit(code);

@@ -347,10 +347,103 @@ test('pre-push: a branch delete publishes nothing and passes', () => {
   assert.equal(r.code, 0, r.out);
 });
 
-test('the hook in .githooks runs this check and is executable', () => {
-  const hook = path.join(repoRoot, '.githooks', 'pre-push');
+test('mask: an entry that overlaps or contains another is masked whole, leaving no part of either', () => {
+  assert.equal(mask('assets/acmecorp-logo.png', ['acme', 'acmecorp']), 'assets/[#1,#2]-logo.png');
+  assert.equal(mask('x-ACMECORP', ['mecorp', 'acme']), 'x-[#1,#2]');
+  assert.equal(mask('a-zq-b-zq', ['zq']), 'a-[#1]-b-[#1]');
+  assert.equal(mask('clean', ['zq']), 'clean');
+});
+
+test('the check runs when it is started through a symlinked directory, instead of exiting 0', () => {
+  const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-leak-link-'));
+  scratch.push(holder);
+  const link = path.join(holder, 'repo');
+  fs.symlinkSync(repoRoot, link, 'dir');
+  const r = spawnSync(process.execPath, [path.join(link, 'scripts', 'leak.mjs'), 'pre-push', 'origin', path.join(holder, 'no-such-remote.git')],
+    { cwd: holder, input: '', encoding: 'utf8', env: { ...process.env, SM_DENYLIST: DENY } });
+  assert.equal(r.status, 1, (r.stdout || '') + (r.stderr || ''));
+  assert.match(r.stderr, /leak check: failed, so nothing is pushed/);
+});
+
+// A clone set up the way the owner's is: real hooks, no global git config, leak.mjs committed in the tree.
+function hookedRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-hook-'));
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-hook-remote-'));
+  scratch.push(dir, bare);
+  const env = { ...process.env, SM_DENYLIST: DENY, SM_DENYLIST_FILE: path.join(dir, 'no-such-denylist.txt'),
+    GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
+  const opts = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main'];
+  const run = (cmd, args) => {
+    const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', env });
+    return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
+  };
+  const g = (...args) => run('git', [...opts, ...args]);
+  const remote = (...args) => spawnSync('git', ['--git-dir', bare, ...args], { encoding: 'utf8', env });
+  execFileSync('git', ['init', '-q', '--bare', bare], { env });
+  g('init', '-q');
+  g('remote', 'add', 'origin', bare);
+  const install = () => run(process.execPath, [leakScript, 'install']);
+  return { dir, g, remote, install };
+}
+
+test('npm run hooks: the installed hook checks every push, and a checkout without the check cannot push', () => {
+  const repo = hookedRepo();
+  repo.g('config', 'core.hooksPath', '.githooks'); // the first version's instruction, which install undoes
+  fs.mkdirSync(path.join(repo.dir, 'scripts'));
+  fs.copyFileSync(leakScript, path.join(repo.dir, 'scripts', 'leak.mjs'));
+  fs.writeFileSync(path.join(repo.dir, 'a.txt'), 'hello\n');
+  repo.g('add', '-A');
+  repo.g('commit', '-q', '-m', 'start');
+
+  const inst = repo.install();
+  assert.equal(inst.code, 0, inst.out);
+  assert.equal(repo.g('config', '--local', '--get', 'core.hooksPath').code, 1, 'core.hooksPath=.githooks is still set');
+  const hook = path.join(repo.dir, '.git', 'hooks', 'pre-push');
   assert.ok(fs.statSync(hook).mode & 0o111, 'pre-push is not executable');
-  assert.match(fs.readFileSync(hook, 'utf8'), /scripts\/leak\.mjs" pre-push "\$@"/);
+
+  const clean = repo.g('push', 'origin', 'main');
+  assert.equal(clean.code, 0, clean.out);
+  assert.match(clean.out, /leak check: 1 commit\(s\), 0 tag\(s\), 1 ref name\(s\) clean/);
+  const published = repo.remote('rev-parse', 'main').stdout.trim();
+
+  fs.writeFileSync(path.join(repo.dir, 'a.txt'), `hello ${LEAK}\n`);
+  repo.g('commit', '-q', '-am', 'leak');
+  const leak = repo.g('push', 'origin', 'main');
+  assert.notEqual(leak.code, 0, leak.out);
+  assert.match(leak.out, /a\.txt:1: denylist entry #2/);
+  assert.ok(!leak.out.toLowerCase().includes(LEAK), 'the entry text must not be printed');
+  assert.equal(repo.remote('rev-parse', 'main').stdout.trim(), published, 'the leak reached the remote');
+
+  // A branch from before the check existed: no scripts/leak.mjs in its tree.
+  repo.g('checkout', '-q', '--orphan', 'old');
+  repo.g('rm', '-rfq', '.');
+  fs.writeFileSync(path.join(repo.dir, 'b.txt'), 'clean\n');
+  repo.g('add', '-A');
+  repo.g('commit', '-q', '-m', 'old');
+  const old = repo.g('push', 'origin', 'old');
+  assert.notEqual(old.code, 0, old.out);
+  assert.match(old.out, /this checkout has no scripts\/leak\.mjs, so nothing is pushed/);
+  assert.notEqual(repo.remote('rev-parse', '--verify', '-q', 'refs/heads/old').status, 0, 'the branch reached the remote');
+});
+
+test('npm run hooks: it will not replace a hook it did not write or install under another core.hooksPath, and re-runs', () => {
+  const repo = hookedRepo();
+  const hook = path.join(repo.dir, '.git', 'hooks', 'pre-push');
+  fs.writeFileSync(hook, '#!/bin/sh\necho mine\n', { mode: 0o755 });
+  const foreign = repo.install();
+  assert.equal(foreign.code, 1, foreign.out);
+  assert.match(foreign.out, /exists and this script did not write it/);
+  assert.equal(fs.readFileSync(hook, 'utf8'), '#!/bin/sh\necho mine\n');
+
+  fs.rmSync(hook);
+  assert.equal(repo.install().code, 0);
+  const again = repo.install();
+  assert.equal(again.code, 0, again.out);
+
+  repo.g('config', 'core.hooksPath', 'elsewhere');
+  const other = repo.install();
+  assert.equal(other.code, 1, other.out);
+  assert.match(other.out, /core\.hooksPath is set to elsewhere/);
 });
 
 test('the home-path patterns cover each kind', () => {

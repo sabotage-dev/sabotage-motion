@@ -1,6 +1,0 @@
-#!/bin/sh
-# The leak check before every push (scripts/leak.mjs). Enable it once per clone:
-#   git config core.hooksPath .githooks
-# It reads the owner's denylist from a file outside the repo and blocks the push on a hit or when the
-# file is missing.
-exec node "$(dirname "$0")/../scripts/leak.mjs" pre-push "$@"

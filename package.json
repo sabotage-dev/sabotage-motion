@@ -9,7 +9,8 @@
     "doctor": "node skills/sabotage-motion/template/render.mjs doctor",
     "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
     "test:engine": "node --test --test-concurrency=1 test/determinism.test.mjs test/frames.test.mjs test/alpha.test.mjs test/scene-swap.test.mjs",
-    "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs"
+    "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs",
+    "hooks": "node scripts/leak.mjs install"
   },
   "devDependencies": {
     "playwright-core": "1.65.0"

@@ -592,16 +592,20 @@ Suites:
   and none of the clean cases is. Mutation: disabling any one detector fails a test.
 - **Leak check** (D10): nothing published contains a private home-directory path or any string from the owner's
   denylist (brand names, private paths, the owner's voice id). The denylist is never committed and is not stored on
-  GitHub: it is a file on the owner's machine, read by the pre-push hook (`.githooks/pre-push`, `scripts/leak.mjs`).
-  The hook checks everything a push would publish that the remote does not already have, asking the remote itself
+  GitHub: it is a file on the owner's machine, read by the pre-push hook that `npm run hooks` writes into the clone's
+  own `.git/hooks` (`scripts/leak.mjs install`). Git silently skips a hooks directory that is missing, so a hook
+  kept in the working tree would stop running on any checkout that predates it; this one stays put, runs the
+  checked-out `scripts/leak.mjs`, and blocks the push from a checkout that has none. The hook checks everything a push would publish that the remote does not already have, asking the remote itself
   (`git ls-remote`) rather than trusting local tracking refs: each commit's message, author and committer, the paths
   new in it (merges included) and its added lines; every tag object in a pushed tag's chain, and a tree or blob a tag
   points at; the branch and tag names. It blocks the push on a hit or when it finds no denylist. `history` checks
   every commit, tag and ref name in the clone. CI checks home paths in every tracked file, and tests the hook on
   throwaway repos (a bare repo as the remote) with a made-up denylist: a hit in each place it looks, a leak in an
   earlier commit of the same push, content and a new path introduced by a merge, nested and blob or tree tags, a
-  stale tracking ref, ref names, commits already on the remote skipped, a commit that removes a leak allowed, and no
-  denylist blocking. Hits name the entry's number, never its text; a path or ref name prints with the entry masked.
+  stale tracking ref, ref names, commits already on the remote skipped, a commit that removes a leak allowed, no
+  denylist blocking, and the installed hook blocking real pushes (a leak, and a branch without the check). Hits name
+  the entry's number, never its text; a path or ref name prints with the entry masked, and overlapping entries are
+  masked as one span.
   The path patterns are built from parts, so the check and this plan do not trip it.
 - **Asset inventory**: `ASSETS.md` lists every binary file in the repo (fonts, audio, images, sequences) with its
   source and licence; the test fails on any binary not listed, and on any listed file that is missing.
@@ -706,7 +710,9 @@ Not verified yet:
 
 Rev 1.4 (2026-11-12) is an owner decision, not a council round: delivery tags (7.1, D9), found while checking how
 the plan handles voice. The P1 council round reviews it with the code that implements it. Rev 1.5 (2026-11-13) is
-an owner decision too: the leak denylist moves from a CI secret to a pre-push hook (16, D10), reviewed with P0.
+an owner decision too: the leak denylist moves from a CI secret to a pre-push hook (16, D10), reviewed with P0. The
+P0 review's third seat (sonnet) then found that a hook kept in the working tree stops running on older checkouts;
+the hook moved into `.git/hooks` (16).
 
 Round 1 fold map (seat finding: where it landed):
 

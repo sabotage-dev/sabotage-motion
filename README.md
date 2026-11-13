@@ -76,8 +76,10 @@ keeps it complete.
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist
 (private names and ids). The denylist is never committed and is not stored on GitHub. It is a plain file on the
 owner's machine, one string per line, matched case-insensitively: `~/.config/sabotage-motion/denylist.txt`, or the
-file `SM_DENYLIST_FILE` names. The owner's clone runs `git config core.hooksPath .githooks`, and the pre-push hook
-(`scripts/leak.mjs`) then checks everything a push would publish that the remote does not already have (it asks the
+file `SM_DENYLIST_FILE` names. The owner's clone runs `npm run hooks` once, which writes a pre-push hook into the
+clone's own `.git/hooks` (not the working tree, so it keeps running on every checkout, and it blocks a push from a
+checkout that has no `scripts/leak.mjs`, such as a branch from before the check existed). Before each push it runs
+`scripts/leak.mjs`, which checks everything the push would publish that the remote does not already have (it asks the
 remote with `git ls-remote`): each commit's message, author and committer, the paths new in it (merges included) and
 the lines it adds; every tag object in a pushed tag's chain; the branch and tag names. It blocks the push on a hit,
 and when it finds no denylist. `node scripts/leak.mjs history` checks every commit, tag and ref name in the clone. CI
