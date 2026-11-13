@@ -47,16 +47,17 @@ declares, and renders one frame twice to confirm the hashes match. Each failing 
 
 Milliseconds per frame for one second (30 frames) of the template's default scene at 1080×1920 with 8
 motion-blur subframes (the scene doubles them during fast moves), measured with
-`node render.mjs video --to 1` (2026-11-13; CI numbers are four runs each, Node 22 and 24, and vary with the
-runner):
+`node render.mjs video --to 1` (2026-11-13; the CI numbers are six measurements over three runs, Node 22 and 24,
+and vary a lot with the runner):
 
 | Machine | WebGL2 renderer | ms per frame |
 |---|---|---|
-| GitHub Actions `ubuntu-latest` (x64), Chrome 156 | SwiftShader (software, through ANGLE on Vulkan) | 2684 to 4795, median about 3070 |
-| GitHub Actions `macos-latest` (arm64), Chrome 156 | ANGLE on Metal (paravirtual GPU) | 491 to 798 |
+| GitHub Actions `ubuntu-latest` (x64), Chrome 156 | SwiftShader (software, through ANGLE on Vulkan) | 2684 to 5960, median about 3630 |
+| GitHub Actions `macos-latest` (arm64), Chrome 156 | ANGLE on Metal (paravirtual GPU) | 387 to 798, median about 555 |
 | Apple M5 Pro laptop, Chrome 157 | ANGLE on Metal | 234 to 259 |
 
-Linux works but is slow at full size: about 3 s per frame, so a 15 s piece at 30 fps takes 20 to 35 minutes.
+Linux works but is slow at full size: 3 to 6 s per frame, so a 15 s piece at 30 fps (450 frames) takes 20 to 45
+minutes.
 Use `--scale 0.5` (or less) and fewer `--sub` for drafts there. A GPU-accelerated Linux recipe is planned for v2.
 
 ## Development
