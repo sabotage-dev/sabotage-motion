@@ -26,8 +26,8 @@
 //         (file spec against the piece's settings at --scale, faststart, loudness with --lufs). --only
 //         runs just the named checks (provenance always runs with --file). --dump <file> also writes the
 //         raw measurements (per frame pair, the probe pixels changed by 1, 2, 3, 4, 8 and 16 levels or more;
-//         the first frame's luma; the audio windows), numbers only, for tuning the thresholds on real
-//         pieces. Exit 2 on a usage error.
+//         the first frame's luma; the audio windows; each result's level and numbers), with no on-screen
+//         text or params, for tuning the thresholds on real pieces. Exit 2 on a usage error.
 // Common: --scene file.js (default scene.js)  --target name (size, fps and safe area from safezones.json)
 //         --fps N  --sub N (motion-blur subframes, default 8)  --scale S  --crf 17  --preset slow
 //         --param key=value (repeatable; arrives in scene.init as params.key)
@@ -545,7 +545,8 @@ async function check() {
       const needProbe = want('motion_dead') || want('first_frame_empty');
       const needBoxes = INFOc.BOXES && boxIds.some(want);
       let scan = null;
-      if (opt('dump')) dump = { format: 'sabotage-motion/check-dump@1', scene: settings.scene, params: settings.params, fps, dur, sub: settings.sub, holds: INFOc.HOLDS, windows: windows.map((w) => [w.id, w.start, w.end]) };
+      // numbers, check ids and beat ids only: no on-screen text and no params, so a dump of a private piece can be shared
+      if (opt('dump')) dump = { format: 'sabotage-motion/check-dump@1', fps, dur, sub: settings.sub, holds: INFOc.HOLDS, windows: windows.map((w) => [w.id, w.start, w.end]) };
       if (needProbe || needBoxes) {
         const t0 = Date.now();
         try {
@@ -614,7 +615,7 @@ async function check() {
 
   // ---- report
   if (dump) {
-    dump.results = C.toJson(results);
+    dump.results = results.map((x) => ({ id: x.id, level: x.level, t: x.t ?? null, measured: x.measured ?? null, threshold: x.threshold ?? null }));
     const df = path.resolve(root, opt('dump'));
     fs.mkdirSync(path.dirname(df), { recursive: true });
     fs.writeFileSync(df, JSON.stringify(dump) + '\n');

@@ -140,6 +140,22 @@ test('--strict fails on a WARN; the text output is one line per result and a sum
   assert.match(t.out, /^WARN  first_frame_empty +0\.00s  the first frame is flat/m);
   assert.match(t.out, /^check: 0 FAIL, 2 WARN, 0 ok, 0 not checked$/m);
 });
+test('--dump writes the raw measurements without on-screen text: changed probe pixels per frame pair, the first frame, the audio', () => {
+  const r = runCheck(dir, ['--only', 'motion_dead,audio_spike', '--dump', 'out/dump.json']);
+  assert.equal(r.status, 0, r.out);
+  const d = JSON.parse(fs.readFileSync(P('out/dump.json'), 'utf8'));
+  assert.deepEqual([d.probe.w, d.probe.h, d.probe.changed.atLeast], [540, 960, [1, 2, 3, 4, 8, 16]]);
+  assert.equal(d.probe.changed.pairs.length, 575);
+  const pairs = (a, b) => d.probe.changed.pairs.slice(Math.round(a * 30), Math.round(b * 30) - 1);
+  assert.ok(pairs(6.65, 10.55).every((p) => p.every((n) => n === 0)), 'the freeze repeats exactly');
+  // the clean small mover: every pair of the dot's beat changes at least 4 probe pixels by 2 levels or more
+  const dot = pairs(10.65, 13.75).map((p) => p[1]);
+  assert.ok(Math.min(...dot) >= 4, `dot pairs: ${Math.min(...dot)}-${Math.max(...dot)}`);
+  assert.ok(d.audio.over < 18 && d.audio.loudWindows > 0);
+  assert.deepEqual(d.results.map((x) => x.id), ['motion_dead', 'audio_spike']);
+  assert.deepEqual(Object.keys(d.results[0]), ['id', 'level', 't', 'measured', 'threshold'], 'no detail text in a dump');
+  assert.equal(d.params, undefined);
+});
 test('usage errors exit 2 and say why', () => {
   for (const [args, re] of [[['--only', 'nope'], /--only nope: no such check/], [['--file', 'out/missing.mp4'], /no such file/],
     [['--plain'], /--plain needs --file/], [['--lufs', 'x'], /need numbers/]]) {

@@ -51,6 +51,11 @@ test('visibleBox: cut to the canvas before and after the camera; nothing on scre
   assert.equal(C.visibleBox(box('a', 'A', 500, 900, 80, 80), [1, 0, 2, 0], 1080, 1920), null);   // panned off screen
   const v = C.visibleBox(box('a', 'A', 440, 920, 200, 80), [2, 0, 0, 0], 1080, 1920);
   near(v.x, 340); near(v.w, 400); near(v.y, 880); near(v.h, 160);
+  // zoomed out, the frame shows past the layer's edges, but the shader never draws the layer outside its canvas:
+  // text off the canvas stays unseen, and text half off it shows only its on-canvas half
+  assert.equal(C.visibleBox(box('a', 'A', -300, 900, 200, 80), [0.5, 0, 0, 0], 1080, 1920), null);
+  const half = C.visibleBox(box('a', 'A', -100, 900, 200, 80), [0.5, 0, 0, 0], 1080, 1920);
+  near(half.x, 270); near(half.w, 50);
 });
 test('insideRect: a box on the safe edge is inside; a pixel over is out', () => {
   assert.ok(C.insideRect({ x: 84, y: 160, w: 852, h: 1320 }, SAFE));
@@ -327,4 +332,26 @@ test('the exit code: 1 on any FAIL, and with --strict on any WARN', () => {
   assert.equal(C.summarize(rs('OK', 'WARN'), { strict: true }).exit, 1);
   assert.equal(C.summarize(rs('OK', 'FAIL')).exit, 1);
   assert.deepEqual(Object.keys(C.toJson([{ id: 'a', scope: 'source', level: 'OK', detail: 'd' }])[0]), ['id', 'scope', 'level', 'detail', 'measured', 'threshold']);
+});
+
+// ---------------------------------------------------------------- captions as check sees them (lib.js, tuned in P3)
+test('captions: the words shown together share one group, draw: false draws nothing, and a popped word on a full line stays inside the safe area', async () => {
+  const { lib, fakeCtx } = await import('./voice-helpers.mjs');
+  // 30 px a character (fakeCtx): 13 + 1 + 14 characters = 840 px fits the safe width (852) but not the default line width
+  const WORDS = [['aaaaaaaaaaaaa', 0.0, 0.4], ['bbbbbbbbbbbbbb', 0.45, 0.9], ['ccccccccccccc', 0.95, 1.3], ['dddddddddddddd', 1.35, 1.8]]
+    .map(([text, start, end]) => ({ text, start, end }));
+  const { ctx, calls } = fakeCtx();
+  const opts = { safe: SAFE, size: 72, voOffset: 0 };
+  let twoLines = 0;
+  for (let t = 0; t < 2.2; t += 1 / 240) {
+    const bs = lib.captions(ctx, WORDS, t, { ...opts, draw: false });
+    for (const b of bs) assert.ok(C.insideRect(b, SAFE), `t=${t.toFixed(3)} ${b.text} at x ${b.x.toFixed(1)}-${(b.x + b.w).toFixed(1)}`);
+    // the lines on screen together are one block, so one group
+    assert.ok(new Set(bs.map((b) => b.group)).size <= 1, `t=${t.toFixed(3)}: ${bs.map((b) => b.group)}`);
+    if (new Set(bs.map((b) => b.line)).size > 1) twoLines++;
+  }
+  assert.equal(calls.length, 0, 'draw: false drew text');
+  assert.ok(twoLines > 0, 'the test needs a block of more than one line');
+  assert.ok(lib.captions(ctx, WORDS, 0.5, opts).length > 0 && calls.length > 0, 'and without it, captions draw');
+  assert.ok(Math.abs(lib.CAPTION_POP_MAX - 1.165) < 1e-9);
 });

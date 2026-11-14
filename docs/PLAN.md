@@ -4,7 +4,7 @@
 |---|---|
 | Revision | 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
-| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and in review (section 17). |
+| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and in review (PR #4, section 17). |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13 |
 | Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
 
@@ -117,8 +117,8 @@ sabotage-motion/
 The template, as copied into a piece:
 
 ```
-index.html  fonts/  board.js  scene.js  slate.js  audio.js  shaders.js  lib.js  gl.js  main.js  wav.js
-render.mjs  safezones.json  package.json
+index.html  fonts/  board.js  scene.js  slate.js  grid.js  audio.js  shaders.js  lib.js  gl.js  main.js  wav.js
+render.mjs  check.mjs  safezones.json  package.json
 tools/cues.mjs  tools/voice-elevenlabs.mjs  tools/mix.mjs  tools/frames.mjs
 ```
 
@@ -128,6 +128,9 @@ tools/cues.mjs  tools/voice-elevenlabs.mjs  tools/mix.mjs  tools/frames.mjs
 - Tools live inside the template, not beside SKILL.md, so a piece re-renders with the engine it was made with after
   the skill updates. The private skill works this way today.
 - Outputs (`out/`, `stills/`, `board.png`, `contact.png`) are gitignored in the template's `.gitignore`.
+- `check.mjs` holds `check`'s detectors and thresholds as plain functions of the measurements `render.mjs` gathers
+  (added in P3, so each one is tested without a browser); `grid.js` is a scene that draws the measuring grid for a
+  target's safe zones (section 12, Q3).
 
 ## 5. Engine contract
 
@@ -701,8 +704,8 @@ mutations before the round.
 | Google Chrome may not be on the CI runners, or not where Playwright looks. | `doctor` reports it; CI installs it if needed; `CHROME_PATH` overrides. |
 | Long frame sequences use a lot of memory, since every frame is decoded and held. | `delivery.md` says to scale clips to their drawn size; P2 measures memory for a 20 s sequence at 960 px wide and states the limit. **Measured in P2 (2026-11-14, macOS only):** Chrome grows by about the decoded size of the sequence; 20 s at 960x540 added 1.24 GB, at 960x1706 3.6 GB. The README states it. |
 | The ported mixer may not sound like the private one. | **Measured in P2 (2026-11-14)** on the owner's stems, never committed: `scripts/parity.mjs` passed all three runs. The voiced graph with a non-default voice delay, bed skip, bed start and mute window matched on 99.8% of 100 ms windows, with default settings on 100.0%, and `--master-only` against the private master script on 100.0%; the masters landed within 0.00 LU and 0.06 dB true peak. The private mixer's output ran 239 frames (4.98 ms) behind, its limiter lookahead uncompensated, so the voiced runs state it with `--lag -5` (measured 239 frames, inside the 0.1 ms tolerance of 240; rerun after council round 1, which made the lag a stated check rather than a correction); without that shift they match on 73-74%, and with no lag stated they miss on the lag check. Not covered: the `--master-only` run's effects peak at -6.3 dBFS, so the limiter (which the private master script does not have) never acted there. |
-| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. |
-| The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. |
+| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. **Measured in P3 (2026-11-14, fixture-check, Apple-silicon Mac):** with grain off and one subframe, the 4 s freeze repeats exactly (0 probe pixels change in every pair, with grain 0.05 on in the scene). The 10 px dot moving 1 px a frame changes 10 to 20 probe pixels a pair, every one by 8 levels or more, against the threshold of 4 pixels at 2 levels; the drift at 9 px a second changes 512 to 868. The slam entrance leaves the safe area for 0.03 s (a WARN, as 11.1 says). The thresholds stay at the plan's values. One tuning: `audio_spike` compares the loudest 50 ms with the 90th percentile of the windows that are not silent (peak above -60 dBFS), because a stem with sound in under a tenth of its windows otherwise compares every sound with silence; the fixture's effects measure 7.9 dB, the template's 11.9 dB, against 18. And `captions` lays lines out to the safe width divided by 1.165 (the largest scale a popped word reaches), so a popped word at the end of a full line stays inside the safe area. The real renders the acceptance names are the owner's, not measured yet. |
+| The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. **Measured in P3 (2026-11-14):** equal on every master the check suite mixes (a voiced master, a `--master-only` one, a 5 s render, an alternate scene, a non-default param), on macOS and on the Linux runners, because `mix.mjs` copies the picture stream. So `provenance` compares the decoded-video hash as planned. The three examples are P4. |
 | The denylist lives only on the owner's machine, so nothing on GitHub checks it: not a push from another machine without the hook, an edit in GitHub's web editor, a PR from a fork, or the title and body of a squash merge. | The owner pushes from the machine with the hook, and checks PR text before merging; a fork PR is checked when the owner pulls it locally. `node scripts/leak.mjs history` audits everything already pushed. |
 | Timing formats move: the ElevenLabs alignment, openai-whisper's JSON, and other ASR tools differ. | Three adapters with recorded fixtures; the generic `words` format as the way in for everything else. |
 | ffmpeg builds differ (missing `libvpx` or `prores_ks`). | `doctor` lists each encoder and filter with what to install. |
@@ -716,10 +719,13 @@ Not verified yet:
 - How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
   model the README names.
 - The plugin marketplace file format and the skills.sh install flow (P5).
-- Safe-zone numbers for Reels and Shorts, and the top edge for TikTok (P3).
-- That the decoded video of a master hashes the same as its render (P3).
-- Whether every scene's camera config can be read at an arbitrary `t` without rendering (`frame(t)` returns it today,
-  so `check` calls `frame` on a scratch context; P3 confirms the cost).
+- Safe-zone numbers for every target, TikTok's included: `safezones.json` marks each edge `"estimate": true` until the
+  owner measures it with the grid (`grid.js`, the method in the file), so `text_safe` only warns for now.
+- That the decoded video of the three examples' masters hashes the same as their renders (P4; it does on every
+  fixture master, section 21 above).
+- The camera config is read by calling `frame(t)` for each sample on the page's own 2D context, with no WebGL
+  upload. **Measured in P3:** on fixture-check (19.2 s, 576 frames) the 4608 `frame` and `boxes` calls at 8
+  subframes, plus a 540x960 probe of every frame, take 2.4 s on an Apple-silicon Mac (Chrome 157).
 
 ## 22. Council rounds
 

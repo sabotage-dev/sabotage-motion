@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-Planned for v1 (the storyboard, voice-driven timing and captions are built; mix and master and footage are built and in review):
+Planned for v1 (the storyboard, voice-driven timing, captions, mix and master and footage are built; `check` and the safe zones are built and in review):
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -28,8 +28,9 @@ Early build, not ready for use yet. The v1 build plan is [docs/PLAN.md](docs/PLA
 engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
 video render, `doctor`, and CI on macOS and Linux. Phase P1 is merged (PR #2): the storyboard (`board.js`, the board
 sheet, the slate scene), voice-driven timing (`tools/cues.mjs`, with the hook gate), the optional ElevenLabs voice
-tool, and captions. Phase P2 is in review: mix and master (`tools/mix.mjs`) and footage (`tools/frames.mjs`,
-`loadSeq` and `seqAt`). `check` comes in P3, and the skill text (SKILL.md is a stub for now) in P4.
+tool, and captions. Phase P2 is merged (PR #3): mix and master (`tools/mix.mjs`) and footage (`tools/frames.mjs`,
+`loadSeq` and `seqAt`). Phase P3 is in review (PR #4): `node render.mjs check` and the safe zones. The skill text
+(SKILL.md is a stub for now) and the examples come in P4.
 
 ## Storyboard and voice (P1)
 
@@ -72,7 +73,7 @@ node render.mjs board                       # the board sheet again, with the re
   default model: the current one that reads delivery tags is `eleven_v4` (ElevenLabs' docs, checked
   2026-11-13).
 
-## Mix, master and footage (P2, in review)
+## Mix, master and footage (P2)
 
 `tools/mix.mjs` puts the sound under a rendered picture and masters it for social. Run it in the piece's
 folder after `node render.mjs full --out out/<name>.mp4` (which also writes the effects as `out/<name>.wav`):
@@ -124,6 +125,59 @@ scene draws; `frames.mjs` prints the total and warns over 1 GB. Measured on an A
 in 1.2 s. Both rendered. The limit is the machine's free memory, so keep a sequence well under it, and smaller on
 CI runners. The clip's sound goes in through `mix.mjs --stem` (the tool's header shows the ffmpeg line).
 
+## Check and safe zones (P3, in review)
+
+`node render.mjs check` measures the piece before you post it, and `--file` measures the master too. Run it in
+the piece's folder:
+
+```sh
+node render.mjs check                                    # the source: board, hook, copy, sound notes, motion, text
+node render.mjs check --target tiktok                    # text against that platform's safe area (default: BOARD.target)
+node render.mjs check --file out/piece-final.mp4         # plus the master that tools/mix.mjs wrote
+node render.mjs check --file clip.mp4 --plain --lufs -14 --scale 0.5   # a file made elsewhere, as a plain file
+node render.mjs contact --safe                           # the contact sheet with the safe area shaded (board --safe too)
+```
+
+It prints one line per result (`FAIL`, `WARN`, `ok`, or `skip` with the reason it could not run) and exits 1 on
+any FAIL; `--strict` fails on a WARN too, `--json` prints the results as JSON, and `--only id,id` runs just those
+checks.
+
+| Check | Level | What it measures |
+|---|---|---|
+| `fonts` | FAIL | Every `CFG.FONTS` family loads. |
+| `board_order` | FAIL | Beat windows are contiguous and in order, and `CFG.DUR` is `boardDur()` within a frame. |
+| `hook_long` | FAIL | With `hookMax` on the board, the hook's last word ends by then (on a master, where its voice really starts). |
+| `board_copy_missing` | WARN | A beat's on-screen copy (`on`) never appears in its window. |
+| `board_copy_unread` | WARN | It appears for less than max(1.0 s, 0.25 s a word). |
+| `board_sfx_missing` | WARN | A beat with a sound note has no 50 ms above -40 dBFS in its window (with `sfxHit`, no transient 12 dB over the 100 ms before it). |
+| `motion_dead` | WARN | Nothing moves for 3 s or more outside a hold (a heuristic: a still frame repeats exactly with grain off). |
+| `first_frame_empty` | WARN | The first frame is flat: a blank thumbnail. |
+| `text_safe` | FAIL / WARN | Text outside the safe area for more than 0.25 s in a beat is a FAIL; less (a slam, a whip) is a WARN. Only a WARN while the target's zones are estimates. |
+| `text_overlap` | WARN | Two pieces of text from different groups overlap by more than 2%. |
+| `audio_spike` | WARN | The loudest 50 ms of the effects is more than 18 dB over the rest: a click. |
+| `provenance` | FAIL | The file is the master `master.json` records, mixed from the render `render.json` records, and the piece's source has not changed since. Then the checks above replay that render's scene, params, fps and subframes. |
+| `file_spec` | FAIL | Size, fps, pixel format, frame count `round(DUR x FPS)`, duration, and an audio stream. |
+| `faststart` | WARN | In an .mp4, the index comes before the media, so playback starts before the download ends. |
+| `loudness` | FAIL | Integrated loudness within 1 LU of the mix's target (or `--lufs`), true peak at or under -1.0 dBTP (or `--tp`). |
+| `vo_delay` | FAIL | A voiced master's voice starts at `VO_OFFSET`. |
+
+- **Text, without OCR.** The text checks read the scene's optional `boxes(t)`: one box per run of text, in design
+  pixels before the camera, with a `group` for the words of one phrase and `deco: true` for decorative text.
+  `check` samples it at every subframe time the render uses and maps each box through the camera that `frame(t)`
+  returns, so text a camera move pushes out is caught, and so is text that leaves only between frames.
+  `captions(..., { draw: false })` returns the caption boxes without drawing them. Without `boxes(t)`, those
+  checks say they were not run.
+- **Holds.** `export const HOLDS = [[t0, t1]]` in the scene, or `hold: true` on a board beat, marks a deliberate
+  hold (an end card), which `motion_dead` leaves alone.
+- **Safe zones.** `safezones.json` holds each target's safe rectangle, with a source, a measured date and an
+  `estimate` flag for every edge. None is measured from the apps yet, so every zone is an estimate for now:
+  `text_safe` reports WARN, not FAIL, and the overlays and `check` say "estimate". To measure one, render
+  `grid.js` (a grid labelled every 100 px) at the target's size, post it privately, and read off a screenshot in the
+  app where the overlays start; the method is in `safezones.json`.
+- **Tuning.** `--dump out/check.json` writes the raw measurements (changed pixels per frame pair, the first frame,
+  the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
+  on real pieces.
+
 ## Requirements
 
 - **Node** 22 or 24.
@@ -164,6 +218,8 @@ npm run test:engine                        # determinism, frame count and contai
 npm run test:voice                         # cues, board timing, the ElevenLabs tool against a local fake server
 npm run test:mix                           # the mixer, control by control, and the parity script
 npm run test:footage                       # frame sequences: the cut, the manifest, seqAt in a render
+npm run test:check                         # check's detectors, fixture-check and its masters, the safe zones
+node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
 npm run test:repo                          # leak check and asset inventory
 ```
 
@@ -178,8 +234,11 @@ The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece)
 for a voice, seeded noise with an exact-zero marker for a bed. Each control is measured from the output audio
 (sample positions and gains on the kept premix, loudness and true peak on the master). The footage suite cuts
 ffmpeg-generated clips whose frames carry their own numbers, renders `test/fixtures/fixture-footage`, and reads
-back which frame `seqAt` drew. `ASSETS.md` lists every binary file with its source and licence, and a test
-keeps it complete.
+back which frame `seqAt` drew. The check suites render `test/fixtures/fixture-check` (19.2 s, voiced by a
+synthetic take): one of each defect `check` looks for, between moving content, and the clean cases it must leave
+alone (a held end card, grain, a 10 px dot moving 1 px a frame, a slow drift, word-by-word captions, a slam
+entrance), then mix masters from it with each artifact defect. `ASSETS.md` lists every binary file with its source
+and licence, and a test keeps it complete.
 
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist
 (private names and ids). The denylist is never committed and is not stored on GitHub. It is a plain file on the
