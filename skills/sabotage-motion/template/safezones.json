@@ -1,47 +1,129 @@
 {
-  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Every zone here is an estimate until it is measured on the platform; an entry with \"estimate\": true has \"measured\": null. CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Each edge of the rectangle has its own record in `edges`: where it is (`at`, in design pixels), its `source`, the date it was `measured` (null until it is), and `estimate`. A target may also list `exclude`: rectangles inside `safe` that the platform covers anyway (TikTok's action-button column), each { x, y, w, h, source }; text that overlaps one counts as outside the safe area, and the --safe overlays shade it. A target is an estimate while any of its edges is, and then render.mjs check reports text outside it as WARN rather than FAIL, and the --safe overlays say \"estimate\". The *-ad targets are the platforms' published safe zones for 9:16 ads, measured from their sources; they are stricter than organic posts. The organic targets (tiktok, reels, shorts) stay estimates until they are measured. CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "method": "How an organic edge is measured (plan Q3): from in-app screenshots of videos already posted to the platform, not a separate test video. Open a posted 1080x1920 video in the platform's app on a phone and screenshot it in the feed, with the caption, the buttons and the profile row showing (and a long caption, if the app expands it). Map the screenshot onto the video's own frame (scale it so the video is 1080 px wide, from the video's edges, not the phone screen's), then on each side find the first row or column, moving in from the edge, that no overlay covers. Record that number as the edge's `at`, with the date in `measured` and the app version, the phone and the posted video in `source`, and set the edge's `estimate` to false. Then set `safe` from the four edges (x = left, y = top, w = right - left, h = bottom - top), and once all four are measured, the target's `measured` to the date and its `estimate` to false. An area the app covers inside the rectangle (a column of buttons) goes in `exclude`. grid.js, a labelled grid, is an optional aid for reading positions off a screenshot.",
   "targets": {
     "tiktok": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 84, "y": 160, "w": 852, "h": 1320 },
       "estimate": true, "measured": null,
-      "source": "Text column x 84-936 and bottom edge y 1480 from posted 1080x1920 pieces; top edge y 160 is a guess, not measured."
+      "source": "Text column x 84-936 and bottom edge y 1480 from posted 1080x1920 pieces; top edge y 160 is a guess. Not measured from app screenshots yet.",
+      "edges": {
+        "left": { "at": 84, "estimate": true, "measured": null, "source": "the text column of posted 1080x1920 pieces, not measured from app screenshots" },
+        "right": { "at": 936, "estimate": true, "measured": null, "source": "the text column of posted 1080x1920 pieces, not measured from app screenshots" },
+        "top": { "at": 160, "estimate": true, "measured": null, "source": "a guess" },
+        "bottom": { "at": 1480, "estimate": true, "measured": null, "source": "content kept above y 1480 in posted 1080x1920 pieces, not measured from app screenshots" }
+      }
     },
     "reels": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 72, "y": 220, "w": 936, "h": 1180 },
       "estimate": true, "measured": null,
-      "source": "Rough estimate (caption, buttons and profile row at the bottom; header at the top). Not measured."
+      "source": "Rough estimate (caption, buttons and profile row at the bottom; header at the top). Not measured.",
+      "edges": {
+        "left": { "at": 72, "estimate": true, "measured": null, "source": "rough estimate" },
+        "right": { "at": 1008, "estimate": true, "measured": null, "source": "rough estimate (the action buttons)" },
+        "top": { "at": 220, "estimate": true, "measured": null, "source": "rough estimate (the header)" },
+        "bottom": { "at": 1400, "estimate": true, "measured": null, "source": "rough estimate (the caption and profile row)" }
+      }
     },
     "shorts": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 72, "y": 200, "w": 840, "h": 1280 },
       "estimate": true, "measured": null,
-      "source": "Rough estimate (action buttons on the right, title and channel row at the bottom). Not measured."
+      "source": "Rough estimate (action buttons on the right, title and channel row at the bottom). Not measured.",
+      "edges": {
+        "left": { "at": 72, "estimate": true, "measured": null, "source": "rough estimate" },
+        "right": { "at": 912, "estimate": true, "measured": null, "source": "rough estimate (the action buttons)" },
+        "top": { "at": 200, "estimate": true, "measured": null, "source": "rough estimate" },
+        "bottom": { "at": 1480, "estimate": true, "measured": null, "source": "rough estimate (the title and channel row)" }
+      }
+    },
+    "tiktok-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 120, "y": 240, "w": 840, "h": 1020 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920",
+      "edges": {
+        "left": { "at": 120, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "right": { "at": 960, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "top": { "at": 240, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "bottom": { "at": 1260, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" }
+      },
+      "exclude": [
+        { "x": 780, "y": 840, "w": 180, "h": 420, "source": "the template's 120-wide action-button column over the bottom 720 of its 720x1280 grid, at 1080x1920: x 780-960 from y 840 down to the safe area's bottom" }
+      ]
+    },
+    "reels-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 65, "y": 269, "w": 950, "h": 979 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels",
+      "edges": {
+        "left": { "at": 65, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "right": { "at": 1015, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "top": { "at": 269, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" }
+      }
+    },
+    "shorts-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 48, "y": 288, "w": 840, "h": 960 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920",
+      "edges": {
+        "left": { "at": 48, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "right": { "at": 888, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "top": { "at": 288, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" }
+      }
     },
     "youtube": {
       "w": 1920, "h": 1080, "fps": 30,
       "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional title-safe area (5% margin each side). Not measured."
+      "source": "Conventional title-safe area (5% margin each side). Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "square": {
       "w": 1080, "h": 1080, "fps": 30,
       "safe": { "x": 54, "y": 54, "w": 972, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin. Not measured."
+      "source": "Conventional 5% margin. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "feed45": {
       "w": 1080, "h": 1350, "fps": 30,
       "safe": { "x": 54, "y": 68, "w": 972, "h": 1214 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin on a 4:5 feed post. Not measured."
+      "source": "Conventional 5% margin on a 4:5 feed post. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 68, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1282, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "web": {
       "w": 1920, "h": 1080, "fps": 30,
       "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin for a site loop or hero video. Not measured."
+      "source": "Conventional 5% margin for a site loop or hero video. Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "none": {
       "safe": null,

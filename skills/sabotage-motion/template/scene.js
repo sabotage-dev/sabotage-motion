@@ -13,6 +13,16 @@
 //   subBoost(t) (optional)   motion-blur subframe multiplier: raise it where motion is fast
 //   drawHud(t) (optional)    draw on the HUD canvas (difference-blended over everything)
 //   silent (optional)        export const silent = true: the soundtrack is silence and audio.js is not loaded
+//   boxes(t) (optional)      the text on screen at t, so `node render.mjs check` can test it without OCR:
+//                            [{ id, text, x, y, w, h, group?, deco? }], one box per drawn run of text, in
+//                            design pixels BEFORE the camera (check maps them through frame(t)'s cam),
+//                            cut to any clip mask, and only while the text's alpha is above 0.05. Words
+//                            of one phrase or caption share a `group`; deco: true marks decorative text
+//                            the safe-area and overlap checks leave alone. A pure function of t, like
+//                            frame(t). captions(..., { draw: false }) returns its boxes without drawing.
+//   HOLDS (optional)         export const HOLDS = [[t0, t1], ...]: deliberate holds (an end card held to the
+//                            last frame), which check's motion_dead leaves alone (so does hold: true on a
+//                            board beat)
 // Other scenes in the same piece render with `node render.mjs <mode> --scene other.js`.
 // Rules that keep frames correct: draw everything from t (no state carried between calls), never
 // Math.random() (use lib.js mulberry32/hash), and work in design pixels. Before every frame() and

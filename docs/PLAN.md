@@ -4,7 +4,7 @@
 |---|---|
 | Revision | 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
-| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and in review (section 17). |
+| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and in review (PR #4, section 17). |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13 |
 | Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
 
@@ -117,8 +117,8 @@ sabotage-motion/
 The template, as copied into a piece:
 
 ```
-index.html  fonts/  board.js  scene.js  slate.js  audio.js  shaders.js  lib.js  gl.js  main.js  wav.js
-render.mjs  safezones.json  package.json
+index.html  fonts/  board.js  scene.js  slate.js  grid.js  audio.js  shaders.js  lib.js  gl.js  main.js  wav.js
+render.mjs  check.mjs  safezones.json  package.json
 tools/cues.mjs  tools/voice-elevenlabs.mjs  tools/mix.mjs  tools/frames.mjs
 ```
 
@@ -128,6 +128,9 @@ tools/cues.mjs  tools/voice-elevenlabs.mjs  tools/mix.mjs  tools/frames.mjs
 - Tools live inside the template, not beside SKILL.md, so a piece re-renders with the engine it was made with after
   the skill updates. The private skill works this way today.
 - Outputs (`out/`, `stills/`, `board.png`, `contact.png`) are gitignored in the template's `.gitignore`.
+- `check.mjs` holds `check`'s detectors and thresholds as plain functions of the measurements `render.mjs` gathers
+  (added in P3, so each one is tested without a browser); `grid.js` is a scene that draws a labelled grid at a
+  target's size, an optional aid for reading safe-zone edges off screenshots (section 12, Q3).
 
 ## 5. Engine contract
 
@@ -481,14 +484,30 @@ pieces, so that clean pieces pass and the planted defects in section 16 fail; th
 
 `safezones.json` holds one entry per target: canvas size, fps, and the rectangle where text and key objects belong,
 with a `source` line and a `measured` date per number. Until an entry is measured it carries `"estimate": true`, and
-`check` and the overlays say "estimate".
+`check` and the overlays say "estimate". A target may also list `exclude` rectangles inside its safe area that the
+platform covers anyway (TikTok's action-button column): text that overlaps one is outside the safe area, and the
+overlays shade it.
 
-- v1 ships `tiktok` from the owner's posted pieces (text column from x 84 to 936; content above y 1480 on 1080×1920)
-  and leaves its top edge, `reels` and `shorts` to the P3 measurement (Q3).
+- The platforms' published 9:16 safe zones for ads ship as measured targets (P3, 2026-11-14). They are stricter than
+  organic posts, so they are targets of their own rather than replacements:
+  - `tiktok-ad`: x 120 to 960, y 240 to 1260, less the action-button column at x 780 to 960 from y 840 down (an
+    `exclude`). From TikTok's In-Feed safe zone template, "In-Feed-Standard Version LTR.zip" (Feed.png, dated
+    2025-04-14, drawn on a 720x1280 grid: 80 at the sides, 160 top, 440 bottom, a 120-wide button column over the
+    bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads, measured from the PNG at
+    1080x1920.
+  - `reels-ad`: x 65 to 1015, y 269 to 1248. From Meta's ads guide for Instagram Reels
+    (facebook.com/business/ads-guide/update/video/instagram-reels): "Consider leaving at least 14% of the top, 35% of
+    the bottom, and 6% on each side of your asset free from text, logos...", rounded to whole pixels.
+  - `shorts-ad`: x 48 to 888, y 288 to 1248. From Google Ads Help, "Safe zones for vertical video ads on YouTube"
+    (support.google.com/google-ads/answer/16041697): the reference image's labels, 288 top, 672 bottom, 48 left,
+    192 right on 1080x1920.
+- The organic targets `tiktok`, `reels` and `shorts` stay estimates until the owner measures them from in-app
+  screenshots of videos already posted (Q3). `tiktok` starts from the owner's posted pieces (text column from x 84 to
+  936; content above y 1480 on 1080×1920), its top edge a guess.
 - While a target is an estimate, `text_safe` reports WARN instead of FAIL for it.
 - `references/delivery.md` drops its own percentages and points at `safezones.json`, so the guide and the check
   never disagree.
-- Overlays: `contact --safe` and `board --safe` shade the unsafe area on every panel.
+- Overlays: `contact --safe` and `board --safe` shade the unsafe area, excluded rectangles included, on every panel.
 - The 9:16 review sheet at phone width is a documented flag combination (`contact --scale 0.333`), not a new mode.
 
 ## 13. Platforms and dependencies
@@ -684,7 +703,7 @@ mutations before the round.
 |---|---|---|
 | Q1 | Port the private Python and shell tools to Node? | Yes: one runtime (D6). |
 | Q2 | Where does the example's voice come from? | An openly licensed TTS voice whose licence allows redistribution, licence file in the example folder; chosen in P4. Never the owner's voice. |
-| Q3 | How are safe zones measured? | The owner posts a private or unlisted 1080×1920 grid test video to each platform in P3 and measures the overlays from screenshots in each app. Targets not measured by release ship as `"estimate": true`. |
+| Q3 | How are safe zones measured? | The published ad zones come from the platforms' own specs (`tiktok-ad`, `reels-ad`, `shorts-ad`; section 12). Organic zones are measured from in-app screenshots of videos the owner has already posted, not a separate grid video (owner, 2026-11-14). Targets not measured by release ship as `"estimate": true`. |
 | Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a stale or unmatched master, a wrong file, wrong loudness, a voice delay that differs from `VO_OFFSET`, a late hook, text outside a measured safe area for more than 0.25 s in a beat, a missing font; WARN for craft and for anything measured against an estimate. `--strict` makes WARN fail. |
 | Q5 | Require Google Chrome, or also allow Playwright's own Chromium? | Chrome or `CHROME_PATH`. Playwright's Chromium is documented only if P0 shows WebGL2 working in it headless on both OSes. |
 | Q6 | List on skills.sh? | Yes, if the P5 install test passes. |
@@ -701,8 +720,8 @@ mutations before the round.
 | Google Chrome may not be on the CI runners, or not where Playwright looks. | `doctor` reports it; CI installs it if needed; `CHROME_PATH` overrides. |
 | Long frame sequences use a lot of memory, since every frame is decoded and held. | `delivery.md` says to scale clips to their drawn size; P2 measures memory for a 20 s sequence at 960 px wide and states the limit. **Measured in P2 (2026-11-14, macOS only):** Chrome grows by about the decoded size of the sequence; 20 s at 960x540 added 1.24 GB, at 960x1706 3.6 GB. The README states it. |
 | The ported mixer may not sound like the private one. | **Measured in P2 (2026-11-14)** on the owner's stems, never committed: `scripts/parity.mjs` passed all three runs. The voiced graph with a non-default voice delay, bed skip, bed start and mute window matched on 99.8% of 100 ms windows, with default settings on 100.0%, and `--master-only` against the private master script on 100.0%; the masters landed within 0.00 LU and 0.06 dB true peak. The private mixer's output ran 239 frames (4.98 ms) behind, its limiter lookahead uncompensated, so the voiced runs state it with `--lag -5` (measured 239 frames, inside the 0.1 ms tolerance of 240; rerun after council round 1, which made the lag a stated check rather than a correction); without that shift they match on 73-74%, and with no lag stated they miss on the lag check. Not covered: the `--master-only` run's effects peak at -6.3 dBFS, so the limiter (which the private master script does not have) never acted there. |
-| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. |
-| The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. |
+| `check` thresholds give false positives on real pieces (grain, slow drifts, held end cards, small moving elements, slam entrances). | Grain off in the probe, tile-based motion, `HOLDS` and `hold: true`, a 0.25 s allowance per beat for text excursions, clean cases in `fixture-check`, tuning in P3 against real renders, WARN rather than FAIL for craft. `motion_dead` is a heuristic and the docs say so. **Measured in P3 (2026-11-14, fixture-check, Apple-silicon Mac):** with grain off and one subframe, the 4 s freeze repeats exactly (0 probe pixels change in every pair, with grain 0.05 on in the scene). The 10 px dot moving 1 px a frame changes 10 to 20 probe pixels a pair, every one by 8 levels or more, against the threshold of 4 pixels at 2 levels; the drift at 9 px a second changes 512 to 868. The slam entrance leaves the safe area for 0.03 s (a WARN, as 11.1 says). The thresholds stay at the plan's values. One tuning: `audio_spike` compares the loudest 50 ms with the 90th percentile of the windows that are not silent (peak above -60 dBFS), because a stem with sound in under a tenth of its windows otherwise compares every sound with silence; the fixture's effects measure 7.9 dB, the template's 11.9 dB, against 18. And `captions` lays lines out to the safe width divided by 1.165 (the largest scale a popped word reaches), so a popped word at the end of a full line stays inside the safe area. The real renders the acceptance names are the owner's, not measured yet. |
+| The decoded-video hash of a master might not equal its render's after the remux, which would make every master fail `provenance`. | P3 measures it on all three examples before `provenance` is a FAIL; if the hashes differ, `provenance` compares per-frame hashes (`framemd5`) instead. **Measured in P3 (2026-11-14):** equal on every master the check suite mixes (a voiced master, a `--master-only` one, a 5 s render, an alternate scene, a non-default param), on macOS and on the Linux runners, because `mix.mjs` copies the picture stream. So `provenance` compares the decoded-video hash as planned. The three examples are P4. |
 | The denylist lives only on the owner's machine, so nothing on GitHub checks it: not a push from another machine without the hook, an edit in GitHub's web editor, a PR from a fork, or the title and body of a squash merge. | The owner pushes from the machine with the hook, and checks PR text before merging; a fork PR is checked when the owner pulls it locally. `node scripts/leak.mjs history` audits everything already pushed. |
 | Timing formats move: the ElevenLabs alignment, openai-whisper's JSON, and other ASR tools differ. | Three adapters with recorded fixtures; the generic `words` format as the way in for everything else. |
 | ffmpeg builds differ (missing `libvpx` or `prores_ks`). | `doctor` lists each encoder and filter with what to install. |
@@ -716,10 +735,16 @@ Not verified yet:
 - How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
   model the README names.
 - The plugin marketplace file format and the skills.sh install flow (P5).
-- Safe-zone numbers for Reels and Shorts, and the top edge for TikTok (P3).
-- That the decoded video of a master hashes the same as its render (P3).
-- Whether every scene's camera config can be read at an arbitrary `t` without rendering (`frame(t)` returns it today,
-  so `check` calls `frame` on a scratch context; P3 confirms the cost).
+- The organic safe zones (`tiktok`, `reels`, `shorts`): `safezones.json` marks each edge `"estimate": true` until the
+  owner measures it from screenshots of posted videos (the method in the file), so `text_safe` only warns on them.
+  The published ad zones (`tiktok-ad`, `reels-ad`, `shorts-ad`) are measured, and FAIL.
+- That the decoded video of the three examples' masters hashes the same as their renders (P4; it does on every
+  fixture master, section 21 above).
+- The camera config is read by calling `frame(t)` for each sample on the page's own 2D context, with no WebGL
+  upload. **Measured in P3:** on fixture-check (19.2 s, 576 frames) the 4608 `frame` and `boxes` calls at 8
+  subframes, plus a 540x960 probe of every frame, take 2.4 s on an Apple-silicon Mac (Chrome 157). On the Linux
+  runners (SwiftShader) the probe pass alone takes 44 to 75 s, and the check suites 8 to 13 minutes at P3's first
+  push (runner speed varies; the `--strict` test then ran three probe passes, and now probes one frame).
 
 ## 22. Council rounds
 
