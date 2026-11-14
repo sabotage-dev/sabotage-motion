@@ -18,7 +18,7 @@ export const TL = {
 };
 export const HOLDS = [[W.end[0], W.end[1]]];
 
-const SAFE = { x: 84, y: 160, w: 852, h: 1320 };   // the tiktok zone, so captions sit where the check looks
+const SAFE = { x: 84, y: 160, w: 852, h: 1320 };   // the suite's fixture target (test/check-helpers.mjs), so captions sit where the check looks
 const CAP = { safe: SAFE, size: 72 };
 let ctx, P;
 const widths = new Map();

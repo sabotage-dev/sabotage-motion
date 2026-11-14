@@ -14,7 +14,7 @@ const zones = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 test('safezones.json: every target with a safe area records each edge with its source, date and estimate flag', () => {
-  assert.match(zones.method, /screenshots of videos already posted/);
+  assert.match(zones.method, /published third-party measurements/);
   assert.match(zones.about, /`exclude`/);
   for (const [name, t] of Object.entries(zones.targets)) {
     assert.equal(typeof t.estimate, 'boolean', name);
@@ -37,8 +37,27 @@ test('safezones.json: every target with a safe area records each edge with its s
       assert.ok(x.x >= t.safe.x && x.y >= t.safe.y && x.x + x.w <= t.safe.x + t.safe.w && x.y + x.h <= t.safe.y + t.safe.h, `${name}: an exclude rectangle sits inside safe`);
     }
   }
-  // the organic targets stay estimates until they are measured from screenshots of posted videos (plan Q3)
-  for (const name of ['tiktok', 'reels', 'shorts']) assert.equal(zones.targets[name].estimate, true, name);
+  // the organic targets are researched estimates: no platform publishes one (plan Q3)
+  for (const name of ['tiktok', 'reels', 'shorts']) {
+    const t = zones.targets[name];
+    assert.equal(t.estimate, true, name); assert.equal(t.measured, null, name);
+    for (const e of Object.values(t.edges)) { assert.equal(e.estimate, true); assert.equal(e.measured, null); assert.match(e.source, /2026-11-14/, `${name}: the research date`); }
+  }
+});
+
+test('the organic targets carry the researched edges: tiktok 44/940/130/1436, reels 86/960/250/1600, shorts 48/888/288/1540', () => {
+  const edges = (n) => ['left', 'right', 'top', 'bottom'].map((k) => zones.targets[n].edges[k].at);
+  assert.deepEqual(edges('tiktok'), [44, 940, 130, 1436]);
+  assert.deepEqual(zones.targets.tiktok.safe, { x: 44, y: 130, w: 896, h: 1306 });
+  assert.deepEqual(edges('reels'), [86, 960, 250, 1600]);
+  assert.deepEqual(zones.targets.reels.safe, { x: 86, y: 250, w: 874, h: 1350 });
+  assert.deepEqual(edges('shorts'), [48, 888, 288, 1540]);
+  assert.deepEqual(zones.targets.shorts.safe, { x: 48, y: 288, w: 840, h: 1252 });
+  assert.match(zones.targets.tiktok.edges.left.source, /cadenus\.io.*vidova\.ai/);
+  assert.match(zones.targets.tiktok.edges.bottom.source, /484 px for the username, caption and sound rows/);
+  assert.match(zones.targets.tiktok.source, /x 84-936, inside these edges/);
+  assert.match(zones.targets.reels.edges.top.source, /adchecklab\.com.*vidova\.ai \/ outfy\.com/);
+  assert.match(zones.targets.shorts.edges.bottom.source, /380 px for the title, channel and subscribe rows/);
 });
 
 test('the published ad zones ship as measured 1080x1920 targets, exact, with their sources', () => {
@@ -70,6 +89,18 @@ export function frame(t, jit) {
 export const boxes = () => [{ id: 'col', text: 'COL', x: X, y: Y, w: 100, h: 60 }];
 export function post(t) { return { t, bloom: 0, thr: 1, ca: 0, glitch: 0, grain: 0, vig: 0, flash: 0, fade: 1, hud: 0 }; }
 `;
+test('check --target tiktok: text past its researched right edge (940) is a WARN, never a FAIL, while the zone is an estimate', () => {
+  const dir = makePiece('safe-tiktok');
+  fs.writeFileSync(path.join(dir, 'col.js'), COL);
+  const at = (x) => runCheck(dir, ['--scene', 'col.js', '--target', 'tiktok', '--only', 'text_safe', '--param', `x=${x}`]);
+  const out = at(860);                                     // 860-960, past 940 for the whole second
+  assert.equal(out.status, 0, out.out);
+  assert.deepEqual(out.results.map((x) => [x.id, x.level]), [['text_safe', 'WARN']]);
+  assert.match(out.results[0].detail, /tiktok safe area \(estimate\) for 1\.00 s/);
+  assert.match(out.results[0].detail, /a FAIL once the zones are measured/);
+  assert.deepEqual(at(800).results.map((x) => [x.id, x.level]), [['text_safe', 'OK']], 'the same box at 800-900 is inside');
+});
+
 test('check --target tiktok-ad: text in the button column FAILs, the same text moved left passes; an estimate target with an exclude WARNs', () => {
   const dir = makePiece('safe-exclude');
   fs.writeFileSync(path.join(dir, 'col.js'), COL);
@@ -99,13 +130,13 @@ test('contact --safe shades outside the safe area on every panel, leaves the ins
   // the sheet: a 6 px margin around one 270 x 480 panel
   const gray = (f) => execFileSync('ffmpeg', ['-v', 'error', '-i', path.join(dir, f), '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 16 << 20 });
   const a = gray('plain.png'), b = gray('safe.png'), W = 282;
-  const mean = (g, x0, y0, x1, y1) => { let s = 0, n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { s += g[(y + 6) * W + x + 6]; n++; } return s / n; };
-  const z = { x: 84 / 4, y: 160 / 4, w: 852 / 4, h: 1320 / 4 };
-  // below the zone (y 370-480 of the panel) is darker; inside it, away from the outline, nothing changes
-  assert.ok(mean(b, 0, 375, 270, 480) < 0.7 * mean(a, 0, 375, 270, 480), `${mean(b, 0, 375, 270, 480)} vs ${mean(a, 0, 375, 270, 480)}`);
+  const mean = (g, x0, y0, x1, y1) => { let s = 0, n = 0; for (let y = Math.round(y0); y < Math.round(y1); y++) for (let x = Math.round(x0); x < Math.round(x1); x++) { s += g[(y + 6) * W + x + 6]; n++; } return s / n; };
+  const t = zones.targets.tiktok.safe, z = { x: t.x / 4, y: t.y / 4, w: t.w / 4, h: t.h / 4 }, below = z.y + z.h + 6;
+  // below the zone is darker; inside it, away from the outline, nothing changes
+  assert.ok(mean(b, 0, below, 270, 480) < 0.7 * mean(a, 0, below, 270, 480), `${mean(b, 0, below, 270, 480)} vs ${mean(a, 0, below, 270, 480)}`);
   assert.equal(mean(b, z.x + 4, z.y + 4, z.x + z.w - 4, z.y + z.h - 4), mean(a, z.x + 4, z.y + 4, z.x + z.w - 4, z.y + z.h - 4));
   // the label sits in the band above the zone, in the outline's yellow
-  assert.ok(mean(b, 8, 26, 150, 38) > mean(a, 8, 26, 150, 38), 'no label above the zone');
+  assert.ok(mean(b, z.x, z.y - 12, z.x + 140, z.y - 1) > mean(a, z.x, z.y - 12, z.x + 140, z.y - 1), 'no label above the zone');
 });
 
 test('contact --safe on tiktok-ad shades the button column too; the rest of the safe area is left alone', () => {

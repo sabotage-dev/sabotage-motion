@@ -501,9 +501,19 @@ overlays shade it.
   - `shorts-ad`: x 48 to 888, y 288 to 1248. From Google Ads Help, "Safe zones for vertical video ads on YouTube"
     (support.google.com/google-ads/answer/16041697): the reference image's labels, 288 top, 672 bottom, 48 left,
     192 right on 1080x1920.
-- The organic targets `tiktok`, `reels` and `shorts` stay estimates until the owner measures them from in-app
-  screenshots of videos already posted (Q3). `tiktok` starts from the owner's posted pieces (text column from x 84 to
-  936; content above y 1480 on 1080×1920), its top edge a guess.
+- The organic targets ship as researched estimates (P3, researched 2026-11-14): no platform publishes an organic
+  zone, and several sources say so outright, so each edge comes from published third-party measurements, compared and
+  cited in `safezones.json`. They keep `"estimate": true` (the overlays move with the device and the caption's length),
+  so `text_safe` only warns on them:
+  - `tiktok`: x 44 to 940, y 130 to 1436. Left, top and the 140-wide button rail from third-party measurements that
+    agree (cadenus.io, vidova.ai); the bottom 484 px for the username, caption and sound rows (cadenus.io; 480-484
+    elsewhere), which matches TikTok's own In-Feed ad template's 660 px less the ad's call-to-action and sponsored
+    label. The owner's posted pieces keep text within x 84 to 936, inside these edges.
+  - `reels`: x 86 to 960, y 250 to 1600. The more conservative of two organic measurements on each edge
+    (adchecklab.com, measured in the Instagram app; vidova.ai and outfy.com).
+  - `shorts`: x 48 to 888, y 288 to 1540. The top, sides and button rail from Google's vertical-video ad zone (the
+    same UI on organic Shorts); the bottom 380 px for the title, channel and subscribe rows, where three organic
+    sources agree.
 - While a target is an estimate, `text_safe` reports WARN instead of FAIL for it.
 - `references/delivery.md` drops its own percentages and points at `safezones.json`, so the guide and the check
   never disagree.
@@ -703,7 +713,7 @@ mutations before the round.
 |---|---|---|
 | Q1 | Port the private Python and shell tools to Node? | Yes: one runtime (D6). |
 | Q2 | Where does the example's voice come from? | An openly licensed TTS voice whose licence allows redistribution, licence file in the example folder; chosen in P4. Never the owner's voice. |
-| Q3 | How are safe zones measured? | The published ad zones come from the platforms' own specs (`tiktok-ad`, `reels-ad`, `shorts-ad`; section 12). Organic zones are measured from in-app screenshots of videos the owner has already posted, not a separate grid video (owner, 2026-11-14). Targets not measured by release ship as `"estimate": true`. |
+| Q3 | How are safe zones measured? | Ad zones come from the platforms' published templates, measured (`tiktok-ad`, `reels-ad`, `shorts-ad`). Organic zones come from published third-party measurements, compared and cited, since no platform publishes one; they ship as sourced estimates (`"estimate": true`, so `text_safe` WARNs), and no owner step is needed (owner, 2026-11-14). Section 12 has both. |
 | Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a stale or unmatched master, a wrong file, wrong loudness, a voice delay that differs from `VO_OFFSET`, a late hook, text outside a measured safe area for more than 0.25 s in a beat, a missing font; WARN for craft and for anything measured against an estimate. `--strict` makes WARN fail. |
 | Q5 | Require Google Chrome, or also allow Playwright's own Chromium? | Chrome or `CHROME_PATH`. Playwright's Chromium is documented only if P0 shows WebGL2 working in it headless on both OSes. |
 | Q6 | List on skills.sh? | Yes, if the P5 install test passes. |
@@ -735,9 +745,11 @@ Not verified yet:
 - How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
   model the README names.
 - The plugin marketplace file format and the skills.sh install flow (P5).
-- The organic safe zones (`tiktok`, `reels`, `shorts`): `safezones.json` marks each edge `"estimate": true` until the
-  owner measures it from screenshots of posted videos (the method in the file), so `text_safe` only warns on them.
-  The published ad zones (`tiktok-ad`, `reels-ad`, `shorts-ad`) are measured, and FAIL.
+- Safe zones. The P3 row's "safe-zone numbers measured for each target the release names" is met for the ad
+  targets: `tiktok-ad`, `reels-ad` and `shorts-ad` are measured from the platforms' published templates (2026-11-14),
+  so `text_safe` FAILs on them. For the organic targets (`tiktok`, `reels`, `shorts`) no measurement exists to take:
+  their date and method are recorded as researched estimates (published third-party measurements, compared and
+  cited, researched 2026-11-14; section 12), and `text_safe` WARNs on them. No owner step is planned.
 - That the decoded video of the three examples' masters hashes the same as their renders (P4; it does on every
   fixture master, section 21 above).
 - The camera config is read by calling `frame(t)` for each sample on the page's own 2D context, with no WebGL

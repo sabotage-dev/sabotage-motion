@@ -18,11 +18,16 @@ export const TAKE = [
 export const WINDOWS = { open: [0, 1.0], hook: [1.0, 3.4], drift: [3.4, 6.6], freeze: [6.6, 10.6], dot: [10.6, 13.8], save: [13.8, 16.0], end: [16.0, 19.2] };
 export const DUR = 19.2;
 
-// The tiktok rectangle as a measured target, so text_safe can FAIL (every shipped zone is still an estimate).
+// The rectangle fixture-check was laid out for, as a measured target (`fixture`, so text_safe can FAIL) and as an
+// estimate (`fixture-est`). Fixed here, so the suite does not move when the shipped zones are revised.
+export const FIXTURE_SAFE = { x: 84, y: 160, w: 852, h: 1320 };
 export function addMeasuredTarget(dir, name = 'fixture') {
   const f = path.join(dir, 'safezones.json'), z = JSON.parse(fs.readFileSync(f, 'utf8'));
-  z.targets[name] = { ...z.targets.tiktok, estimate: false, measured: '2026-11-14', source: 'the check suite: the tiktok rectangle, marked measured' };
-  if (z.targets[name].edges) for (const e of Object.values(z.targets[name].edges)) Object.assign(e, { estimate: false, measured: '2026-11-14' });
+  const S = FIXTURE_SAFE, edge = (at, estimate) => ({ at, estimate, measured: estimate ? null : '2026-11-14', source: 'the check suite\'s fixture rectangle' });
+  for (const [n, est] of [[name, false], [`${name}-est`, true]]) {
+    z.targets[n] = { w: 1080, h: 1920, fps: 30, safe: { ...S }, estimate: est, measured: est ? null : '2026-11-14', source: 'the check suite\'s fixture rectangle',
+      edges: { left: edge(S.x, est), right: edge(S.x + S.w, est), top: edge(S.y, est), bottom: edge(S.y + S.h, est) } };
+  }
   fs.writeFileSync(f, JSON.stringify(z, null, 2));
 }
 

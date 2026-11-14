@@ -1,6 +1,6 @@
-// GRID SCENE: a labelled measuring grid at a target's size, an optional aid for safe zones. The method in
-// safezones.json (plan Q3) measures from screenshots of videos already posted; a grid helps read positions off
-// such a screenshot, or measure a platform you have not posted to yet:
+// GRID SCENE: a labelled measuring grid at a target's size, an optional aid for safe zones. The shipped zones
+// are the platforms' published ad templates and researched organic estimates (safezones.json, plan Q3); a grid
+// helps if you refine an edge from an in-app screenshot, or measure a platform that is not covered:
 //   node render.mjs full --scene grid.js --target tiktok --out out/grid-tiktok.mp4
 // Lines every 10 px (longer every 50 px, labelled every 100 px) run in from all four edges, the labels repeat
 // across the frame so some survive whatever the app covers, and the target's current safe rectangle is drawn

@@ -115,12 +115,12 @@ test('clean: a slam entrance that leaves the safe area for a moment is a WARN, n
 });
 
 // ---------------------------------------------------------------- the zones, holds, exit codes, output
-test('while the zone is an estimate (the board\'s tiktok), the same text_safe excursions are WARNs that say so', () => {
-  const r = runCheck(dir, ['--only', 'text_safe']);
+test('while the zone is an estimate, the same text_safe excursions are WARNs that say so', () => {
+  const r = runCheck(dir, ['--target', 'fixture-est', '--only', 'text_safe']);
   assert.equal(r.status, 0, r.out);
   const xs = byId(r.results, 'text_safe');
   assert.deepEqual(xs.map((x) => x.level), ['WARN', 'WARN', 'WARN']);
-  for (const x of xs) assert.match(x.detail, /tiktok safe area \(estimate\)/);
+  for (const x of xs) assert.match(x.detail, /fixture-est safe area \(estimate\)/);
   assert.equal(xs.filter((x) => /a FAIL once the zones are measured/.test(x.detail)).length, 2);
   assert.deepEqual(r.results.map((x) => x.id), ['text_safe', 'text_safe', 'text_safe'], '--only runs just that check');
 });

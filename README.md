@@ -172,9 +172,9 @@ checks.
 - **Safe zones.** `safezones.json` holds each target's safe rectangle, with a source, a measured date and an
   `estimate` flag for every edge, and optional `exclude` rectangles the app covers inside it. `tiktok-ad`,
   `reels-ad` and `shorts-ad` are the platforms' published zones for 9:16 ads, measured from their specs (TikTok's
-  includes its button column as an `exclude`); they are stricter than organic posts. The organic `tiktok`, `reels`
-  and `shorts` are estimates until measured from screenshots of posted videos (the method is in the file), so
-  `text_safe` only warns on them, and the overlays and `check` say "estimate".
+  includes its button column as an `exclude`); they are stricter than organic posts. No platform publishes an organic
+  zone, so `tiktok`, `reels` and `shorts` are researched estimates from published third-party measurements, cited in
+  the file: `text_safe` only warns on them, and the overlays and `check` say "estimate".
 - **Tuning.** `--dump out/check.json` writes the raw measurements (changed pixels per frame pair, the first frame,
   the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
   on real pieces.
