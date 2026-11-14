@@ -305,9 +305,17 @@ async function doctor() {
     const list = (what) => spawnSync('ffmpeg', ['-hide_banner', '-' + what], { encoding: 'utf8' }).stdout || '';
     const has = (text, name) => new RegExp(`^\\s*\\S+\\s+${name}\\s`, 'm').test(text);
     const enc = list('encoders'), dec = list('decoders'), fil = list('filters'), mux = list('muxers');
-    for (const e of ['libx264', 'libvpx-vp9', 'prores_ks', 'aac']) line(has(enc, e), 'ffmpeg encoder', e, `an ffmpeg built with ${e} (${ffInstall})`);
+    for (const e of ['libx264', 'libvpx-vp9', 'prores_ks', 'aac', 'mjpeg']) line(has(enc, e), 'ffmpeg encoder', e, `an ffmpeg built with ${e} (${ffInstall})`);
     line(has(dec, 'libvpx-vp9'), 'ffmpeg decoder', 'libvpx-vp9 (reads VP9 alpha)', `an ffmpeg built with libvpx (${ffInstall})`);
-    for (const f of ['loudnorm', 'ebur128', 'sidechaincompress', 'alimiter', 'vflip', 'tile', 'alphaextract']) line(has(fil, f), 'ffmpeg filter', f, `an ffmpeg with the ${f} filter (${ffInstall})`);
+    // the engine (vflip, tile, alphaextract), tools/mix.mjs (the audio filters) and tools/frames.mjs (fps)
+    for (const f of ['loudnorm', 'ebur128', 'sidechaincompress', 'alimiter', 'amix', 'asplit', 'atrim', 'aformat', 'aresample',
+      'vflip', 'tile', 'alphaextract', 'fps']) line(has(fil, f), 'ffmpeg filter', f, `an ffmpeg with the ${f} filter (${ffInstall})`);
+    // mix.mjs limits with alimiter latency=1 (lookahead compensated) and level=0 (no auto level); without the
+    // option, ffmpeg before 5.1, the limiter would shift the mix about 5 ms late
+    const lim = spawnSync('ffmpeg', ['-hide_banner', '-h', 'filter=alimiter'], { encoding: 'utf8' }).stdout || '';
+    line(/^\s*latency\s/m.test(lim) && /^\s*level\s/m.test(lim), 'ffmpeg filter option', 'alimiter latency and level (tools/mix.mjs keeps the mix sample-aligned)', `ffmpeg 5.1 or newer (${ffInstall})`);
+    const amix = spawnSync('ffmpeg', ['-hide_banner', '-h', 'filter=amix'], { encoding: 'utf8' }).stdout || '';
+    line(/^\s*normalize\s/m.test(amix), 'ffmpeg filter option', 'amix normalize (tools/mix.mjs sums the stems without rescaling them)', `ffmpeg 5.0 or newer (${ffInstall})`);
     line(has(mux, 'hash'), 'ffmpeg muxer', 'hash (decoded-video hash in render.json)', ffInstall);
     const fp = spawnSync('ffprobe', ['-hide_banner', '-version'], { encoding: 'utf8' });
     line(fp.status === 0, 'ffprobe', fp.status === 0 ? 'found' : 'not found on PATH', ffInstall);

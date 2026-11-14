@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-Planned for v1 (the storyboard, voice-driven timing and captions are built and in review):
+Planned for v1 (the storyboard, voice-driven timing and captions are built; mix and master and footage are built and in review):
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -26,12 +26,12 @@ Planned for v1 (the storyboard, voice-driven timing and captions are built and i
 
 Early build, not ready for use yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
 engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
-video render, `doctor`, and CI on macOS and Linux. Phase P1 is in review: the storyboard (`board.js`, the board
+video render, `doctor`, and CI on macOS and Linux. Phase P1 is merged (PR #2): the storyboard (`board.js`, the board
 sheet, the slate scene), voice-driven timing (`tools/cues.mjs`, with the hook gate), the optional ElevenLabs voice
-tool, and captions. Mix and master, footage and `check` come in P2 and P3, and the skill text (SKILL.md is a stub
-for now) in P4.
+tool, and captions. Phase P2 is in review: mix and master (`tools/mix.mjs`) and footage (`tools/frames.mjs`,
+`loadSeq` and `seqAt`). `check` comes in P3, and the skill text (SKILL.md is a stub for now) in P4.
 
-## Storyboard and voice (P1, in review)
+## Storyboard and voice (P1)
 
 Each piece has a `board.js`: its beats in order, each with a voice line (`vo`) or a length (`dur`), the
 on-screen copy, a visual note and a sound note. The scene builds its timeline from it (`beatWindow(id)`,
@@ -72,6 +72,58 @@ node render.mjs board                       # the board sheet again, with the re
   default model: the current one that reads delivery tags is `eleven_v4` (ElevenLabs' docs, checked
   2026-11-13).
 
+## Mix, master and footage (P2, in review)
+
+`tools/mix.mjs` puts the sound under a rendered picture and masters it for social. Run it in the piece's
+folder after `node render.mjs full --out out/<name>.mp4` (which also writes the effects as `out/<name>.wav`):
+
+```sh
+node tools/mix.mjs piece                             # voice (vo.wav), bed.mp3 if there is one, effects: -14 LUFS
+node tools/mix.mjs piece --bed music.mp3 --bed-skip 1.2 --bed-at cue:save --mute 6.0-7.5
+node tools/mix.mjs animatic --no-bed --no-sfx        # the animatic: the slate picture and the voice alone
+node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, for a clip cut into another video
+```
+
+- **What it writes.** `out/<name>-final.mp4`: the picture copied untouched, the mix as AAC 256 kb/s, 48 kHz,
+  `+faststart`. `out/<name>.master.json`: the mode, the loudness target, the voice delay it applied, a hash of
+  every input and of the render record it read, and the master's own hashes, so `check --file` (P3) can tie the
+  master to the render it came from. A refusal writes nothing and leaves the last master as it was.
+- **Voice.** Measured (EBU R128) and levelled to -24 LUFS, then `--vo-gain` (3.2), and delayed by `VO_OFFSET`
+  from `cues.json`. A take quieter than -50 LUFS stops the mix.
+- **Bed.** `--bed-gain` (0.22); `--bed-skip` seconds cut from its start; by default it starts so its end lands on
+  the last frame (at 0 when it is longer than the picture), or at `--bed-at` seconds or `cue:<beat id>`. It fades
+  out where it stops (0.35 s, or 2.6 s when it is longer than the picture), is silent over each `--mute a-b`
+  window (picture time, with a short ramp outside it), and ducks under the voice.
+- **Effects and other stems.** `out/<name>.wav` at `--sfx-gain` (0.9), and any `--stem file:gain:delay`, such as a
+  clip's own sound.
+- **Modes.** Default: -14 LUFS, -2.0 dBTP. `--master-only` masters the effects alone at the same target;
+  `--sting` at -20 LUFS, -3.0 dBTP. `--target-lufs` and `--tp` override. The stems are summed, limited at
+  -6 dBFS, then normalized in two `loudnorm` passes.
+- **Comparing mixers.** `--keep-premix` keeps the mix before normalization as `out/<name>.premix.wav`, and
+  `node scripts/parity.mjs <premixA> <premixB> <masterA> <masterB>` (from this repo) compares two: their 100 ms
+  levels, their lengths, and the masters' loudness and true peak. It also measures the lag between the premixes
+  (within 20 ms), which must be the one you state with `--lag <ms>` (default 0). State a latency only when you
+  know its cause: a limiter whose lookahead is not compensated delays its mixer's whole output by the lookahead.
+  B is shifted by the stated lag before the levels are compared, so a lag nobody stated (the voice alone a few
+  milliseconds late, say) misses instead of being lined up.
+
+`tools/frames.mjs` turns a clip or screen recording into a frame sequence the scene draws frame-exact:
+
+```sh
+node tools/frames.mjs demo capture.mov --from 12.5 --dur 4 --vf "crop=1080:1080:420:0,scale=540:540"
+```
+
+It writes `assets/seq/demo/000.jpg ...` at the piece's frame rate (`round(dur x fps)` frames) and records the
+sequence in `assets/seq/manifest.json`. In the scene, `await loadSeq('demo')` in `init`, then
+`ctx.drawImage(seqAt('demo', t, 2.0), x, y, w, h)` draws the frame for `t` with the clip starting at 2.0 s:
+the first frame before that, the last frame held at the end, or `seqAt('demo', t, 2.0, { loop: true })` to loop.
+Every frame stays decoded in memory (width x height x 4 bytes), so crop and scale with `--vf` to the size the
+scene draws; `frames.mjs` prints the total and warns over 1 GB. Measured on an Apple-silicon Mac with 48 GB
+(Chrome 157, 2026-11-14), Chrome's memory grows by about that total: a 20 s sequence at 30 fps, 960x540
+(1.16 GB decoded), added 1.24 GB and decoded in 0.5 s; at 960x1706 (3.66 GB decoded) it added 3.6 GB and decoded
+in 1.2 s. Both rendered. The limit is the machine's free memory, so keep a sequence well under it, and smaller on
+CI runners. The clip's sound goes in through `mix.mjs --stem` (the tool's header shows the ffmpeg line).
+
 ## Requirements
 
 - **Node** 22 or 24.
@@ -110,6 +162,8 @@ npm ci
 npm test                                   # every suite
 npm run test:engine                        # determinism, frame count and container, alpha, scene swap, board sheet
 npm run test:voice                         # cues, board timing, the ElevenLabs tool against a local fake server
+npm run test:mix                           # the mixer, control by control, and the parity script
+npm run test:footage                       # frame sequences: the cut, the manifest, seqAt in a render
 npm run test:repo                          # leak check and asset inventory
 ```
 
@@ -119,7 +173,12 @@ API and spends credits, so it is skipped unless you ask for it:
 `SM_LIVE=elevenlabs SM_LIVE_MODEL=eleven_v4 ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... node --test test/voice-live.test.mjs`.
 
 The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece) and `test/fixtures/fixture-board`
-(a five-beat board) at scale 0.25 in throwaway copies of the template under `test/.work/`. `ASSETS.md` lists every binary file with its source and licence, and a test
+(a five-beat board) at scale 0.25 in throwaway copies of the template under `test/.work/`. The mix suite renders
+`test/fixtures/fixture-mix` (8 s, its effects a tick train) once and mixes synthetic stems under it: tone bursts
+for a voice, seeded noise with an exact-zero marker for a bed. Each control is measured from the output audio
+(sample positions and gains on the kept premix, loudness and true peak on the master). The footage suite cuts
+ffmpeg-generated clips whose frames carry their own numbers, renders `test/fixtures/fixture-footage`, and reads
+back which frame `seqAt` drew. `ASSETS.md` lists every binary file with its source and licence, and a test
 keeps it complete.
 
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist
