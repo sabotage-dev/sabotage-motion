@@ -38,7 +38,8 @@
 //   effects  x --sfx-gain (0.9; 1.0 in --master-only and --sting, where there is nothing to balance against).
 //   stems    --stem file:gain:delay, x gain (default 1), starting delay seconds into the picture (default 0).
 //   Every stem is decoded to 48 kHz stereo (ffmpeg's own up/downmix), cut or padded to the picture's length,
-//   summed without normalization, limited at -6 dBFS (alimiter, lookahead compensated), then normalized in two
+//   summed without normalization, limited at -6 dBFS (alimiter, attack 5 ms and release 60 ms as in the mixer this
+//   was ported from, its 5 ms lookahead compensated so the mix stays on the picture), then normalized in two
 //   passes (loudnorm at the target, LRA 11, linear when the true peak allows it).
 // It checks every input before it writes anything, and replaces the last master and its master.json only
 // once the new master is encoded and measured, so a refusal or a failed run leaves them as they were. The defaults (bed 0.22, effects 0.9, voice 3.2 after levelling) are a starting point, not a rule.
@@ -62,7 +63,7 @@ export const DEFAULTS = {
   voLevel: -24, voFloor: -50,                 // LUFS: the voice is levelled to voLevel; quieter than voFloor stops the mix
   fadeShort: 0.35, fadeLong: 2.6, muteRamp: 0.05,
   duck: { threshold: 0.02, ratio: 5, attack: 25, release: 350 },
-  limit: -6, lra: 11,
+  limit: -6, limitAttack: 5, limitRelease: 60, lra: 11,
 };
 
 // A refusal: every reason at once, so they can all be fixed in one go.
@@ -379,7 +380,7 @@ export function mixPiece(argv, log = console.log) {
     }
     if (rest) parts.push(`[${lab.rest}]`);
     const sum = parts.length > 1 ? `${parts.join('')}amix=inputs=${parts.length}:normalize=0:duration=first` : `${parts[0]}anull`;
-    graph.push(`${sum},alimiter=limit=${fmt(lin(DEFAULTS.limit), 6)}:level=0:latency=1,atrim=end_sample=${frames},aformat=sample_fmts=flt:sample_rates=${SR}:channel_layouts=stereo[out]`);
+    graph.push(`${sum},alimiter=limit=${fmt(lin(DEFAULTS.limit), 6)}:attack=${DEFAULTS.limitAttack}:release=${DEFAULTS.limitRelease}:level=0:latency=1,atrim=end_sample=${frames},aformat=sample_fmts=flt:sample_rates=${SR}:channel_layouts=stereo[out]`);
     const premix = o['keep-premix'] ? premixOut + `.tmp-${process.pid}.wav` : path.join(tmp, 'premix.wav');
     run(['-y', ...inputs.flatMap((f) => ['-i', f]), '-filter_complex', graph.join(';'), '-map', '[out]', '-c:a', 'pcm_f32le', premix], 'premix');
 
@@ -420,7 +421,7 @@ export function mixPiece(argv, log = console.log) {
       picture: { file: rel(picture), sha256: rec.sha256 },
       cues: cues ? { file: rel(cuesFile), sha256: sha256File(cuesFile), VO_OFFSET: cues.VO_OFFSET } : null,
       stems: stemRecord,
-      chain: { voLevel: DEFAULTS.voLevel, duck: bed && voice ? d : null, limit: DEFAULTS.limit, lra: target.lra, loudnorm: m2 ? m2.normalization_type : null },
+      chain: { voLevel: DEFAULTS.voLevel, duck: bed && voice ? d : null, limit: DEFAULTS.limit, limitAttack: DEFAULTS.limitAttack, limitRelease: DEFAULTS.limitRelease, lra: target.lra, loudnorm: m2 ? m2.normalization_type : null },
       measured: {
         voice: voice ? { lufs: voice.lufs, levelDb: voice.levelDb } : null,
         premix: { lufs: preI, tp: preTp, lra: +m1.input_lra, thresh: +m1.input_thresh },

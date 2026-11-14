@@ -101,7 +101,9 @@ node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, f
   -6 dBFS, then normalized in two `loudnorm` passes.
 - **Comparing mixers.** `--keep-premix` keeps the mix before normalization as `out/<name>.premix.wav`, and
   `node scripts/parity.mjs <premixA> <premixB> <masterA> <masterB>` (from this repo) compares two: their 100 ms
-  levels from the first sample, and the masters' loudness and true peak.
+  levels, and the masters' loudness and true peak. A constant lag of up to 20 ms between the premixes (a limiter
+  whose lookahead is not compensated delays everything by it) is measured, reported and taken out first;
+  `--no-align` compares them from the first sample.
 
 `tools/frames.mjs` turns a clip or screen recording into a frame sequence the scene draws frame-exact:
 

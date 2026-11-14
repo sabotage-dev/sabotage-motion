@@ -78,7 +78,7 @@ test('the window tolerance: every window 0.4 dB louder passes, 0.6 dB misses (ne
   assert.match(r.out, /parity: MISS \(envelope\)/);
 });
 
-test('two silences match, and the premixes are aligned on their first sample, not searched for the best fit', () => {
+test('two silences match, and a shift far beyond the 20 ms lag search is not aligned away', () => {
   const b = premixA();
   for (let i = frameOf(8.0) * 2; i < frameOf(9.0) * 2; i++) b[i] = 1e-5 * ((i % 7) - 3);   // about -94 dBFS where A is exact zeros: 10 windows
   assert.equal(parity(write('floor', b), MA).status, 0);
@@ -86,7 +86,46 @@ test('two silences match, and the premixes are aligned on their first sample, no
   late.set(premixA(), frameOf(0.3) * 2);
   const r = parity(write('late', late), MA);
   assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /no clear lag within 20 ms/);
   assert.match(r.out, /parity: MISS \(envelope\)/);
+});
+
+// 20 ms noise bursts every 200 ms, each starting 3 ms before a window boundary, so every window holds 3 ms or 17 ms
+// of one burst: a few milliseconds of lag moves energy across the boundary, and every window changes level.
+function bursts() {
+  const n = frameOf(10), out = new Float32Array(n * 2);
+  let s = 11;
+  const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s / 4294967296) * 2 - 1; };
+  for (let w = 2; w < 100; w += 2) for (let j = frameOf(w * 0.1 - 0.003); j < frameOf(w * 0.1 + 0.017); j++) { out[2 * j] = 0.2 * rnd(); out[2 * j + 1] = 0.2 * rnd(); }
+  return out;
+}
+const lagged = (x, frames) => { const n = x.length >> 1, out = new Float32Array(x.length); for (let j = 0; j < n; j++) { const k = j - frames; if (k >= 0 && k < n) { out[2 * j] = x[2 * k]; out[2 * j + 1] = x[2 * k + 1]; } } return out; };
+test('a constant lag within 20 ms (a limiter lookahead) is measured, reported and taken out; --no-align keeps it', () => {
+  const A2 = write('bursts', bursts());
+  const run = (b, extra = []) => {
+    const r = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A2, b, MA, MA, ...extra], { encoding: 'utf8' });
+    return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+  };
+  const ahead = write('bursts-ahead', lagged(bursts(), -240)), behind = write('bursts-behind', lagged(bursts(), 240));
+  const r1 = run(ahead);
+  assert.equal(r1.status, 0, r1.out);
+  assert.match(r1.out, /B runs ahead of A by 240 frames \(5\.00 ms\), a constant lag, taken out/);
+  assert.match(r1.out, /100\.0% of windows within 0\.5 dB \(needs at least 95%\), [0-4]\.\d% without taking the lag out/, 'only the silent windows at the ends match unaligned');
+  const r2 = run(behind, ['--json']);
+  assert.equal(r2.status, 0, r2.out);
+  const j = JSON.parse(r2.out);
+  assert.equal(j.premix.align.applied, 240);
+  assert.ok(j.premix.align.corr > 0.99, String(j.premix.align.corr));
+  const r3 = run(ahead, ['--no-align']);
+  assert.equal(r3.status, 1, r3.out);
+  assert.match(r3.out, /aligned on the first sample \(no lag search\)/);
+  const r4 = run(write('bursts-30ms', lagged(bursts(), frameOf(0.03))));
+  assert.equal(r4.status, 1, r4.out);
+  assert.match(r4.out, /no clear lag within 20 ms/);
+  // exactly 20 ms: the best fit sits on the search limit, where the true lag may lie beyond it, so it is not taken out
+  const r5 = run(write('bursts-20ms', lagged(bursts(), -frameOf(0.02))));
+  assert.equal(r5.status, 1, r5.out);
+  assert.match(r5.out, /no clear lag within 20 ms \(best -960 frames \(20\.00 ms\), at the search limit/);
 });
 
 // Master B: the noise louder by dB, the spike (and so the true peak) left where it was; or the spike moved
@@ -115,7 +154,7 @@ test('--json prints the measurements; a missing argument or an unreadable file e
   const j = JSON.parse(r.out);
   assert.equal(j.pass, true);
   assert.equal(j.premix.windows, 100);
-  assert.deepEqual(j.thresholds, { windowSec: 0.1, withinDb: 0.5, share: 0.95, lufs: 0.5, tp: 0.5, floorDb: -70 });
+  assert.deepEqual(j.thresholds, { windowSec: 0.1, withinDb: 0.5, share: 0.95, lufs: 0.5, tp: 0.5, floorDb: -70, maxLagMs: 20 });
   const few = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A, A, MA], { encoding: 'utf8' });
   assert.equal(few.status, 2);
   assert.equal(parity(path.join(work, 'nope.wav'), MA).status, 2);

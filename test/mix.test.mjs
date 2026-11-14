@@ -269,6 +269,7 @@ test('master.json records the inputs, the render it read and the master it wrote
   for (const s of j.stems) assert.equal(s.sha256, sha256File(P(dir, want[s.role])), `${s.role} hash`);
   assert.deepEqual(j.stems.map((s) => [s.role, s.gain]), [['voice', 3.2], ['bed', 0.22], ['effects', 0.9]]);
   assert.equal(j.chain.limit, -6);
+  assert.deepEqual([j.chain.limitAttack, j.chain.limitRelease], [5, 60], 'the limiter times of the mixer this was ported from');
   assert.deepEqual(j.chain.duck, { threshold: 0.02, ratio: 5, attack: 25, release: 350 });
   assert.equal(j.premix, null);
   const v = videoStream(ffprobe(P(dir, 'out/mix-final.mp4'))), a = audioStream(ffprobe(P(dir, 'out/mix-final.mp4')));
