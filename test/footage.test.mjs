@@ -96,6 +96,24 @@ test('a source too short is refused, and the old sequence stays as it was', () =
   assert.equal(frames(dir, ['clip', 'src30.mp4']).status, 2, '--dur is required');
 });
 
+test('a manifest that cannot be read refuses a re-cut before the old frames go', () => {
+  const dir = piece('footage-bad-manifest');
+  assert.equal(frames(dir, ['clip', 'src30.mp4', '--dur', '0.5']).status, 0);
+  const before = seqFiles(dir, 'clip'), mf = P(dir, 'assets/seq/manifest.json');
+  for (const bad of ['{ not json', '[1, 2]']) {
+    fs.writeFileSync(mf, bad);
+    const r = frames(dir, ['clip', 'src30.mp4', '--dur', '1.0']);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /assets\/seq\/manifest\.json is not (JSON|an object of sequences)/);
+    assert.deepEqual(seqFiles(dir, 'clip'), before, 'the old 15 frames are still there');
+    assert.equal(fs.readFileSync(mf, 'utf8'), bad, 'the manifest is left for the operator to fix');
+  }
+  assert.ok(!fs.readdirSync(P(dir, 'assets/seq')).some((f) => f.includes('.tmp-')), 'no temporary folder left behind');
+  fs.rmSync(mf);
+  assert.equal(frames(dir, ['clip', 'src30.mp4', '--dur', '1.0']).status, 0);
+  assert.equal(seqFiles(dir, 'clip').length, 30);
+});
+
 test('seqIndex: frame floor((t - t0) x fps), the first frame before t0, the last one held, or looped', () => {
   const { seqIndex } = lib;
   // every render frame time f / FPS lands on its own sequence frame, including the ones float math puts a hair low

@@ -101,9 +101,11 @@ node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, f
   -6 dBFS, then normalized in two `loudnorm` passes.
 - **Comparing mixers.** `--keep-premix` keeps the mix before normalization as `out/<name>.premix.wav`, and
   `node scripts/parity.mjs <premixA> <premixB> <masterA> <masterB>` (from this repo) compares two: their 100 ms
-  levels, and the masters' loudness and true peak. A constant lag of up to 20 ms between the premixes (a limiter
-  whose lookahead is not compensated delays everything by it) is measured, reported and taken out first;
-  `--no-align` compares them from the first sample.
+  levels, their lengths, and the masters' loudness and true peak. It also measures the lag between the premixes
+  (within 20 ms), which must be the one you state with `--lag <ms>` (default 0). State a latency only when you
+  know its cause: a limiter whose lookahead is not compensated delays its mixer's whole output by the lookahead.
+  B is shifted by the stated lag before the levels are compared, so a lag nobody stated (the voice alone a few
+  milliseconds late, say) misses instead of being lined up.
 
 `tools/frames.mjs` turns a clip or screen recording into a frame sequence the scene draws frame-exact:
 

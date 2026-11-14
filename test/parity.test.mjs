@@ -78,7 +78,7 @@ test('the window tolerance: every window 0.4 dB louder passes, 0.6 dB misses (ne
   assert.match(r.out, /parity: MISS \(envelope\)/);
 });
 
-test('two silences match, and a shift far beyond the 20 ms lag search is not aligned away', () => {
+test('two silences match, and a shift far beyond the 20 ms lag search names no lag and misses', () => {
   const b = premixA();
   for (let i = frameOf(8.0) * 2; i < frameOf(9.0) * 2; i++) b[i] = 1e-5 * ((i % 7) - 3);   // about -94 dBFS where A is exact zeros: 10 windows
   assert.equal(parity(write('floor', b), MA).status, 0);
@@ -87,7 +87,19 @@ test('two silences match, and a shift far beyond the 20 ms lag search is not ali
   const r = parity(write('late', late), MA);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /no clear lag within 20 ms/);
-  assert.match(r.out, /parity: MISS \(envelope\)/);
+  assert.match(r.out, /parity: MISS \(length, envelope\)/);
+});
+
+test('the lengths: B a whole second short misses even where every window it has matches; 50 ms longer passes', () => {
+  const short = parity(write('short', premixA().subarray(0, frameOf(9) * 2)), MA);
+  assert.equal(short.status, 1, short.out);
+  assert.match(short.out, /length {5}1\.000 s apart \(needs at most 0\.1 s\) {2}MISS/);
+  assert.match(short.out, /100\.0% of windows within 0\.5 dB/);
+  assert.match(short.out, /parity: MISS \(length\)/);
+  const long = new Float32Array(frameOf(10.05) * 2);
+  long.set(premixA());
+  const r = parity(write('long50', long), MA);
+  assert.equal(r.status, 0, r.out);
 });
 
 // 20 ms noise bursts every 200 ms, each starting 3 ms before a window boundary, so every window holds 3 ms or 17 ms
@@ -100,32 +112,57 @@ function bursts() {
   return out;
 }
 const lagged = (x, frames) => { const n = x.length >> 1, out = new Float32Array(x.length); for (let j = 0; j < n; j++) { const k = j - frames; if (k >= 0 && k < n) { out[2 * j] = x[2 * k]; out[2 * j + 1] = x[2 * k + 1]; } } return out; };
-test('a constant lag within 20 ms (a limiter lookahead) is measured, reported and taken out; --no-align keeps it', () => {
-  const A2 = write('bursts', bursts());
-  const run = (b, extra = []) => {
-    const r = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A2, b, MA, MA, ...extra], { encoding: 'utf8' });
-    return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
-  };
+const runOn = (a, b, extra = []) => {
+  const r = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), a, b, MA, MA, ...extra], { encoding: 'utf8' });
+  return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+};
+test('a lag is measured and must be the one --lag states: then B is shifted by it; unstated, it misses', () => {
+  const A2 = write('bursts', bursts()), run = (b, extra) => runOn(A2, b, extra);
   const ahead = write('bursts-ahead', lagged(bursts(), -240)), behind = write('bursts-behind', lagged(bursts(), 240));
-  const r1 = run(ahead);
+  const r1 = run(ahead, ['--lag', '-5']);
   assert.equal(r1.status, 0, r1.out);
-  assert.match(r1.out, /B runs ahead of A by 240 frames \(5\.00 ms\), a constant lag, taken out/);
-  assert.match(r1.out, /100\.0% of windows within 0\.5 dB \(needs at least 95%\), [0-4]\.\d% without taking the lag out/, 'only the silent windows at the ends match unaligned');
-  const r2 = run(behind, ['--json']);
+  assert.match(r1.out, /B runs ahead of A by 240 frames \(5\.00 ms\) \(correlation 1\.00\), the latency --lag -5\.00 states; B is shifted by it before comparing {2}ok/);
+  assert.match(r1.out, /100\.0% of windows within 0\.5 dB \(needs at least 95%\), [0-4]\.\d% without that shift/, 'only the silent windows at the ends match unshifted');
+  const r2 = run(behind, ['--lag', '5', '--json']);
   assert.equal(r2.status, 0, r2.out);
   const j = JSON.parse(r2.out);
-  assert.equal(j.premix.align.applied, 240);
+  assert.deepEqual([j.premix.align.measured, j.premix.align.applied, j.checks.lag], [240, 240, true]);
   assert.ok(j.premix.align.corr > 0.99, String(j.premix.align.corr));
-  const r3 = run(ahead, ['--no-align']);
+  // the same lag, unstated: measured and reported, never taken out
+  const r3 = run(ahead);
   assert.equal(r3.status, 1, r3.out);
-  assert.match(r3.out, /aligned on the first sample \(no lag search\)/);
-  const r4 = run(write('bursts-30ms', lagged(bursts(), frameOf(0.03))));
+  assert.match(r3.out, /B runs ahead of A by 240 frames \(5\.00 ms\) \(correlation 1\.00\), but no lag was stated: a timing fault, or a known latency \(a limiter lookahead\) to state with --lag -5\.00 {2}MISS/);
+  assert.match(r3.out, /parity: MISS \(lag, envelope\)/);
+  // a stated lag that is not there, or the wrong way round
+  assert.match(run(write('bursts-same', bursts()), ['--lag', '-5']).out, /no lag between them \(correlation 1\.00\), not the 240 frames \(5\.00 ms\) ahead --lag -5\.00 states {2}MISS/);
+  assert.match(run(behind, ['--lag', '-5']).out, /parity: MISS \(lag, envelope\)/);
+  // 1 frame from the stated lag is inside the 0.1 ms tolerance (the private mixer measured 239 frames for its 240)
+  assert.equal(run(write('bursts-239', lagged(bursts(), -239)), ['--lag', '-5']).status, 0);
+  const far = write('bursts-30ms', lagged(bursts(), frameOf(0.03))), r4 = run(far);
   assert.equal(r4.status, 1, r4.out);
-  assert.match(r4.out, /no clear lag within 20 ms/);
-  // exactly 20 ms: the best fit sits on the search limit, where the true lag may lie beyond it, so it is not taken out
+  assert.match(r4.out, /no clear lag within 20 ms.*, and none was stated {2}ok/);
+  // no clear lag cannot confirm a stated one
+  assert.match(run(far, ['--lag', '5']).out, /no clear lag within 20 ms.*, not the 240 frames \(5\.00 ms\) behind --lag \+5\.00 states {2}MISS/);
+  // exactly 20 ms: the best fit sits on the search limit, where the true lag may lie beyond it, so it names no lag
   const r5 = run(write('bursts-20ms', lagged(bursts(), -frameOf(0.02))));
   assert.equal(r5.status, 1, r5.out);
   assert.match(r5.out, /no clear lag within 20 ms \(best -960 frames \(20\.00 ms\), at the search limit/);
+  for (const bad of [['--lag', '20'], ['--lag', '-25'], ['--lag', 'x'], ['--lag'], ['--no-align']]) assert.equal(run(ahead, bad).status, 2, bad.join(' '));
+});
+
+// The council's case (round 1, F1): only B's voice runs 5 ms late, over a steady bed that does not move. The voice
+// dominates A's loudest 4 s, so the measured lag is the voice's; lining it up would have shifted the bed instead, and
+// a steady bed's 100 ms levels barely move, so the envelope alone would pass. The lag check catches it.
+test('a timing fault in one part of the mix (the voice alone 5 ms late) is a lag nobody stated, and misses', () => {
+  const bed = (() => { const n = frameOf(10), out = new Float32Array(n * 2); let s = 23; const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s / 4294967296) * 2 - 1; }; for (let i = 0; i < out.length; i++) out[i] = 0.03 * rnd(); return out; })();
+  const sum = (x, y) => x.map((v, i) => v + y[i]);
+  const A3 = write('voice-bed', sum(bed, bursts())), B3 = write('voice-late-bed', sum(bed, lagged(bursts(), 240)));
+  const r = runOn(A3, B3, ['--json']);
+  assert.equal(r.status, 1, r.out);
+  const j = JSON.parse(r.out);
+  assert.ok(Math.abs(j.premix.align.measured - 240) <= 2 && j.premix.align.found, JSON.stringify(j.premix.align));
+  assert.deepEqual([j.checks.length, j.checks.lag], [true, false]);
+  assert.ok(j.premix.align.corr < 0.99, 'the bed did not move, so the fit is not perfect');
 });
 
 // Master B: the noise louder by dB, the spike (and so the true peak) left where it was; or the spike moved
@@ -154,7 +191,7 @@ test('--json prints the measurements; a missing argument or an unreadable file e
   const j = JSON.parse(r.out);
   assert.equal(j.pass, true);
   assert.equal(j.premix.windows, 100);
-  assert.deepEqual(j.thresholds, { windowSec: 0.1, withinDb: 0.5, share: 0.95, lufs: 0.5, tp: 0.5, floorDb: -70, maxLagMs: 20 });
+  assert.deepEqual(j.thresholds, { windowSec: 0.1, withinDb: 0.5, share: 0.95, lufs: 0.5, tp: 0.5, floorDb: -70, maxLagMs: 20, lagTolMs: 0.1 });
   const few = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A, A, MA], { encoding: 'utf8' });
   assert.equal(few.status, 2);
   assert.equal(parity(path.join(work, 'nope.wav'), MA).status, 2);

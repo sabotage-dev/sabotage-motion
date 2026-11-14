@@ -7,7 +7,8 @@
 //
 // Reads, in the piece (this tool's parent folder; relative paths resolve against it, like render.mjs):
 //   out/<name>.mp4               the picture, from `node render.mjs video` or `full`
-//   out/<name>.mp4.render.json   its render record (written by render.mjs; the mix refuses a picture without one)
+//   out/<name>.mp4.render.json   its render record (written by render.mjs; the mix refuses a picture without one, or
+//                                one whose hash, frame count or fps is not the picture's own)
 //   out/<name>.wav               the synthesized effects, from `node render.mjs full` or `audio` (skip with --no-sfx)
 //   vo.wav and cues.json         the voice and its VO_OFFSET, from tools/cues.mjs (default mode only)
 //   bed.mp3                      a music bed, when there is one (--bed names another file, --no-bed leaves it out)
@@ -191,6 +192,16 @@ function decodedVideoHash(file) {
   if (!m) throw new MixError(`could not hash the decoded video of ${rel(file)}: ${r.stderr || r.error}`);
   return 'sha256:' + m[1];
 }
+// The picture's own frame count (its packets, counted) and frame rate, so the render record can be checked against
+// the video it describes. Null when ffprobe cannot read a video stream.
+function probeVideo(file) {
+  const r = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_packets', '-show_entries', 'stream=nb_read_packets,r_frame_rate', '-of', 'json', file], { encoding: 'utf8' });
+  if (r.error) throw new MixError(`could not run ffprobe: ${r.error.message}`);
+  const s = r.status === 0 && (JSON.parse(r.stdout || '{}').streams || [])[0];
+  if (!s) return null;
+  const [p, q] = String(s.r_frame_rate).split('/').map(Number);
+  return { frames: Number(s.nb_read_packets), fps: q ? p / q : p };
+}
 
 // ---------------------------------------------------------------- the bed
 
@@ -253,8 +264,19 @@ export function mixPiece(argv, log = console.log) {
   else {
     try { rec = JSON.parse(fs.readFileSync(recFile, 'utf8')); } catch (e) { problems.push(`out/${name}.mp4.render.json is not JSON: ${e.message}`); }
     if (rec) {
-      if (rec.sha256 !== sha256File(picture)) problems.push(`out/${name}.mp4 changed after the render that out/${name}.mp4.render.json describes: render it again`);
+      const same = rec.sha256 === sha256File(picture);
+      if (!same) problems.push(`out/${name}.mp4 changed after the render that out/${name}.mp4.render.json describes: render it again`);
       if (!(rec.frames > 0) || !(rec.fps > 0)) problems.push(`out/${name}.mp4.render.json has no frame count or fps`);
+      else if (same) {
+        // the hash ties the record to the file, but the mix's length and master.json come from the record's frames
+        // and fps, so they must also be the video's own
+        const v = probeVideo(picture);
+        if (!v) problems.push(`ffprobe found no video stream in out/${name}.mp4`);
+        else {
+          if (v.frames !== rec.frames) problems.push(`out/${name}.mp4 holds ${v.frames} frames, but out/${name}.mp4.render.json says ${rec.frames}: render it again`);
+          if (!(Math.abs(v.fps - rec.fps) < 1e-3)) problems.push(`out/${name}.mp4 runs at ${fmt(v.fps)} fps, but out/${name}.mp4.render.json says ${rec.fps}: render it again`);
+        }
+      }
       if (rec.from && rec.from > 0) problems.push(`out/${name}.mp4 is a partial render (from ${rec.from} s): mix a render that starts at the first frame`);
     }
   }

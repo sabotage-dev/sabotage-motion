@@ -129,18 +129,24 @@ export async function cutFrames(argv, log = console.log) {
       throw new FramesError(`${srcArg} gave ${got} of the ${count} frames asked for (${fmt(dur, 2)} s from ${fmt(from, 2)} s at ${fps} fps): is the source long enough?`);
     }
     const { w, h } = probeSize(path.join(tmp, '000.jpg'));
-    fs.rmSync(out, { recursive: true, force: true });
-    fs.renameSync(tmp, out);
 
+    // The manifest is read before the old frames go, so one that cannot be read refuses with the old sequence still
+    // in place. This sequence's entry is dropped before the swap and written again after it: a crash in between
+    // leaves no entry (loadSeq then refuses the name) rather than the old entry describing the new frames.
     let manifest = {};
     if (fs.existsSync(MANIFEST)) {
       try { manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8')); } catch (e) { throw new FramesError(`assets/seq/manifest.json is not JSON (${e.message}): fix or delete it`); }
+      if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new FramesError('assets/seq/manifest.json is not an object of sequences: fix or delete it');
     }
+    const save = () => writeAtomic(MANIFEST, JSON.stringify(Object.fromEntries(Object.keys(manifest).sort().map((k) => [k, manifest[k]])), null, 2) + '\n');
+    if (Object.prototype.hasOwnProperty.call(manifest, name)) { delete manifest[name]; save(); }
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.renameSync(tmp, out);
+
     const srcRel = path.relative(ROOT, src);
     manifest[name] = { frames: count, fps, w, h, ext: 'jpg', src: srcRel.startsWith('..') || path.isAbsolute(srcRel) ? path.basename(src) : srcRel,
       from, dur, ...(o.vf ? { vf: o.vf } : {}), q };
-    const sorted = Object.fromEntries(Object.keys(manifest).sort().map((k) => [k, manifest[k]]));
-    writeAtomic(MANIFEST, JSON.stringify(sorted, null, 2) + '\n');
+    save();
 
     const mb = (count * w * h * 4) / (1 << 20);
     log(`frames: ${name}: ${count} frames at ${fps} fps (${fpsFrom}), ${w}x${h}, from ${fmt(from, 2)} s for ${fmt(dur, 2)} s of ${path.basename(src)}`);

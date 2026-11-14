@@ -311,6 +311,23 @@ test('refusals: a picture changed after its render, no render record, options th
   assert.ok(!fs.existsSync(P(dir, 'out/mix-final.mp4')));
 });
 
+test('a render record whose hash matches but whose frame count or fps is not the picture\'s own is refused', () => {
+  const dir = mixDir('mix-record-lies', { voice: TINY(), cues: TINY_CUES });
+  const recFile = P(dir, 'out/mix.mp4.render.json'), rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
+  fs.writeFileSync(recFile, JSON.stringify({ ...rec, frames: 480 }));
+  let r = runMix(dir, ['mix', '--no-bed']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /out\/mix\.mp4 holds 240 frames, but out\/mix\.mp4\.render\.json says 480/);
+  fs.writeFileSync(recFile, JSON.stringify({ ...rec, fps: 60 }));
+  r = runMix(dir, ['mix', '--no-bed']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /out\/mix\.mp4 runs at 30\.000 fps, but out\/mix\.mp4\.render\.json says 60/);
+  assert.ok(!fs.existsSync(P(dir, 'out/mix-final.mp4')));
+  fs.writeFileSync(recFile, JSON.stringify(rec));
+  r = runMix(dir, ['mix', '--no-bed']);
+  assert.equal(r.status, 0, r.out);
+});
+
 test('the animatic (plan 6.4): cues.mjs, a silent slate render, then the voice alone (--no-bed --no-sfx)', () => {
   const take = takeFixture('words.json');
   const dir = voicePiece('mix-animatic', { audio: synthAudio({ duration: take.duration, words: take.words, tags: take.tags.map((t) => ({ ...t, long: t.end - t.start > 0.2 })) }) });
