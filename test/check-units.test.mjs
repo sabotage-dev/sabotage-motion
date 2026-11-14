@@ -99,6 +99,27 @@ test('text_safe: a box inside the safe area before the camera is out when the ca
   assert.deepEqual(levels(C.textSafe(still, { fps: FPS, safe: SAFE, windows: piece })), ['OK']);
 });
 
+test('text_safe on tiktok-ad: a box inside the safe rectangle but in the button column FAILs; moved left, or just touching the column, it passes', async () => {
+  const fs = await import('node:fs'), path = await import('node:path'), { templateDir } = await import('./helpers.mjs');
+  const z = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'), 'utf8')).targets['tiktok-ad'];
+  const run = (x) => C.textSafe(samples(0, 30, 8, () => [box('col', 'COL', x, 1000, 100, 60)]),
+    { fps: FPS, safe: z.safe, exclude: z.exclude, windows: piece, estimate: z.estimate, target: 'tiktok-ad' });
+  assert.ok(C.insideRect({ x: 800, y: 1000, w: 100, h: 60 }, z.safe), 'the box is inside the safe rectangle');
+  const x = run(800);
+  assert.deepEqual(levels(x), ['FAIL']); near(x[0].measured, 1.0, 1e-4);
+  assert.match(x[0].detail, /outside the tiktok-ad safe area \(in an area it excludes\) for 1\.00 s/);
+  assert.deepEqual(levels(run(500)), ['OK']);
+  assert.deepEqual(levels(run(680)), ['OK'], 'its right edge on x 780, the column\'s left edge');
+  assert.deepEqual(levels(run(681)), ['FAIL']);
+});
+test('text_safe: an estimate target with an exclude rectangle WARNs instead of failing', () => {
+  const zone = { safe: SAFE, exclude: [{ x: 780, y: 840, w: 156, h: 640 }] };
+  const x = C.textSafe(samples(0, 30, 8, () => [box('col', 'COL', 800, 1000, 100, 60)]), { fps: FPS, ...zone, windows: piece, estimate: true, target: 'est' });
+  assert.deepEqual(levels(x), ['WARN']);
+  assert.match(x[0].detail, /est safe area \(estimate\) \(in an area it excludes\) for 1\.00 s/);
+  assert.match(x[0].detail, /a FAIL once the zones are measured/);
+});
+
 // ---------------------------------------------------------------- text_overlap
 test('text_overlap: more than 2% of the smaller box is a WARN; exactly 2%, one group, or apart is quiet', () => {
   const run = (bs) => C.textOverlap(samples(0, 3, 1, () => bs), { fps: FPS });

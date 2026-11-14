@@ -129,8 +129,8 @@ tools/cues.mjs  tools/voice-elevenlabs.mjs  tools/mix.mjs  tools/frames.mjs
   the skill updates. The private skill works this way today.
 - Outputs (`out/`, `stills/`, `board.png`, `contact.png`) are gitignored in the template's `.gitignore`.
 - `check.mjs` holds `check`'s detectors and thresholds as plain functions of the measurements `render.mjs` gathers
-  (added in P3, so each one is tested without a browser); `grid.js` is a scene that draws the measuring grid for a
-  target's safe zones (section 12, Q3).
+  (added in P3, so each one is tested without a browser); `grid.js` is a scene that draws a labelled grid at a
+  target's size, an optional aid for reading safe-zone edges off screenshots (section 12, Q3).
 
 ## 5. Engine contract
 
@@ -484,14 +484,30 @@ pieces, so that clean pieces pass and the planted defects in section 16 fail; th
 
 `safezones.json` holds one entry per target: canvas size, fps, and the rectangle where text and key objects belong,
 with a `source` line and a `measured` date per number. Until an entry is measured it carries `"estimate": true`, and
-`check` and the overlays say "estimate".
+`check` and the overlays say "estimate". A target may also list `exclude` rectangles inside its safe area that the
+platform covers anyway (TikTok's action-button column): text that overlaps one is outside the safe area, and the
+overlays shade it.
 
-- v1 ships `tiktok` from the owner's posted pieces (text column from x 84 to 936; content above y 1480 on 1080×1920)
-  and leaves its top edge, `reels` and `shorts` to the P3 measurement (Q3).
+- The platforms' published 9:16 safe zones for ads ship as measured targets (P3, 2026-11-14). They are stricter than
+  organic posts, so they are targets of their own rather than replacements:
+  - `tiktok-ad`: x 120 to 960, y 240 to 1260, less the action-button column at x 780 to 960 from y 840 down (an
+    `exclude`). From TikTok's In-Feed safe zone template, "In-Feed-Standard Version LTR.zip" (Feed.png, dated
+    2025-04-14, drawn on a 720x1280 grid: 80 at the sides, 160 top, 440 bottom, a 120-wide button column over the
+    bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads, measured from the PNG at
+    1080x1920.
+  - `reels-ad`: x 65 to 1015, y 269 to 1248. From Meta's ads guide for Instagram Reels
+    (facebook.com/business/ads-guide/update/video/instagram-reels): "Consider leaving at least 14% of the top, 35% of
+    the bottom, and 6% on each side of your asset free from text, logos...", rounded to whole pixels.
+  - `shorts-ad`: x 48 to 888, y 288 to 1248. From Google Ads Help, "Safe zones for vertical video ads on YouTube"
+    (support.google.com/google-ads/answer/16041697): the reference image's labels, 288 top, 672 bottom, 48 left,
+    192 right on 1080x1920.
+- The organic targets `tiktok`, `reels` and `shorts` stay estimates until the owner measures them from in-app
+  screenshots of videos already posted (Q3). `tiktok` starts from the owner's posted pieces (text column from x 84 to
+  936; content above y 1480 on 1080×1920), its top edge a guess.
 - While a target is an estimate, `text_safe` reports WARN instead of FAIL for it.
 - `references/delivery.md` drops its own percentages and points at `safezones.json`, so the guide and the check
   never disagree.
-- Overlays: `contact --safe` and `board --safe` shade the unsafe area on every panel.
+- Overlays: `contact --safe` and `board --safe` shade the unsafe area, excluded rectangles included, on every panel.
 - The 9:16 review sheet at phone width is a documented flag combination (`contact --scale 0.333`), not a new mode.
 
 ## 13. Platforms and dependencies
@@ -687,7 +703,7 @@ mutations before the round.
 |---|---|---|
 | Q1 | Port the private Python and shell tools to Node? | Yes: one runtime (D6). |
 | Q2 | Where does the example's voice come from? | An openly licensed TTS voice whose licence allows redistribution, licence file in the example folder; chosen in P4. Never the owner's voice. |
-| Q3 | How are safe zones measured? | The owner posts a private or unlisted 1080×1920 grid test video to each platform in P3 and measures the overlays from screenshots in each app. Targets not measured by release ship as `"estimate": true`. |
+| Q3 | How are safe zones measured? | The published ad zones come from the platforms' own specs (`tiktok-ad`, `reels-ad`, `shorts-ad`; section 12). Organic zones are measured from in-app screenshots of videos the owner has already posted, not a separate grid video (owner, 2026-11-14). Targets not measured by release ship as `"estimate": true`. |
 | Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a stale or unmatched master, a wrong file, wrong loudness, a voice delay that differs from `VO_OFFSET`, a late hook, text outside a measured safe area for more than 0.25 s in a beat, a missing font; WARN for craft and for anything measured against an estimate. `--strict` makes WARN fail. |
 | Q5 | Require Google Chrome, or also allow Playwright's own Chromium? | Chrome or `CHROME_PATH`. Playwright's Chromium is documented only if P0 shows WebGL2 working in it headless on both OSes. |
 | Q6 | List on skills.sh? | Yes, if the P5 install test passes. |
@@ -719,8 +735,9 @@ Not verified yet:
 - How tags are timed by models other than the one measured (7.1); the P1 live smoke re-measures tag spans with the
   model the README names.
 - The plugin marketplace file format and the skills.sh install flow (P5).
-- Safe-zone numbers for every target, TikTok's included: `safezones.json` marks each edge `"estimate": true` until the
-  owner measures it with the grid (`grid.js`, the method in the file), so `text_safe` only warns for now.
+- The organic safe zones (`tiktok`, `reels`, `shorts`): `safezones.json` marks each edge `"estimate": true` until the
+  owner measures it from screenshots of posted videos (the method in the file), so `text_safe` only warns on them.
+  The published ad zones (`tiktok-ad`, `reels-ad`, `shorts-ad`) are measured, and FAIL.
 - That the decoded video of the three examples' masters hashes the same as their renders (P4; it does on every
   fixture master, section 21 above).
 - The camera config is read by calling `frame(t)` for each sample on the page's own 2D context, with no WebGL

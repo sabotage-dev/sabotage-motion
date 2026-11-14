@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const T = 'skills/sabotage-motion/template/';
-const UNIT = ['test/check-units.test.mjs'], SRC = ['test/check.test.mjs'], FILE = ['test/check-file.test.mjs'];
+const UNIT = ['test/check-units.test.mjs'], SRC = ['test/check.test.mjs'], FILE = ['test/check-file.test.mjs'], ZONES = ['test/safezones.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -33,8 +33,9 @@ const M = [
   ['text_safe: FAIL over 0.26 s, not 0.25', T + 'check.mjs', [['textSafe: { fail: 0.25 }', 'textSafe: { fail: 0.26 }']], UNIT],
   ['text_safe: FAIL at 0.25 s exactly', T + 'check.mjs', [['const long = a.exp > T.textSafe.fail + EPS;', 'const long = a.exp >= T.textSafe.fail - EPS;']], UNIT],
   ['text_safe: estimate zones FAIL too', T + 'check.mjs', [["long && !estimate ? 'FAIL' : 'WARN'", "long ? 'FAIL' : 'WARN'"]], UNIT],
-  ['text_safe: deco boxes checked', T + 'check.mjs', [['if (b.deco || insideRect(b.v, safe)) continue;', 'if (insideRect(b.v, safe)) continue;']], UNIT],
+  ['text_safe: deco boxes checked', T + 'check.mjs', [['      if (b.deco) continue;\n      const out = Math.max(safe.x - b.v.x', '      const out = Math.max(safe.x - b.v.x']], UNIT],
   ['text_safe: a sample weighs a whole frame', T + 'check.mjs', [['const w = windowAt(windows, s.t), wt = 1 / (s.n * fps);', 'const w = windowAt(windows, s.t), wt = 1 / fps;']], UNIT],
+  ['text_safe: the exclude rectangles ignored', T + 'check.mjs', [['if (insideRect(b.v, safe) && !(into > 0)) continue;', 'if (insideRect(b.v, safe)) continue;']], UNIT],
   ['text_safe: exposure for the whole piece, not per beat', T + 'check.mjs', [["const k = `${b.id}\\u0000${w ? w.id : ''}`;", 'const k = b.id;']], UNIT],
   ['camera: rotation the wrong way', T + 'check.mjs', [['const c = Math.cos(rot), s = Math.sin(rot);', 'const c = Math.cos(rot), s = Math.sin(-rot);']], UNIT],
   ['camera: pan y the wrong way', T + 'check.mjs', [['0.5 - y / H + panY;', '0.5 - y / H - panY;']], UNIT],
@@ -100,6 +101,9 @@ const M = [
   ['render.mjs: faststart not run', T + 'render.mjs', [["if (want('faststart')) push(C.faststartResult(", "if (false) push(C.faststartResult("]], FILE],
   ['render.mjs: loudness not run', T + 'render.mjs', [["else if (want('loudness')) push(C.loudnessResult(", "else if (false) push(C.loudnessResult("]], FILE],
   ['render.mjs: vo_delay not run', T + 'render.mjs', [['    else push(C.voDelayResult(mj, cues ? cues.VO_OFFSET : NaN));', '    else void 0;']], FILE],
+  ['render.mjs: the zone\'s exclude not passed to text_safe', T + 'render.mjs', [['safe: zone.safe, exclude: zone.exclude, windows,', 'safe: zone.safe, windows,']], ZONES],
+  ['overlays: the exclude rectangles not shaded', T + 'main.js', [['  for (const e of zone.exclude || []) sc.fillRect(x + e.x * k, y + e.y * k, e.w * k, e.h * k);\n', '']], ZONES],
+  ['overlays: safeZone drops the exclude list', T + 'main.js', [['return { name, safe: T.safe, exclude: T.exclude || [], estimate: !!T.estimate };', 'return { name, safe: T.safe, estimate: !!T.estimate };']], ZONES],
   ['render.mjs: ffmpeg left running when a scene throws', T + 'render.mjs', [['  process.exitCode = 1;\n  await abortVideo();', '  process.exitCode = 1;']], ['test/render-error.test.mjs']],
 ];
 

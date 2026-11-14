@@ -170,10 +170,11 @@ checks.
 - **Holds.** `export const HOLDS = [[t0, t1]]` in the scene, or `hold: true` on a board beat, marks a deliberate
   hold (an end card), which `motion_dead` leaves alone.
 - **Safe zones.** `safezones.json` holds each target's safe rectangle, with a source, a measured date and an
-  `estimate` flag for every edge. None is measured from the apps yet, so every zone is an estimate for now:
-  `text_safe` reports WARN, not FAIL, and the overlays and `check` say "estimate". To measure one, render
-  `grid.js` (a grid labelled every 100 px) at the target's size, post it privately, and read off a screenshot in the
-  app where the overlays start; the method is in `safezones.json`.
+  `estimate` flag for every edge, and optional `exclude` rectangles the app covers inside it. `tiktok-ad`,
+  `reels-ad` and `shorts-ad` are the platforms' published zones for 9:16 ads, measured from their specs (TikTok's
+  includes its button column as an `exclude`); they are stricter than organic posts. The organic `tiktok`, `reels`
+  and `shorts` are estimates until measured from screenshots of posted videos (the method is in the file), so
+  `text_safe` only warns on them, and the overlays and `check` say "estimate".
 - **Tuning.** `--dump out/check.json` writes the raw measurements (changed pixels per frame pair, the first frame,
   the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
   on real pieces.

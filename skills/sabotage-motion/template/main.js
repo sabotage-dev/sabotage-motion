@@ -126,17 +126,20 @@ window.safeZone = async (name) => {
   const T = await loadTarget(name);
   if (!T.safe) throw new Error(`--safe: target ${name} has no safe area`);
   if ((T.w && T.w !== CFG.W) || (T.h && T.h !== CFG.H)) throw new Error(`--safe: target ${name} is ${T.w}x${T.h}, but the piece is ${CFG.W}x${CFG.H}`);
-  return { name, safe: T.safe, estimate: !!T.estimate };
+  return { name, safe: T.safe, exclude: T.exclude || [], estimate: !!T.estimate };
 };
-// Shades a panel at (x, y, pw x ph) outside the zone, outlines the zone, and labels it, with "(estimate)"
-// while the target's numbers are not measured. Used by contact --safe and board --safe.
+// Shades a panel at (x, y, pw x ph) outside the zone and over its exclude rectangles (areas the platform
+// covers inside it), outlines the zone, and labels it, with "(estimate)" while the target's numbers are not
+// measured. Used by contact --safe and board --safe.
 async function drawSafe(sc, x, y, pw, ph, zone) {
   const k = pw / CFG.W, s = zone.safe, zx = x + s.x * k, zy = y + s.y * k, zw = s.w * k, zh = s.h * k;
   sc.save();
   sc.fillStyle = 'rgba(0,0,0,0.45)';
   sc.fillRect(x, y, pw, zy - y); sc.fillRect(x, zy + zh, pw, y + ph - zy - zh);
   sc.fillRect(x, zy, zx - x, zh); sc.fillRect(zx + zw, zy, x + pw - zx - zw, zh);
+  for (const e of zone.exclude || []) sc.fillRect(x + e.x * k, y + e.y * k, e.w * k, e.h * k);
   sc.strokeStyle = 'rgba(255,214,0,0.8)'; sc.lineWidth = Math.max(1, pw / 360); sc.strokeRect(zx, zy, zw, zh);
+  for (const e of zone.exclude || []) sc.strokeRect(x + e.x * k, y + e.y * k, e.w * k, e.h * k);
   const size = Math.max(8, Math.round(pw / 30));
   const faces = await document.fonts.load(`${size}px MONO`);
   sc.font = faces.length ? `${size}px MONO` : `${size}px monospace`;

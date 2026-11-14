@@ -509,7 +509,7 @@ async function check() {
     if (!z) zoneWhy = `unknown target ${zoneName} (safezones.json has: ${Object.keys(all).join(', ')})`;
     else if (!z.safe) zoneWhy = `target ${zoneName} has no safe area`;
     else if (INFOc && ((z.w && z.w !== INFOc.W) || (z.h && z.h !== INFOc.H))) zoneWhy = `target ${zoneName} is ${z.w}x${z.h}, but the piece is ${INFOc.W}x${INFOc.H}`;
-    else zone = { name: zoneName, safe: z.safe, estimate: !!z.estimate };
+    else zone = { name: zoneName, safe: z.safe, exclude: z.exclude || [], estimate: !!z.estimate };
   }
   say(`check: scene ${settings.scene}${INFOc ? `, ${INFOc.W}x${INFOc.H} @ ${fps} fps, ${dur} s, sub ${settings.sub}` : ''}` +
     `${Object.keys(settings.params || {}).length ? ', params ' + JSON.stringify(settings.params) : ''}${settings.alpha ? ', alpha ' + settings.alpha : ''}` +
@@ -568,7 +568,7 @@ async function check() {
       if (!INFOc.BOXES) skipIds(boxIds, 'source', `${settings.scene} has no boxes(t), so its text cannot be seen without OCR`);
       else if (scan && needBoxes) {
         const samples = C.prepareSamples(scan.samples, INFOc.W, INFOc.H);
-        if (zone) push(C.textSafe(samples, { fps, safe: zone.safe, windows, estimate: zone.estimate, target: zone.name }));
+        if (zone) push(C.textSafe(samples, { fps, safe: zone.safe, exclude: zone.exclude, windows, estimate: zone.estimate, target: zone.name }));
         else skipIds(['text_safe'], 'source', zoneWhy);
         push(C.textOverlap(samples, { fps }));
         if (BOARD && timing.ok) push(C.boardCopy(samples, { fps, windows }));

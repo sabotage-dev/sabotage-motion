@@ -105,20 +105,26 @@ export function prepareSamples(samples, W, H) {
 
 // ---------------------------------------------------------------- 11.1 source checks
 
-// text_safe: a non-deco box whose visible part leaves the safe area accrues 1 / (n x FPS) s per sample, per
-// beat. More than 0.25 s in one beat is a FAIL; less is a WARN (a slam entrance, a whip). Every result is a
-// WARN while the target's zones are an estimate.
-export function textSafe(samples, { fps, safe, windows, estimate = false, target = '' }) {
+// text_safe: a non-deco box whose visible part leaves the safe area, or overlaps one of the target's exclude
+// rectangles (an area the platform covers inside it, such as a column of buttons), accrues 1 / (n x FPS) s per
+// sample, per beat. More than 0.25 s in one beat is a FAIL; less is a WARN (a slam entrance, a whip). Every
+// result is a WARN while the target's zones are an estimate.
+export function textSafe(samples, { fps, safe, exclude = [], windows, estimate = false, target = '' }) {
   const acc = new Map();
   for (const s of samples) {
     const w = windowAt(windows, s.t), wt = 1 / (s.n * fps);
     for (const b of s.vis) {
-      if (b.deco || insideRect(b.v, safe)) continue;
-      const k = `${b.id}\u0000${w ? w.id : ''}`;
-      const a = acc.get(k) || { id: b.id, text: b.text, beat: w ? w.id : null, exp: 0, t: s.t, worst: 0 };
-      a.exp += wt;
+      if (b.deco) continue;
       const out = Math.max(safe.x - b.v.x, safe.y - b.v.y, b.v.x + b.v.w - safe.x - safe.w, b.v.y + b.v.h - safe.y - safe.h);
-      a.worst = Math.max(a.worst, out);
+      // how far the box reaches into an excluded rectangle: the smaller side of the overlap
+      const into = Math.max(0, ...exclude.map((x) => (overlapArea(b.v, x) > 0
+        ? Math.min(Math.min(b.v.x + b.v.w, x.x + x.w) - Math.max(b.v.x, x.x), Math.min(b.v.y + b.v.h, x.y + x.h) - Math.max(b.v.y, x.y)) : 0)));
+      if (insideRect(b.v, safe) && !(into > 0)) continue;
+      const k = `${b.id}\u0000${w ? w.id : ''}`;
+      const a = acc.get(k) || { id: b.id, text: b.text, beat: w ? w.id : null, exp: 0, t: s.t, worst: 0, excluded: false };
+      a.exp += wt;
+      a.worst = Math.max(a.worst, out, into);
+      if (into > 0) a.excluded = true;
       acc.set(k, a);
     }
   }
@@ -127,7 +133,7 @@ export function textSafe(samples, { fps, safe, windows, estimate = false, target
   return [...acc.values()].sort((a, b) => a.t - b.t).map((a) => {
     const long = a.exp > T.textSafe.fail + EPS;
     return r('text_safe', 'source', long && !estimate ? 'FAIL' : 'WARN',
-      `box "${a.text}" (${a.id}) is outside the ${zone} for ${f2(a.exp)} s${a.beat ? ` in beat "${a.beat}"` : ''}, up to ${Math.ceil(a.worst)} px out${long ? '' : ' (a brief excursion: a slam or a whip)'}${long && estimate ? '; a FAIL once the zones are measured' : ''}`,
+      `box "${a.text}" (${a.id}) is outside the ${zone}${a.excluded ? ' (in an area it excludes)' : ''} for ${f2(a.exp)} s${a.beat ? ` in beat "${a.beat}"` : ''}, up to ${Math.ceil(a.worst)} px out${long ? '' : ' (a brief excursion: a slam or a whip)'}${long && estimate ? '; a FAIL once the zones are measured' : ''}`,
       { t: +f3(a.t), measured: +a.exp.toFixed(4), threshold: T.textSafe.fail, box: a.id, beat: a.beat });
   });
 }

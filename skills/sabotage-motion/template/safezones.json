@@ -1,6 +1,6 @@
 {
-  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Each edge of the rectangle has its own record in `edges`: where it is (`at`, in design pixels), its `source`, the date it was `measured` (null until it is), and `estimate`. A target is an estimate while any of its edges is, and then render.mjs check reports text outside it as WARN rather than FAIL, and the --safe overlays say \"estimate\". CFG.W, CFG.H and CFG.FPS in a scene win over these.",
-  "method": "How an edge is measured (plan Q3): render the grid scene at the target's size (node render.mjs full --scene grid.js --target <name> --out out/grid-<name>.mp4), post it privately or unlisted, open it in the platform's app on a phone, and screenshot it in the feed with the caption, the buttons and the profile row showing (a long caption too, if the platform expands it). On each side, read off the grid the first line no overlay covers, moving in from the edge, and record that number as the edge's `at`, with the date, and the app version and phone in `source`. Set the edge's `estimate` to false. Then set `safe` from the four edges (x = left, y = top, w = right - left, h = bottom - top), the target's `measured` to the date, and its `estimate` to false once all four edges are measured.",
+  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Each edge of the rectangle has its own record in `edges`: where it is (`at`, in design pixels), its `source`, the date it was `measured` (null until it is), and `estimate`. A target may also list `exclude`: rectangles inside `safe` that the platform covers anyway (TikTok's action-button column), each { x, y, w, h, source }; text that overlaps one counts as outside the safe area, and the --safe overlays shade it. A target is an estimate while any of its edges is, and then render.mjs check reports text outside it as WARN rather than FAIL, and the --safe overlays say \"estimate\". The *-ad targets are the platforms' published safe zones for 9:16 ads, measured from their sources; they are stricter than organic posts. The organic targets (tiktok, reels, shorts) stay estimates until they are measured. CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "method": "How an organic edge is measured (plan Q3): from in-app screenshots of videos already posted to the platform, not a separate test video. Open a posted 1080x1920 video in the platform's app on a phone and screenshot it in the feed, with the caption, the buttons and the profile row showing (and a long caption, if the app expands it). Map the screenshot onto the video's own frame (scale it so the video is 1080 px wide, from the video's edges, not the phone screen's), then on each side find the first row or column, moving in from the edge, that no overlay covers. Record that number as the edge's `at`, with the date in `measured` and the app version, the phone and the posted video in `source`, and set the edge's `estimate` to false. Then set `safe` from the four edges (x = left, y = top, w = right - left, h = bottom - top), and once all four are measured, the target's `measured` to the date and its `estimate` to false. An area the app covers inside the rectangle (a column of buttons) goes in `exclude`. grid.js, a labelled grid, is an optional aid for reading positions off a screenshot.",
   "targets": {
     "tiktok": {
       "w": 1080, "h": 1920, "fps": 30,
@@ -36,6 +36,45 @@
         "right": { "at": 912, "estimate": true, "measured": null, "source": "rough estimate (the action buttons)" },
         "top": { "at": 200, "estimate": true, "measured": null, "source": "rough estimate" },
         "bottom": { "at": 1480, "estimate": true, "measured": null, "source": "rough estimate (the title and channel row)" }
+      }
+    },
+    "tiktok-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 120, "y": 240, "w": 840, "h": 1020 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920",
+      "edges": {
+        "left": { "at": 120, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "right": { "at": 960, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "top": { "at": 240, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "bottom": { "at": 1260, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" }
+      },
+      "exclude": [
+        { "x": 780, "y": 840, "w": 180, "h": 420, "source": "the template's 120-wide action-button column over the bottom 720 of its 720x1280 grid, at 1080x1920: x 780-960 from y 840 down to the safe area's bottom" }
+      ]
+    },
+    "reels-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 65, "y": 269, "w": 950, "h": 979 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels",
+      "edges": {
+        "left": { "at": 65, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "right": { "at": 1015, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "top": { "at": 269, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" }
+      }
+    },
+    "shorts-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 48, "y": 288, "w": 840, "h": 960 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920",
+      "edges": {
+        "left": { "at": 48, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "right": { "at": 888, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "top": { "at": 288, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" }
       }
     },
     "youtube": {
