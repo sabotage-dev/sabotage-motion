@@ -36,9 +36,11 @@ export function checkPiece(name) {
   return dir;
 }
 
-// node render.mjs check <args> --json in a piece: { status, results, out }.
+// node render.mjs check <args> --json in a piece: { status, results, out }. A check that runs past 10 minutes is
+// killed (status null), so a hung browser fails its test with the output so far instead of stalling the suite.
 export function runCheck(dir, args = [], { json = true } = {}) {
-  const r = spawnSync(process.execPath, ['render.mjs', 'check', ...args, ...(json ? ['--json'] : [])], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const r = spawnSync(process.execPath, ['render.mjs', 'check', ...args, ...(json ? ['--json'] : [])],
+    { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20, timeout: 10 * 60 * 1000, killSignal: 'SIGKILL' });
   let results = null;
   if (json) { try { results = JSON.parse(r.stdout); } catch { results = null; } }
   return { status: r.status, results, out: (r.stdout || '') + (r.stderr || ''), stderr: r.stderr || '' };

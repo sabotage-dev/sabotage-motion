@@ -133,12 +133,17 @@ test('hold: true on the frozen beat takes it out of motion_dead', () => {
   } finally { fs.writeFileSync(b, orig); }
 });
 test('--strict fails on a WARN; the text output is one line per result and a summary', () => {
-  assert.equal(runCheck(dir, ['--only', 'motion_dead']).status, 0);
-  assert.equal(runCheck(dir, ['--only', 'motion_dead', '--strict']).status, 1);
-  const t = runCheck(dir, ['--only', 'motion_dead,first_frame_empty'], { json: false });
-  assert.match(t.out, /^WARN  motion_dead +6\.60s  nothing moves for 4\.00 s \(6\.60-10\.60 s\)/m);
+  // first_frame_empty alone probes only the first frame, so these runs stay quick on a software renderer
+  assert.equal(runCheck(dir, ['--only', 'first_frame_empty']).status, 0);
+  assert.equal(runCheck(dir, ['--only', 'first_frame_empty', '--strict']).status, 1);
+  const t = runCheck(dir, ['--only', 'first_frame_empty,fonts'], { json: false });
   assert.match(t.out, /^WARN  first_frame_empty +0\.00s  the first frame is flat/m);
-  assert.match(t.out, /^check: 0 FAIL, 2 WARN, 0 ok, 0 not checked$/m);
+  assert.match(t.out, /^ok    fonts +DISPLAY, BODY, MONO load$/m);
+  assert.match(t.out, /^check: 0 FAIL, 1 WARN, 1 ok, 0 not checked$/m);
+  // the motion line, from the shared full run
+  const m = one(full.results, 'motion_dead');
+  assert.equal(C.formatLine(m), `WARN  motion_dead          6.60s  ${m.detail}`);
+  assert.match(m.detail, /^nothing moves for 4\.00 s \(6\.60-10\.60 s\), outside HOLDS and hold beats$/);
 });
 test('--dump writes the raw measurements without on-screen text: changed probe pixels per frame pair, the first frame, the audio', () => {
   const r = runCheck(dir, ['--only', 'motion_dead,audio_spike', '--dump', 'out/dump.json']);

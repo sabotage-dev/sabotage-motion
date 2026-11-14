@@ -725,7 +725,9 @@ Not verified yet:
   fixture master, section 21 above).
 - The camera config is read by calling `frame(t)` for each sample on the page's own 2D context, with no WebGL
   upload. **Measured in P3:** on fixture-check (19.2 s, 576 frames) the 4608 `frame` and `boxes` calls at 8
-  subframes, plus a 540x960 probe of every frame, take 2.4 s on an Apple-silicon Mac (Chrome 157).
+  subframes, plus a 540x960 probe of every frame, take 2.4 s on an Apple-silicon Mac (Chrome 157). On the Linux
+  runners (SwiftShader) the probe pass alone takes 44 to 75 s, and the check suites 8 to 13 minutes at P3's first
+  push (runner speed varies; the `--strict` test then ran three probe passes, and now probes one frame).
 
 ## 22. Council rounds
 
