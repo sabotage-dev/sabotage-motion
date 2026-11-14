@@ -1,0 +1,100 @@
+{
+ "text": " Stop pasting the same prompt. Save it as a skill instead.",
+ "segments": [
+  {
+   "id": 0,
+   "seek": 0,
+   "start": 0.12,
+   "end": 1.8,
+   "text": " Stop pasting the same prompt.",
+   "tokens": [],
+   "temperature": 0,
+   "avg_logprob": -0.2,
+   "compression_ratio": 1.1,
+   "no_speech_prob": 0.01,
+   "words": [
+    {
+     "word": " Stop",
+     "start": 0.12,
+     "end": 0.38,
+     "probability": 0.95
+    },
+    {
+     "word": " pasting",
+     "start": 0.42,
+     "end": 0.8,
+     "probability": 0.95
+    },
+    {
+     "word": " the",
+     "start": 0.84,
+     "end": 0.95,
+     "probability": 0.95
+    },
+    {
+     "word": " same",
+     "start": 0.99,
+     "end": 1.3,
+     "probability": 0.95
+    },
+    {
+     "word": " prompt.",
+     "start": 1.34,
+     "end": 1.8,
+     "probability": 0.95
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "seek": 0,
+   "start": 2.6,
+   "end": 4.3,
+   "text": " Save it as a skill instead.",
+   "tokens": [],
+   "temperature": 0,
+   "avg_logprob": -0.2,
+   "compression_ratio": 1.1,
+   "no_speech_prob": 0.01,
+   "words": [
+    {
+     "word": " Save",
+     "start": 2.6,
+     "end": 2.9,
+     "probability": 0.95
+    },
+    {
+     "word": " it",
+     "start": 2.94,
+     "end": 3.05,
+     "probability": 0.95
+    },
+    {
+     "word": " as",
+     "start": 3.09,
+     "end": 3.2,
+     "probability": 0.95
+    },
+    {
+     "word": " a",
+     "start": 3.24,
+     "end": 3.3,
+     "probability": 0.95
+    },
+    {
+     "word": " skill",
+     "start": 3.34,
+     "end": 3.7,
+     "probability": 0.95
+    },
+    {
+     "word": " instead.",
+     "start": 3.74,
+     "end": 4.3,
+     "probability": 0.95
+    }
+   ]
+  }
+ ],
+ "language": "en"
+}

@@ -1,5 +1,5 @@
 // An alternate scene for the scene-swap and --target tests: its own TL and length (1 s), not
-// silent, and no W/H/FPS in CFG, so it renders only with --target.
+// silent, and no W/H/FPS in CFG, so it renders only with --target. --param dur=<s> sets CFG.DUR in init.
 import { prog } from './lib.js';
 
 console.log('fixture: alt.js evaluated');
@@ -8,7 +8,7 @@ export const CFG = { DUR: 1.0, FONTS: ['MONO'] };
 export const TL = {};   // filled in init, so the test proves audio.js gets the TL as init left it
 
 let ctx;
-export async function init({ ctx: c }) { ctx = c; TL.hits = [0.25]; }
+export async function init({ ctx: c, params }) { ctx = c; if (params.dur) CFG.DUR = +params.dur; TL.hits = [0.25]; }
 
 export function frame(t, jit) {
   ctx.fillStyle = '#9AD1FF';

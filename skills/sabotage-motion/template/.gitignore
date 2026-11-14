@@ -2,5 +2,6 @@
 out/
 stills/
 board.png
+board.md
 contact.png
 node_modules/

@@ -1,8 +1,10 @@
 // THE CREATIVE FILE. Replace this example (a 3-second kinetic title card) with your piece.
 // Contract with main.js:
 //   CFG                      canvas size in design pixels (W, H), FPS, DUR, FONTS to verify. W, H and
-//                            FPS may be left out when you render with --target <name> (safezones.json)
-//   TL                       the timeline: event times shared with audio.js (it receives this TL)
+//                            FPS may be left out when you render with --target <name> (safezones.json).
+//                            DUR comes from the storyboard: CFG.DUR = boardDur() (board.js, lib.js)
+//   TL                       the timeline: event times shared with audio.js (it receives this TL),
+//                            built from beatWindow(id) so the board stays the one source of timing
 //   init({ctx, hud, scale, params, alpha, target})   one-time setup (layout, images); params come
 //                            from --param k=v; target is the safezones.json entry or null. CFG.DUR
 //                            may be set here (the harness reads it after init)
@@ -20,18 +22,20 @@
 // canvases you create are NOT prepped: size them from ctx.canvas and apply the scale yourself
 // (see LAYER below). shadowBlur, shadowOffsetX/Y and ctx.filter blur radii ignore the transform:
 // multiply them by `scale` (from init) or they look too big at --scale < 1.
-import { clamp, lerp, prog, snap, whip, spring, env, rgba, rgb01 } from './lib.js';
+import { clamp, lerp, prog, snap, whip, spring, env, rgba, rgb01, beatWindow, boardDur } from './lib.js';
 
-export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: 3.0, FONTS: ['DISPLAY', 'BODY'] };
+export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };
 
-// One timeline shared with audio.js, so every sound lands on the visual event it belongs to.
+// One timeline shared with audio.js, so every sound lands on the visual event it belongs to. Its times
+// hang off the board's beat windows (board.js), so retiming a beat there moves everything with it.
+const [IN] = beatWindow('title'), [OUT] = beatWindow('out');
 export const TL = {
-  wordsIn: 0.22, stagger: 0.07,   // title words rise in one after another
-  barIn: 0.55,                    // accent bar wipes in
-  subIn: 0.75,                    // subtitle tracks in
-  sweep: 1.35,                    // light sweep across the title
-  out: 2.45, outStagger: 0.04,    // everything whips out
-  words: 0, hits: [],             // filled by init(): word count + landing times
+  wordsIn: IN + 0.22, stagger: 0.07,   // title words rise in one after another
+  barIn: IN + 0.55,                    // accent bar wipes in
+  subIn: IN + 0.75,                    // subtitle tracks in
+  sweep: IN + 1.35,                    // light sweep across the title
+  out: OUT, outStagger: 0.04,          // everything whips out
+  words: 0, hits: [],                  // filled by init(): word count + landing times
 };
 
 let ctx, S = 1, ALPHA = false, P, LAYER, lctx;

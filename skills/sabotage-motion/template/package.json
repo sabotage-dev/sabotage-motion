@@ -1,6 +1,7 @@
 {
   "name": "motion-piece",
   "private": true,
+  "type": "module",
   "description": "A motion-graphics piece rendered from code (from the sabotage-motion template)",
   "engines": { "node": ">=22" },
   "scripts": {
