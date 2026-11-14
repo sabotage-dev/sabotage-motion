@@ -1,0 +1,15 @@
+{
+  "name": "motion-piece",
+  "private": true,
+  "description": "A motion-graphics piece rendered from code (from the sabotage-motion template)",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "doctor": "node render.mjs doctor",
+    "stills": "node render.mjs stills 0.4,1.0,1.6,2.6",
+    "contact": "node render.mjs contact",
+    "full": "node render.mjs full --out out/piece.mp4"
+  },
+  "dependencies": {
+    "playwright-core": "1.65.0"
+  }
+}

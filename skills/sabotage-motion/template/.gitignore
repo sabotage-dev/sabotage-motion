@@ -1,0 +1,6 @@
+# Render outputs and review sheets; the source is everything else.
+out/
+stills/
+board.png
+contact.png
+node_modules/

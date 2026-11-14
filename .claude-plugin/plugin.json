@@ -1,0 +1,14 @@
+{
+  "name": "sabotage-motion",
+  "displayName": "sabotage-motion",
+  "version": "0.0.1",
+  "description": "Motion graphics for short-form video, written in code: scenes as a pure function of time, rendered frame-exact with synthesized sound effects on the same timeline.",
+  "author": {
+    "name": "Sabotage Development LLC",
+    "url": "https://github.com/sabotage-dev"
+  },
+  "homepage": "https://github.com/sabotage-dev/sabotage-motion",
+  "repository": "https://github.com/sabotage-dev/sabotage-motion",
+  "license": "MIT",
+  "keywords": ["motion-graphics", "video", "animation", "kinetic-typography", "webgl", "canvas"]
+}
