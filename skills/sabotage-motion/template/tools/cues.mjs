@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { tagCuts, voTokens, normWord, anchorOf, anchorOffset, boardProblems, boardTiming, hookBeat, hookLong, BOARD_DEFAULTS } from '../lib.js';
+import { tagCuts, voTokens, normWord, anchorOf, anchorOffset, boardProblems, boardTiming, boardKey, hookBeat, hookLong, BOARD_DEFAULTS } from '../lib.js';
 
 export const SR = 48000;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -198,7 +198,8 @@ function collapse(text) {
   }
   return { s, map };
 }
-// Every place the phrase occurs in the take, in order: { time, pos }, pos being a char or word index.
+// Every place the phrase occurs in the take, in order: { time, pos, end }, pos and end being the char or word
+// index of its first and last character or word.
 function occurrences(take, phrase) {
   if (take.chars) {
     const { s, map } = collapse(take.chars.text), p = collapse(phrase.trim()).s, out = [];
@@ -206,14 +207,14 @@ function occurrences(take, phrase) {
     for (let i = s.indexOf(p); i >= 0; i = s.indexOf(p, i + 1)) {
       if (isWordChar(p[0]) && isWordChar(s[i - 1])) continue;
       if (isWordChar(p[p.length - 1]) && isWordChar(s[i + p.length])) continue;
-      out.push({ pos: map[i], time: take.chars.starts[map[i]] });
+      out.push({ pos: map[i], end: map[i + p.length - 1], time: take.chars.starts[map[i]] });
     }
     return out;
   }
   const want = phrase.split(/\s+/).map(normWord).filter(Boolean), out = [];
   const have = take.words.map((w, i) => ({ w: normWord(w.text), i })).filter((x) => x.w);
   for (let k = 0; k + want.length <= have.length; k++) {
-    if (want.every((x, j) => have[k + j].w === x)) out.push({ pos: have[k].i, time: take.words[have[k].i].start });
+    if (want.every((x, j) => have[k + j].w === x)) out.push({ pos: have[k].i, end: have[k + want.length - 1].i, time: take.words[have[k].i].start });
   }
   return out;
 }
@@ -265,7 +266,9 @@ export function buildCues({ board, take, samples, sr = SR, offset = null }) {
       missing.push(`beat "${b.id}": anchor "${phrase}" ${why} (matching ${take.chars ? 'characters, case-sensitive' : 'words, case-sensitive, punctuation ignored'})`);
       continue;
     }
-    after = hit.pos;
+    // the next default search starts after this anchor's last word, so the next beat's anchor can never be a
+    // phrase that overlaps this one ("the same prompt" inside "Stop pasting the same")
+    after = hit.end;
     found.push({ beat: b, phrase, hit, wordIdx: wordAt(words, hit.time), offset: anchorOffset(b.vo, phrase) });
   }
   if (missing.length) throw new CueError(missing);
@@ -366,7 +369,7 @@ export function buildCues({ board, take, samples, sr = SR, offset = null }) {
     throw new CueError(`--offset ${offset} is less than the leading silent beats (${fmt(leadSum, 2)} s): the voice would play over them`);
   }
   const cues = { VO_OFFSET, CUE, TAKE: { duration: r6(vo.length / sr), lastWordEnd: r6(lastWordEnd) }, GAPS, HOOK_END: r6(hookEnd),
-    WORDS: W.map((x) => ({ text: x.text, start: x.start, end: x.end })) };
+    WORDS: W.map((x) => ({ text: x.text, start: x.start, end: x.end })), BOARD_KEY: boardKey(board) };
 
   // 7. the hook gate, then the windows
   const late = hookLong(board, cues);
@@ -390,6 +393,8 @@ export function cuesModuleText(cues, note = '') {
     `export const TAKE = ${j(cues.TAKE)};`,
     `export const GAPS = ${j(cues.GAPS)};`,
     `export const HOOK_END = ${j(cues.HOOK_END)};`,
+    '// the board fields these cues were made from (lib.js boardKey); a render refuses them once board.js changes',
+    `export const BOARD_KEY = ${j(cues.BOARD_KEY)};`,
     'export const WORDS = [',
     ...cues.WORDS.map((w) => `  ${j(w)},`),
     '];',

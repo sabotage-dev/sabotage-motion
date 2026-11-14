@@ -127,6 +127,8 @@ test('--language, --voice-settings and --env-file reach the request; --env-file 
 
 test('the audio is on disk before anything else can fail: a response with no alignment still leaves take-raw.wav', async () => {
   const dir = voicePiece('voice-noalign', {});
+  // an earlier take's timings are already here: they must not survive beside the new audio (council round 1)
+  fs.writeFileSync(path.join(dir, 'take.json'), JSON.stringify({ source: 'elevenlabs', words: [{ text: 'old', start: 0, end: 0.3 }] }));
   reply = (r) => { const f = fakeTake(r.body.text); return { json: { audio_base64: f.pcm.toString('base64'), alignment: null } }; };
   const r = await runVoice(dir, ['--model', 'm']);
   assert.equal(r.status, 1, r.out);
@@ -140,4 +142,25 @@ test('the audio is on disk before anything else can fail: a response with no ali
   assert.equal(r2.status, 1);
   assert.match(r2.out, /answered 401.*invalid_api_key/);
   assert.ok(!fs.existsSync(path.join(dir2, 'take-raw.wav')));
+});
+
+test('the API key is never printed or written, even when an answer quotes it back (council round 1)', async () => {
+  // an error whose body quotes the key: the message shows the answer with the key blanked
+  const dir = voicePiece('voice-echo-err', {});
+  reply = (r) => ({ status: 403, json: { detail: `key ${r.headers['xi-api-key']} is not allowed here` } });
+  const r = await runVoice(dir, ['--model', 'm']);
+  assert.equal(r.status, 1);
+  assert.match(r.out, /answered 403.*key \[ELEVENLABS_API_KEY\] is not allowed/);
+  assert.ok(!r.out.includes('test-key-123'), 'the key was printed');
+  // a success that carries extra fields, one of them the key: only the timing fields reach take.elevenlabs.json
+  const dir2 = voicePiece('voice-echo-ok', {});
+  reply = (q) => { const f = fakeTake(q.body.text); return { json: { audio_base64: f.pcm.toString('base64'), alignment: f.alignment, normalized_alignment: f.alignment, echoed: q.headers['xi-api-key'] } }; };
+  const r2 = await runVoice(dir2, ['--model', 'm']);
+  assert.equal(r2.status, 0, r2.out);
+  assert.ok(!r2.out.includes('test-key-123'), 'the key was printed');
+  const el = JSON.parse(fs.readFileSync(path.join(dir2, 'take.elevenlabs.json'), 'utf8'));
+  assert.deepEqual(Object.keys(el).sort(), ['alignment', 'model_id', 'normalized_alignment', 'output_format', 'text']);
+  for (const f of fs.readdirSync(dir2)) {
+    if (fs.statSync(path.join(dir2, f)).isFile()) assert.ok(!fs.readFileSync(path.join(dir2, f)).includes('test-key-123'), `the key is in ${f}`);
+  }
 });

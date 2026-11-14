@@ -162,7 +162,13 @@ test('two anchors closer than lead, and a dur of 0, are refused with the beats n
   const { json, audio } = synthTake([['Go', 0.0, 0.03], ['now.', 0.05, 0.4], ['Then', 0.8, 1.0], ['stop.', 1.04, 1.4]], 1.8);
   const board = { beats: [{ id: 'a', vo: 'Go' }, { id: 'b', vo: 'now.' }, { id: 'c', vo: 'Then stop.' }] };
   refused(() => buildCues({ board, take: fromWords(json), samples: audio, offset: 0 }), /beat "a" would last -0\.050 s .*"b" starts at or before "a" does \(two anchors closer than lead/);
-  assert.ok(buildCues({ board, take: fromWords(json), samples: audio }).timing.ok, 'the default VO_OFFSET leaves room');
+  // the default VO_OFFSET (0.1) gives "a" a positive window, [0, 0.05), but its anchor plays at 0.10, inside
+  // "b"'s: still two anchors closer than lead, so still refused (council round 1)
+  refused(() => buildCues({ board, take: fromWords(json), samples: audio }), /beat "a": its anchor plays at 0\.100 s, outside its own window \[0\.000, 0\.050\) and inside "b"'s \(two anchors closer than lead/);
+  // anchors more than lead apart are accepted: "b" (0.11 into the take) opens at 0.11 picture time, just after
+  // "a"'s anchor plays at 0.10
+  const ok = synthTake([['Go', 0.0, 0.03], ['now.', 0.11, 0.4], ['Then', 0.8, 1.0], ['stop.', 1.04, 1.4]], 1.8);
+  assertWindows(buildCues({ board, take: fromWords(ok.json), samples: ok.audio }).timing, ['a', 'b', 'c']);
   refused(() => buildCues({ board: { beats: [{ id: 'z', dur: 0 }, ...board.beats] }, take: fromWords(json), samples: audio }), /beat "z": dur 0 would give it a zero or negative length/);
   assert.match(boardTiming({ beats: [{ id: 'x', dur: 0 }] }).problems.join(), /zero or negative length/);
 });
@@ -217,4 +223,25 @@ test('board_order catches a bad board: CFG.DUR off by more than a frame, an out-
   const p = boardOrder(holes, 3, FPS).join('\n');
   assert.match(p, /"a" starts at 0\.100 s, not 0/);
   assert.match(p, /"a" and "b" are not contiguous/);
+});
+
+test('a cues.js made before board.js changed is refused, so the picture never drifts off the voice (council round 1)', () => {
+  const { json, audio } = fiveTake(2.70);
+  const r = buildCues({ board: FIVE, take: fromWords(json), samples: audio });
+  assertWindows(boardTiming(FIVE, r.cues), ['cold', 'hook', 'mid', 'save', 'end']);
+  const withBeat = (id, patch) => ({ ...FIVE, beats: FIVE.beats.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
+  const changed = [
+    ['a silent beat\'s dur (the zeros in vo.wav no longer fit)', withBeat('mid', { dur: 2.0 })],
+    ['a leading silent beat\'s dur (VO_OFFSET is stale)', withBeat('cold', { dur: 1.5 })],
+    ['lead', { ...FIVE, lead: 0.2 }],
+    ['hookMax (the gate has to run again)', { ...FIVE, hookMax: 9 }],
+    ['a voice line', withBeat('hook', { vo: 'Stop pasting the same prompts.' })],
+  ];
+  for (const [what, board] of changed) {
+    const t = boardTiming(board, r.cues);
+    assert.equal(t.ok, false, what);
+    assert.match(t.problems.join('\n'), /board\.js changed since cues\.js was made/, what);
+  }
+  // notes that do not move time keep the cues
+  assertWindows(boardTiming(withBeat('mid', { copy: 'New words on screen', look: 'a slow push' }), r.cues), ['cold', 'hook', 'mid', 'save', 'end']);
 });

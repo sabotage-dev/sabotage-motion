@@ -45,7 +45,8 @@ test('adapters: the elevenlabs fixture gives the expected cues (the opening tag 
   expectFixtureCues(c, { saveRaw: 2.55, lastRaw: 4.72 });
   // cues.js carries the same values, and take.json is the generic format with no tags left in it
   const mod = await import(pathToFileURL(path.join(dir, 'cues.js')).href);
-  assert.deepEqual({ VO_OFFSET: mod.VO_OFFSET, CUE: mod.CUE, TAKE: mod.TAKE, GAPS: mod.GAPS, HOOK_END: mod.HOOK_END, WORDS: mod.WORDS }, c);
+  assert.deepEqual({ VO_OFFSET: mod.VO_OFFSET, CUE: mod.CUE, TAKE: mod.TAKE, GAPS: mod.GAPS, HOOK_END: mod.HOOK_END, WORDS: mod.WORDS, BOARD_KEY: mod.BOARD_KEY }, c);
+  assert.equal(typeof mod.BOARD_KEY, 'string', 'cues.js records the board it was made from');
   const take = JSON.parse(fs.readFileSync(path.join(dir, 'take.json'), 'utf8'));
   assert.equal(take.source, 'elevenlabs');
   assert.equal(take.chars.text, 'Stop pasting the same prompt. Save it as a skill instead.');
@@ -135,6 +136,14 @@ test('gapBefore at a silent point shifts every later timing by exactly the gap, 
   for (let i = 0; i < k - fade; i += 7) assert.equal(r.vo[i], audio[i]);
   for (let i = k; i < k + n; i++) assert.equal(r.vo[i], 0, `sample ${i} in the gap is not zero`);
   for (let i = k + fade; i < audio.length; i += 7) assert.equal(r.vo[i + n], audio[i]);
+  // the 5 ms fades themselves (plan 6.3): a linear ramp down into the zeros and up out of them. The pause
+  // holds the noise floor, not silence, so a missing or wrong fade changes these samples (council round 1).
+  assert.ok(audio.subarray(k - fade, k + fade).some((x) => x !== 0), 'the cut must sit on non-zero samples for this to test anything');
+  for (let j = 0; j < fade; j++) {
+    const gain = (j + 1) / (fade + 1);
+    assert.equal(r.vo[k - 1 - j], Math.fround(audio[k - 1 - j] * gain), `fade out, sample ${j} before the cut`);
+    assert.equal(r.vo[k + n + j], Math.fround(audio[k + j] * gain), `fade in, sample ${j} after the zeros`);
+  }
   assert.deepEqual(zeroRuns(r.vo, 0.1).map(([a, b]) => [+a.toFixed(4), +(b - a).toFixed(4)]), [[+(k / SR).toFixed(4), 0.6]]);
 });
 
@@ -174,8 +183,8 @@ test('CUE holds only beat ids; take facts live in TAKE, so a beat named like a t
   assert.deepEqual(Object.keys(r.cues.CUE), ['duration', 'lastWordEnd']);
   near(r.cues.CUE.duration, 0.1); near(r.cues.CUE.lastWordEnd, 1.9);
   near(r.cues.TAKE.duration, 3.6); near(r.cues.TAKE.lastWordEnd, 3.2);
-  assert.deepEqual(Object.keys(r.cues).sort(), ['CUE', 'GAPS', 'HOOK_END', 'TAKE', 'VO_OFFSET', 'WORDS']);
-  for (const id of ['TAKE', 'VO_OFFSET', 'DUR']) {
+  assert.deepEqual(Object.keys(r.cues).sort(), ['BOARD_KEY', 'CUE', 'GAPS', 'HOOK_END', 'TAKE', 'VO_OFFSET', 'WORDS']);
+  for (const id of ['TAKE', 'VO_OFFSET', 'DUR', '__proto__']) {
     refused(() => buildCues({ board: { beats: [{ id, vo: 'Stop pasting prompts.' }] }, take: fromWords(json), samples: audio }), /reserved/);
   }
 });
@@ -282,4 +291,70 @@ test('whisper words: a tag split over two words, or glued to one, still comes ou
   assert.deepEqual(t.words.map((w) => w.text), ['Hi', 'there.']);
   assert.deepEqual(t.tags.map((x) => [x.text, x.start, x.end]), [['[short pause]', 0.3, 0.4], ['[laughs]', 0.5, 1.0]]);
   assert.throws(() => fromWhisper({ segments: [{ text: 'no words' }] }), /--word_timestamps True/);
+});
+
+// ---- council round 1 (PR #2): a tag glued to a word on one side, and an anchor that overlaps the previous one
+
+// "Stop pasting the same prompt.[sighs] Save it as a skill." as ElevenLabs characters, built one character at a
+// time so the take's text is exactly what was sent: the tag is glued to "prompt." with a space after it.
+function gluedTake() {
+  const parts = [['Stop pasting the same prompt.', 0.12, 1.80], ['[sighs]', 1.80, 2.20], [' ', 2.20, 2.90], ['Save it as a skill.', 2.90, 4.10]];
+  const characters = [], s = [], e = [];
+  for (const [text, a, b] of parts) {
+    for (let k = 0; k < text.length; k++) { characters.push(text[k]); s.push(a + ((b - a) * k) / text.length); e.push(a + ((b - a) * (k + 1)) / text.length); }
+  }
+  const audio = synthAudio({ duration: 4.6, words: [{ start: 0.12, end: 1.80 }, { start: 2.90, end: 4.10 }], tags: [{ start: 1.80, end: 2.20, long: true }] });
+  return { json: { alignment: { characters, character_start_times_seconds: s, character_end_times_seconds: e } }, audio };
+}
+
+test('a delivery tag glued to a word on one side is cut alone, so the words around it never run together', () => {
+  assert.equal(lib.stripTags('Stop pasting the same prompt.[sighs] Save it'), 'Stop pasting the same prompt. Save it');
+  assert.equal(lib.stripTags('Say it[short pause] once'), 'Say it once');
+  assert.equal(lib.stripTags('a skill. [curious]Save it'), 'a skill. Save it');
+  assert.equal(lib.stripTags('a [x] b'), 'a b');
+  const { json, audio } = gluedTake();
+  const take = fromElevenLabs(json);
+  assert.equal(take.chars.text, 'Stop pasting the same prompt. Save it as a skill.');
+  assert.deepEqual(take.words.map((w) => w.text), ['Stop', 'pasting', 'the', 'same', 'prompt.', 'Save', 'it', 'as', 'a', 'skill.']);
+  const board = { hookMax: 3, beats: [{ id: 'hook', vo: 'Stop pasting the same prompt.[sighs]' }, { id: 'save', vo: 'Save it as a skill.', gapBefore: 0.6 }] };
+  const r = buildCues({ board, take, samples: audio });
+  near(r.cues.HOOK_END, 2.20, 'the hook ends with its closing tag', 1e-3);
+  near(r.cues.CUE.save, 2.90 + 0.6, '"save" cues on its own word, after the gap (the pause is not refused)', 1e-3);
+  assert.ok(!r.cues.WORDS.some((w) => w.text.includes('prompt.Save')), 'no merged word in WORDS');
+  // the hook gate sees the real end of the hook (0.1 + 2.20 = 2.30), not "same"
+  refused(() => buildCues({ board: { ...board, hookMax: 2.2 }, take, samples: audio }), /the hook \("hook"\) ends at 2\.3/);
+});
+
+test('the default search for the next anchor starts after the previous anchor\'s last word, not its first', () => {
+  const { json, audio } = synthTake([
+    ['Stop', 0.12, 0.38], ['pasting', 0.42, 0.80], ['the', 0.84, 0.95], ['same', 0.99, 1.30], ['prompt', 1.34, 1.70], ['into', 1.74, 1.90], ['chat.', 1.94, 2.30],
+    ['Paste', 3.00, 3.30], ['the', 3.34, 3.45], ['same', 3.49, 3.80], ['prompt', 3.84, 4.20], ['into', 4.24, 4.40], ['a', 4.44, 4.50], ['skill.', 4.54, 5.00],
+  ], 5.5);
+  // "the same prompt" also occurs inside the hook's default anchor "Stop pasting the same"
+  const board = { beats: [{ id: 'hook', vo: 'Stop pasting the same prompt into chat.' }, { id: 'save', vo: 'Paste the same prompt into a skill.', anchor: 'the same prompt' }] };
+  const r = buildCues({ board, take: fromWords(json), samples: audio });
+  near(r.cues.CUE.hook, 0.12);
+  near(r.cues.CUE.save, 3.34, '"save" cues on "the same prompt" in its own line');
+});
+
+test('the generic words format with character timings cuts delivery tags from its chars too (council round 1)', () => {
+  const text = '[curious] Stop pasting.[sighs] Save it. [chuckles]';
+  const starts = [...text].map((_, i) => 0.1 + i * 0.05), ends = starts.map((s) => s + 0.05);
+  const json = { words: [{ text: 'Stop', start: 0.6, end: 0.8 }, { text: 'pasting.', start: 0.85, end: 1.3 }, { text: 'Save', start: 1.8, end: 2.0 }, { text: 'it.', start: 2.05, end: 2.3 }],
+    chars: { text, starts, ends } };
+  const take = fromWords(json);
+  assert.equal(take.chars.text, 'Stop pasting. Save it.');
+  assert.equal(take.chars.starts.length, take.chars.text.length);
+  assert.deepEqual(take.tags.map((t) => t.text), ['[curious]', '[sighs]', '[chuckles]']);
+  const at = (i) => starts[i];
+  near(take.tags[0].start, at(0)); near(take.tags[1].start, at(text.indexOf('[sighs]')));
+});
+
+test('captions: two calls on the same WORDS with a different hold each keep their own hold (council round 1)', () => {
+  const { ctx, calls } = fakeCtx();
+  const safe = { x: 84, y: 160, w: 852, h: 1320 };
+  const WORDS = [{ text: 'Hello', start: 0, end: 0.3 }, { text: 'there.', start: 0.35, end: 0.6 }];
+  const at = (t, hold) => { calls.length = 0; lib.captions(ctx, WORDS, t, { safe, voOffset: 0, hold }); return calls.map((x) => x.text); };
+  assert.deepEqual(at(0.8, 0.1), [], 'with hold 0.1 the caption is gone 0.2 s after the last word');
+  assert.deepEqual(at(0.8, 2), ['Hello', 'there.'], 'with hold 2 it is still up');
 });

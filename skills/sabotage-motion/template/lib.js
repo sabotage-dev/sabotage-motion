@@ -126,7 +126,9 @@ export const rgb01 = (h) => hexToRgb(h).map((v) => v / 255);
 //
 // Without cues.js the windows come from an estimate (words / wps + 0.25 s per voiced beat).
 
-const RESERVED_IDS = new Set(['TAKE', 'VO_OFFSET', 'DUR']);
+// __proto__ is reserved too: as a key of CUE (or of the object literal cues.js writes) it sets the prototype
+// instead of holding a cue, so a beat named that could never be cued.
+const RESERVED_IDS = new Set(['TAKE', 'VO_OFFSET', 'DUR', '__proto__']);
 export const BOARD_DEFAULTS = { lead: 0.10, tail: 0.40, wps: 3.0 };
 const EPS = 1e-9;
 
@@ -135,16 +137,23 @@ const EPS = 1e-9;
 export const TAG_RE = /\[[^[\]]*\]/g;
 export const isTag = (s) => /^\[[^[\]]*\]$/.test(String(s).trim());
 
-// Where each tag sits in `text`, and what removing it cuts: the tag plus one adjacent space (the one after
-// it when there is one, else the one before), so what is left reads as spoken. tools/cues.mjs cuts a
-// take's character timings by the same rule, so a vo line and the take's text stay comparable.
+// Where each tag sits in `text`, and what removing it cuts, so what is left reads as spoken. A side of a tag
+// is open at the text's edge, at a space, or against another tag (or a cut just made). With both sides open
+// the tag goes with one adjacent space (the one after it when there is one, else the one before). A tag
+// glued to a word on one side goes alone, keeping the space on its other side: cutting that space would
+// run two words together ("prompt.[sighs] Save" reads "prompt. Save", never "prompt.Save"). tools/cues.mjs
+// cuts a take's character timings by the same rule, so a vo line and the take's text stay comparable.
 export function tagCuts(text) {
-  const cuts = [];
-  for (const m of String(text).matchAll(TAG_RE)) {
+  const s = String(text), cuts = [];
+  for (const m of s.matchAll(TAG_RE)) {
     const a = m.index, b = a + m[0].length, prevEnd = cuts.length ? cuts[cuts.length - 1].cb : 0;
+    const leftOpen = a === 0 || a <= prevEnd || /\s/.test(s[a - 1]) || s[a - 1] === ']';
+    const rightOpen = b === s.length || /\s/.test(s[b]) || s[b] === '[';
     let ca = a, cb = b;
-    if (/\s/.test(text[b] || '')) cb = b + 1;
-    else if (a - 1 >= prevEnd && /\s/.test(text[a - 1] || '')) ca = a - 1;
+    if (leftOpen && rightOpen) {
+      if (/\s/.test(s[b] || '')) cb = b + 1;
+      else if (a - 1 >= prevEnd && /\s/.test(s[a - 1] || '')) ca = a - 1;
+    }
     cuts.push({ text: m[0], a, b, ca, cb });
   }
   return cuts;
@@ -192,7 +201,7 @@ export function boardProblems(board) {
     const name = b && typeof b.id === 'string' && b.id ? `beat "${b.id}"` : `beat ${i + 1}`;
     if (!b || typeof b !== 'object') { p.push(`${name} is not an object`); return; }
     if (typeof b.id !== 'string' || !b.id) p.push(`${name} needs an id (a non-empty string)`);
-    else if (RESERVED_IDS.has(b.id)) p.push(`${name}: the ids TAKE, VO_OFFSET and DUR are reserved`);
+    else if (RESERVED_IDS.has(b.id)) p.push(`${name}: the ids TAKE, VO_OFFSET, DUR and __proto__ are reserved`);
     else if (seen.has(b.id)) p.push(`${name}: the id is used twice`);
     seen.add(b.id);
     const hasVo = b.vo != null, hasDur = b.dur != null;
@@ -249,6 +258,18 @@ export function hookLong(board, cues) {
   return { ok: end <= board.hookMax + 1e-9, hook: hb ? hb.id : null, end, over: end - board.hookMax };
 }
 
+// The board fields a take's cues depend on, as one string. tools/cues.mjs writes it into cues.js as
+// BOARD_KEY, and boardTiming refuses a cues.js whose key no longer matches: a line, a silent beat's dur, an
+// anchor, an occurrence, a gap, the hook, lead or hookMax changed since the cues were made, so the zeros in
+// vo.wav or VO_OFFSET may not fit the board any more. Notes that do not move time (copy, look, sfx) are left
+// out, so editing them keeps the cues.
+export function boardKey(board) {
+  const lead = board.lead != null ? board.lead : BOARD_DEFAULTS.lead;
+  const v = (x) => (x == null ? null : x);
+  return JSON.stringify({ lead, hookMax: v(board.hookMax),
+    beats: board.beats.map((b) => [b.id, v(b.vo), v(b.dur), v(b.anchor), v(b.occurrence), v(b.gapBefore), v(b.hook)]) });
+}
+
 // Beat windows in picture time, half-open, contiguous, covering [0, dur) (plan section 6.3). With `cues`
 // (cues.js's exports) the take places the voiced beats; without, the estimate does. Never throws: a
 // board or cues.js that cannot be timed comes back with ok: false and the reasons in `problems`.
@@ -273,6 +294,10 @@ export function boardTiming(board, cues = null) {
     const ids = new Set(voicedIdx.map((i) => beats[i].id));
     for (const id of ids) if (!isNum(CUE[id])) more.push(`cues.js has no cue for beat "${id}"`);
     for (const id of Object.keys(CUE)) if (!ids.has(id)) more.push(`cues.js has a cue for "${id}", which is not a voiced beat in board.js`);
+    // every cues.js that tools/cues.mjs writes carries BOARD_KEY; a hand-built cues object without one skips this
+    if (cues.BOARD_KEY != null && cues.BOARD_KEY !== boardKey(board)) {
+      more.push('board.js changed since cues.js was made (a line, a silent beat\'s dur, an anchor, a gap, lead or hookMax)');
+    }
     if (more.length) return fail([...more, 'cues.js does not match board.js: run node tools/cues.mjs again']);
   }
   if (!cues || !voicedIdx.length) {
@@ -312,6 +337,18 @@ export function boardTiming(board, cues = null) {
       const next = windows[w.index + 1];
       bad.push(`beat "${w.id}" would last ${(w.end - w.start).toFixed(3)} s ([${w.start.toFixed(3)}, ${w.end.toFixed(3)}))` +
         (next ? `: "${next.id}" starts at or before "${w.id}" does (two anchors closer than lead ${lead} s, or a dur of 0)` : ''));
+    }
+  }
+  // Every voiced beat's anchor must play inside its own window. A positive window is not enough: two anchors
+  // closer than lead (plus any silent beats between them) give the second beat a window that opens before
+  // the first beat's anchor, so the first line would play under the wrong beat.
+  if (cues && voicedIdx.length) {
+    for (const i of voicedIdx) {
+      const w = windows[i], at = r6(voOffset + cues.CUE[beats[i].id]);
+      if (at >= w.start - EPS && at < w.end - EPS) continue;
+      const inside = windows.find((x) => at >= x.start - EPS && at < x.end - EPS);
+      bad.push(`beat "${w.id}": its anchor plays at ${at.toFixed(3)} s, outside its own window [${w.start.toFixed(3)}, ${w.end.toFixed(3)})` +
+        (inside ? ` and inside "${inside.id}"'s` : '') + ` (two anchors closer than lead ${lead} s, plus any silent beats between them)`);
     }
   }
   if (bad.length) return { ...fail(bad), voOffset, dur, windows };
@@ -355,7 +392,7 @@ const _cues = await pieceModule('./cues.js');
 export const BOARD = _board.mod && _board.mod.BOARD ? _board.mod.BOARD : null;
 export const CUES = _cues.mod ? Object.freeze({
   VO_OFFSET: _cues.mod.VO_OFFSET, CUE: _cues.mod.CUE, TAKE: _cues.mod.TAKE, GAPS: _cues.mod.GAPS || [],
-  HOOK_END: _cues.mod.HOOK_END, WORDS: _cues.mod.WORDS || [],
+  HOOK_END: _cues.mod.HOOK_END, WORDS: _cues.mod.WORDS || [], BOARD_KEY: _cues.mod.BOARD_KEY,
 }) : null;
 let _timing = null;
 // The piece's board timing: { estimated, voOffset, dur, lead, tail, windows: [{ id, index, start, end, voiced, beat }] }.
@@ -390,7 +427,7 @@ const pieceVoOffset = () => (CUES ? CUES.VO_OFFSET : BOARD ? boardInfo().voOffse
 // pixels, for a scene's boxes(t). VO_OFFSET is added here (opts.voOffset overrides it); tags never show.
 const _capCache = new WeakMap();
 function captionLayout(ctx, WORDS, o) {
-  const key = JSON.stringify([o.font, o.maxW, o.lines, o.breakGap, o.sentence, o.upper]);
+  const key = JSON.stringify([o.font, o.maxW, o.lines, o.breakGap, o.sentence, o.upper, o.hold]);
   let byKey = _capCache.get(WORDS);
   if (!byKey) { byKey = new Map(); _capCache.set(WORDS, byKey); }
   if (byKey.has(key)) return byKey.get(key);

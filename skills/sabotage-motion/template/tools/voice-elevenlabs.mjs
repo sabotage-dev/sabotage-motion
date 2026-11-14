@@ -100,12 +100,17 @@ async function main(argv) {
   });
   const cost = res.headers.get('character-cost') || res.headers.get('x-character-count');
   if (!res.ok) {
-    console.error(`voice: the API answered ${res.status} ${res.statusText}: ${(await res.text()).slice(0, 600)}`);
+    // the key never reaches the terminal, even when the answer (a proxy's, say) quotes it back
+    const answer = (await res.text()).slice(0, 600).split(key).join('[ELEVENLABS_API_KEY]');
+    console.error(`voice: the API answered ${res.status} ${res.statusText}: ${answer}`);
     return 1;
   }
   const json = await res.json();
   if (!json || typeof json.audio_base64 !== 'string' || !json.audio_base64) { console.error('voice: the response has no audio_base64'); return 1; }
 
+  // A new take replaces the old one as a whole: the old timings go first, so if anything below fails they
+  // are never left beside the new audio for tools/cues.mjs to pair up.
+  fs.rmSync(path.join(ROOT, 'take.json'), { force: true });
   // the audio first: whatever goes wrong after this, the take is on disk
   const audio = Buffer.from(json.audio_base64, 'base64'), raw = path.join(ROOT, 'take-raw.wav');
   const [kind, rate] = format.split('_');
@@ -121,8 +126,10 @@ async function main(argv) {
   console.log(`wrote take-raw.wav (${info.duration.toFixed(2)} s at ${info.sampleRate} Hz)`);
   console.log(cost != null ? `characters billed: ${cost} (the response's character-cost header)` : 'the response reported no character cost');
 
-  const { audio_base64, ...rest } = json;
-  fs.writeFileSync(path.join(ROOT, 'take.elevenlabs.json'), JSON.stringify({ model_id: model, output_format: format, text, ...rest }, null, 1) + '\n');
+  // only the timing fields are kept: nothing else the response carries (a quoted key, say) is written to disk
+  const timing = {};
+  for (const k of ['alignment', 'normalized_alignment']) if (json[k] !== undefined) timing[k] = json[k];
+  fs.writeFileSync(path.join(ROOT, 'take.elevenlabs.json'), JSON.stringify({ model_id: model, output_format: format, text, ...timing }, null, 1) + '\n');
   try {
     const take = fromElevenLabs(json);
     fs.writeFileSync(path.join(ROOT, 'take.json'), JSON.stringify({ ...take, model: model, duration: +info.duration.toFixed(6), sampleRate: info.sampleRate }, null, 1) + '\n');

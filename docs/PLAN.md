@@ -283,7 +283,8 @@ match, case-sensitive) and the word sequence otherwise (case-sensitive, punctuat
 
 **Delivery tags.** A `[...]` span in a `vo` line (`[curious]`, `[short pause]`, `[chuckles]`) is a delivery tag: it
 goes to the TTS as written and shows on the board sheet as direction, but it is never a word. Every adapter moves
-tags out of `words` and `chars` (with one adjacent space, so the text reads as spoken) into `tags`, keeping their
+tags out of `words` and `chars` (with one adjacent space when the tag stands between spaces or at a line edge; a tag
+glued to a word on one side goes alone, so the words around it never run together and the text reads as spoken) into `tags`, keeping their
 times. Measured on the owner's ElevenLabs takes (three takes, one model): a tag's span ends where the next word
 starts, most last about 50 ms and `[chuckles]` 0.36 to 0.45 s, and the spans are not silent (-51 to -23 dBFS RMS:
 the next word's breath and onset, or the chuckle itself). So a tag is dropped as text and kept as sound that belongs
@@ -318,13 +319,20 @@ export const CUE = { hook: 0.12, save: 3.67 };           // seconds into vo.wav,
 export const TAKE = { duration: 12.48, lastWordEnd: 12.40 };
 export const GAPS = [{ before: 'cta', at: 9.85, dur: 1.5 }]; // zeros spliced for interleaved silent beats (seconds into vo.wav)
 export const HOOK_END = 2.72;                            // seconds into vo.wav
+export const BOARD_KEY = '{"lead":0.1,...}';             // the board fields these cues were made from
 export const WORDS = [{ text: 'Stop', start: 0.12, end: 0.38 }];
 ```
 
 - One cue per beat with `vo`, keyed by beat id, from its anchor (with an occurrence count when a phrase repeats).
-  Every time in `cues.js` except `VO_OFFSET` is seconds into `vo.wav`; the board helpers convert to picture time.
+  Without a count, the next beat's anchor is searched for after the last word of the previous one. Every time in
+  `cues.js` except `VO_OFFSET` is seconds into `vo.wav`; the board helpers convert to picture time.
 - A missing anchor stops the tool with the phrase it could not find. It checks every anchor before it writes
   anything, so a bad take never replaces a good `cues.js`.
+- `BOARD_KEY` records the board fields the cues depend on: each beat's id, line, dur, anchor, occurrence, gap and
+  hook flag, plus `lead` and `hookMax`. A render refuses a `cues.js` whose key no longer matches `board.js`, so a
+  changed silent beat or leading duration cannot slide the picture off the voice; notes that move no time (copy,
+  look, sound) keep the cues. Each voiced beat's anchor must also play inside its own window, which is how "two
+  anchors closer than `lead`" is refused even when every window is positive.
 - `VO_OFFSET` is written once, by `cues.mjs` (section 6.3), and read by the board helpers, captions and `mix.mjs`.
   The private version keeps it in two places (a constant in the scene and an environment variable for the mixer),
   which can drift.
