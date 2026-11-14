@@ -161,6 +161,25 @@ test('fades: 0.35 s for a bed shorter than the picture, 2.6 s for a longer one, 
   assert.deepEqual([masterJson(a).stems[1].fade, masterJson(b).stems[1].fade], [0.35, 2.6]);
 });
 
+// The voice and the bed reach ffmpeg as one input (tools/mix.mjs): read as two files, the bed could lag the voice by
+// more than the pad on a busy runner (ffmpeg 8 decodes inputs on separate threads), and the sidechain compressor,
+// which ends at the first of its inputs to end, then cut the bed's last frames. Five copies of one mix, run at once,
+// must give the same premix to the sample, the bed running to the last frame in each.
+test('the same mix, five copies run at once, gives the same premix to the sample: the bed is never cut short', async () => {
+  const { spawn } = await import('node:child_process');
+  const { createHash } = await import('node:crypto');
+  const long = noiseBed(12.0, { gaps: [] });
+  const dirs = Array.from({ length: 5 }, (_, i) => mixDir(`mix-same-${i}`, { voice: TINY(), cues: TINY_CUES, bed: long }));
+  const codes = await Promise.all(dirs.map((d) => new Promise((res) => {
+    const p = spawn(process.execPath, ['tools/mix.mjs', 'mix', '--bed', 'bed.wav', '--no-sfx', '--keep-premix'], { cwd: d, stdio: 'ignore' });
+    p.on('close', res);
+  })));
+  assert.deepEqual(codes, [0, 0, 0, 0, 0]);
+  const hashes = dirs.map((d) => createHash('sha256').update(fs.readFileSync(P(d, 'out/mix.premix.wav'))).digest('hex'));
+  assert.equal(new Set(hashes).size, 1, `${new Set(hashes).size} different premixes from one mix`);
+  assert.ok(lastAbove(premix(dirs[0]), 0) >= N - 2, 'the bed plays to the last frame');
+});
+
 test('a mute window: silent inside, unchanged outside, ramped just outside its edges', () => {
   const bed = noiseBed(8.0);
   const dir = mixDir('mix-mute', { voice: TINY(), cues: TINY_CUES, bed });

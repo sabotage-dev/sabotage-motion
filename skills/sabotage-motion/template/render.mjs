@@ -333,7 +333,7 @@ async function doctor() {
     for (const e of ['libx264', 'libvpx-vp9', 'prores_ks', 'aac', 'mjpeg']) line(has(enc, e), 'ffmpeg encoder', e, `an ffmpeg built with ${e} (${ffInstall})`);
     line(has(dec, 'libvpx-vp9'), 'ffmpeg decoder', 'libvpx-vp9 (reads VP9 alpha)', `an ffmpeg built with libvpx (${ffInstall})`);
     // the engine (vflip, tile, alphaextract), tools/mix.mjs (the audio filters) and tools/frames.mjs (fps)
-    for (const f of ['loudnorm', 'ebur128', 'sidechaincompress', 'alimiter', 'amix', 'asplit', 'atrim', 'aformat', 'aresample',
+    for (const f of ['loudnorm', 'ebur128', 'sidechaincompress', 'alimiter', 'amix', 'asplit', 'pan', 'atrim', 'aformat', 'aresample',
       'vflip', 'tile', 'alphaextract', 'fps']) line(has(fil, f), 'ffmpeg filter', f, `an ffmpeg with the ${f} filter (${ffInstall})`);
     // mix.mjs limits with alimiter latency=1 (lookahead compensated) and level=0 (no auto level); without the
     // option, ffmpeg before 5.1, the limiter would shift the mix about 5 ms late

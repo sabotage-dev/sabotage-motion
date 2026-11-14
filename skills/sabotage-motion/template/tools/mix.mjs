@@ -144,16 +144,17 @@ export function decode(file) {
   if (b.byteOffset % 4 === 0) return new Float32Array(b.buffer, b.byteOffset, b.length >> 2);
   return new Float32Array(new Uint8Array(b).buffer, 0, b.length >> 2);
 }
-// Interleaved stereo float -> a 32-bit float WAV (WAVE_FORMAT_IEEE_FLOAT, with its fact chunk).
-export function wavStereo(samples, sr = SR) {
+// Interleaved float samples -> a 32-bit float WAV (WAVE_FORMAT_IEEE_FLOAT, with its fact chunk), stereo by default.
+export function wavChannels(samples, ch, sr = SR) {
   const n = samples.length, head = Buffer.alloc(58);
   head.write('RIFF', 0); head.writeUInt32LE(50 + n * 4, 4); head.write('WAVE', 8);
-  head.write('fmt ', 12); head.writeUInt32LE(18, 16); head.writeUInt16LE(3, 20); head.writeUInt16LE(2, 22);
-  head.writeUInt32LE(sr, 24); head.writeUInt32LE(sr * 8, 28); head.writeUInt16LE(8, 32); head.writeUInt16LE(32, 34); head.writeUInt16LE(0, 36);
-  head.write('fact', 38); head.writeUInt32LE(4, 42); head.writeUInt32LE(n / 2, 46);
+  head.write('fmt ', 12); head.writeUInt32LE(18, 16); head.writeUInt16LE(3, 20); head.writeUInt16LE(ch, 22);
+  head.writeUInt32LE(sr, 24); head.writeUInt32LE(sr * 4 * ch, 28); head.writeUInt16LE(4 * ch, 32); head.writeUInt16LE(32, 34); head.writeUInt16LE(0, 36);
+  head.write('fact', 38); head.writeUInt32LE(4, 42); head.writeUInt32LE(n / ch, 46);
   head.write('data', 50); head.writeUInt32LE(n * 4, 54);
   return Buffer.concat([head, Buffer.from(samples.buffer, samples.byteOffset, n * 4)]);
 }
+export const wavStereo = (samples, sr = SR) => wavChannels(samples, 2, sr);
 // `src` (interleaved stereo) x gain, starting `at` frames into a stereo buffer of `frames` frames; whatever
 // falls outside is cut. Returns how many of the source's frames ran past the end.
 function placeInto(dst, src, gain, at, frames, from = 0) {
@@ -328,9 +329,13 @@ export function mixPiece(argv, log = console.log) {
     const inputs = [];
     const stemRecord = [];
     const tmpWav = (n, data) => { const f = path.join(tmp, n + '.wav'); fs.writeFileSync(f, wavStereo(data)); return f; };
-    // Stems go into the ffmpeg graph with a second of zeros after the picture's end: the sidechain path drops its
-    // last few buffers at the end of a stream, and without the pad the bed would stop short of the last frame.
-    // The graph trims the premix back to the picture's length.
+    // Stems go into the ffmpeg graph with a second of zeros after the picture's end, and the graph trims the premix
+    // back to the picture's length. The pad covers the sidechain compressor's end of stream: it stops at the first
+    // of its two inputs to end, even while the other still has samples on the way (ffmpeg's
+    // af_sidechaincompress.c), so a bed that arrived late would lose its tail. That is also why the voice and the
+    // bed share one input file below: read from two files, ffmpeg (7 and later) decodes them on separate threads
+    // and the bed could lag the voice by more than the pad, which cut the bed's last frames now and then on the
+    // Linux runners' ffmpeg 8. From one file, both branches of the graph advance together.
     const padded = (buf) => { const out = new Float32Array(buf.length + 2 * SR); out.set(buf); return out; };
 
     // ---- voice: level, gain, delay
@@ -388,13 +393,23 @@ export function mixPiece(argv, log = console.log) {
 
     // ---- the premix: duck, sum, limit (ffmpeg); written as float so nothing clips before the normalization
     const lab = {};
-    if (voice) { lab.vo = `${inputs.length}:a`; inputs.push(tmpWav('voice', padded(voice.buf))); }
-    if (bed) { lab.bed = `${inputs.length}:a`; inputs.push(tmpWav('bed', padded(bed.buf))); }
+    if (voice && bed) {
+      // voice L, voice R, bed L, bed R: one input, split in the graph
+      const v = padded(voice.buf), b = padded(bed.buf), n = v.length >> 1, vb = new Float32Array(n * 4);
+      for (let j = 0; j < n; j++) { vb[4 * j] = v[2 * j]; vb[4 * j + 1] = v[2 * j + 1]; vb[4 * j + 2] = b[2 * j]; vb[4 * j + 3] = b[2 * j + 1]; }
+      const f = path.join(tmp, 'voice-bed.wav');
+      fs.writeFileSync(f, wavChannels(vb, 4));
+      lab.vb = `${inputs.length}:a`; inputs.push(f);
+    } else {
+      if (voice) { lab.vo = `${inputs.length}:a`; inputs.push(tmpWav('voice', padded(voice.buf))); }
+      if (bed) { lab.bed = `${inputs.length}:a`; inputs.push(tmpWav('bed', padded(bed.buf))); }
+    }
     if (rest) { lab.rest = `${inputs.length}:a`; inputs.push(tmpWav('rest', padded(rest))); }
     const graph = [], parts = [];
     const d = DEFAULTS.duck;
     if (voice && bed) {
-      graph.push(`[${lab.vo}]asplit=2[vo][sc]`, `[${lab.bed}][sc]sidechaincompress=threshold=${d.threshold}:ratio=${d.ratio}:attack=${d.attack}:release=${d.release}[bed]`);
+      graph.push(`[${lab.vb}]asplit=2[vbv][vbb]`, '[vbv]pan=stereo|c0=c0|c1=c1,asplit=2[vo][sc]', '[vbb]pan=stereo|c0=c2|c1=c3[bd]',
+        `[bd][sc]sidechaincompress=threshold=${d.threshold}:ratio=${d.ratio}:attack=${d.attack}:release=${d.release}[bed]`);
       parts.push('[vo]', '[bed]');
     } else {
       if (voice) parts.push(`[${lab.vo}]`);
