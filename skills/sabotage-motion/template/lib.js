@@ -137,40 +137,65 @@ const EPS = 1e-9;
 export const TAG_RE = /\[[^[\]]*\]/g;
 export const isTag = (s) => /^\[[^[\]]*\]$/.test(String(s).trim());
 
-// Tags with nothing between them ("[sighs][whispers]") form one run, and a run is cut as a unit.
-export function tagRuns(text) {
-  const runs = [];
-  for (const m of String(text).matchAll(TAG_RE)) {
-    const t = { text: m[0], a: m.index, b: m.index + m[0].length }, last = runs[runs.length - 1];
-    if (last && last.b === t.a) { last.tags.push(t); last.b = t.b; } else runs.push({ a: t.a, b: t.b, tags: [t] });
-  }
-  return runs;
+// Punctuation that sticks to the word across the space from it: closing marks after a span of tags, opening
+// marks before one. A quote counts by where it sits: it opens only at the start, after a space, or after another
+// opening mark ('say "hi'), and closes only before the end, a space, or a closing mark ('hi" now', 'hi",'). So an
+// apostrophe inside or at the end of a word ("it's", "players'") never opens, and neither does the quote that
+// closes after it ('"players'"').
+const CLOSE_P = /[,.;:!?…)}]/, OPEN_P = /[({¿¡]/, QUOTE = /["'“”‘’«»]/;
+function opensAt(s, i) {
+  if (OPEN_P.test(s[i] || '')) return true;
+  if (!QUOTE.test(s[i] || '')) return false;
+  const p = s[i - 1];
+  return p === undefined || /\s/.test(p) || OPEN_P.test(p) || (QUOTE.test(p) && opensAt(s, i - 1));
 }
-// Punctuation that sticks to the word across the space from it: closing marks after a run, opening marks before.
-const CLOSE_P = /[,.;:!?…)}]/, OPEN_P = /[({¿¡]/;
-// Where each tag sits in `text`, and what removing it cuts, so what is left reads as spoken. Each run of tags
-// is cut as a unit. A side of a run is open at the text's edge, at a space, at a cut just made, or at
-// punctuation that belongs to the word beyond the run (a closing mark after it, an opening mark before it).
-// With both sides open the run goes with one adjacent space: the one after it when there is one ("a [x] b" reads
-// "a b", "([x] hi)" reads "(hi)"), else the one before ("Hello [sighs], world" reads "Hello, world"). A run glued
-// to a word on one side goes alone and keeps the space on its other side, since cutting that space would run two
-// words together ("prompt.[sighs][whispers] Save" reads "prompt. Save", never "prompt.Save"). tools/cues.mjs cuts
-// a take's character timings by the same rule, so a vo line and the take's text stay comparable.
-export function tagCuts(text) {
-  const s = String(text), cuts = [];
-  for (const r of tagRuns(s)) {
-    const { a, b } = r, prevEnd = cuts.length ? cuts[cuts.length - 1].cb : 0;
-    const L = s[a - 1], R = s[b];
-    const leftOpen = a === 0 || a <= prevEnd || /\s/.test(L) || OPEN_P.test(L);
-    const rightOpen = b === s.length || /\s/.test(R) || CLOSE_P.test(R);
+function closesAt(s, i) {
+  if (CLOSE_P.test(s[i] || '')) return true;
+  if (!QUOTE.test(s[i] || '')) return false;
+  const n = s[i + 1];
+  return n === undefined || /\s/.test(n) || CLOSE_P.test(n) || (QUOTE.test(n) && closesAt(s, i + 1));
+}
+// The spans of tags in `text`, each cut as a unit: tags with nothing or only spaces between them ("[sighs][whispers]",
+// "[laughs] [sighs]") form one span, and the spaces inside it go with it. A side of a span is open at the text's
+// edge, at a space, at a cut just made, or at punctuation that belongs to the word beyond it (a closing mark after
+// it, an opening mark before it). With both sides open the span goes with one adjacent space: the one after it when
+// there is one ("a [x] b" reads "a b", "([x] hi)" reads "(hi)"), else the one before ("Hello [sighs], world" reads
+// "Hello, world"; "Stop now [laughs] [sighs]." reads "Stop now."). A span with one side open goes alone, keeping the
+// space on its other side ("prompt.[sighs][whispers] Save" reads "prompt. Save"). A span closed on both sides keeps
+// one space if it had one inside, so the words around it stay apart ("now.[x] [y]Hello" reads "now. Hello"); with no
+// space anywhere it would join two words, so the board refuses it. tools/cues.mjs cuts a take's character timings
+// by the same rule, so a vo line and the take's text stay comparable.
+export function tagSpans(text) {
+  const s = String(text), spans = [];
+  for (const m of s.matchAll(TAG_RE)) {
+    const t = { text: m[0], a: m.index, b: m.index + m[0].length }, last = spans[spans.length - 1];
+    if (last && /^\s*$/.test(s.slice(last.b, t.a))) { last.tags.push(t); last.b = t.b; } else spans.push({ a: t.a, b: t.b, tags: [t] });
+  }
+  let prevEnd = 0;
+  for (const sp of spans) {
+    const { a, b, tags } = sp, L = s[a - 1], R = s[b];
+    sp.leftOpen = a === 0 || a <= prevEnd || /\s/.test(L) || opensAt(s, a - 1);
+    sp.rightOpen = b === s.length || /\s/.test(R) || closesAt(s, b);
+    sp.innerSpace = tags.some((t, k) => k > 0 && t.a > tags[k - 1].b);
     let ca = a, cb = b;
-    if (leftOpen && rightOpen) {
+    if (sp.leftOpen && sp.rightOpen) {
       if (/\s/.test(R || '')) cb = b + 1;
       else if (a - 1 >= prevEnd && /\s/.test(L || '')) ca = a - 1;
     }
-    r.tags.forEach((t, k) => cuts.push({ text: t.text, a: t.a, b: t.b, ca: k === 0 ? ca : t.a, cb: k === r.tags.length - 1 ? cb : t.b }));
+    // each tag's cut takes the gap before it; a span closed on both sides keeps the first space of its first gap
+    const keepOne = !sp.leftOpen && !sp.rightOpen && sp.innerSpace;
+    let kept = false;
+    sp.cuts = tags.map((t, k) => {
+      let from = k === 0 ? ca : tags[k - 1].b;
+      if (k > 0 && keepOne && !kept && t.a > tags[k - 1].b) { from += 1; kept = true; }
+      return { text: t.text, a: t.a, b: t.b, ca: from, cb: k === tags.length - 1 ? cb : t.b };
+    });
+    prevEnd = cb;
   }
-  return cuts;
+  return spans;
+}
+export function tagCuts(text) {
+  return tagSpans(text).flatMap((sp) => sp.cuts);
 }
 export function stripTags(text) {
   let out = '', i = 0;
@@ -228,8 +253,8 @@ export function boardProblems(board) {
       const vo = String(b.vo);
       if (typeof b.vo !== 'string' || !voWords(vo).length) p.push(`${name}: vo must be a line with at least one word`);
       if (/[[\]]/.test(vo.replace(TAG_RE, ''))) p.push(`${name}: an unmatched [ or ] in vo (a delivery tag is one [...] span)`);
-      for (const r of tagRuns(vo)) {   // a run of tags glued on both sides would join the words around it
-        if (/\S/.test(vo[r.a - 1] || ' ') && /\S/.test(vo[r.b] || ' ')) p.push(`${name}: put a space before or after the tag ${r.tags.map((t) => t.text).join('')}`);
+      for (const sp of tagSpans(vo)) {   // a span glued to words on both sides, with no space in it, would join them
+        if (!sp.leftOpen && !sp.rightOpen && !sp.innerSpace) p.push(`${name}: put a space before or after the tag ${vo.slice(sp.a, sp.b)}`);
       }
       if (b.anchor != null) {
         if (typeof b.anchor !== 'string' || !normWords(b.anchor).length) p.push(`${name}: anchor must be a phrase from its vo line`);
@@ -286,7 +311,7 @@ export function boardKey(board) {
   const hb = hookBeat(board);
   return JSON.stringify({ lead, hookMax: v(board.hookMax), hook: hb ? hb.id : null,
     beats: board.beats.slice(0, lastV + 1).map((b) => (b.vo != null
-      ? [b.id, String(b.vo).trim(), anchorOf(b), v(b.occurrence), v(b.gapBefore)]
+      ? [b.id, String(b.vo).trim(), anchorOf(b).trim().replace(/\s+/g, ' '), v(b.occurrence), v(b.gapBefore)]
       : [b.id, b.dur])) });
 }
 
@@ -436,7 +461,8 @@ export function beatAt(t) {
   return w ? { id: w.id, index: w.index, start: w.start, end: w.end, beat: w.beat } : null;
 }
 export const boardDur = () => boardInfo().dur;
-const pieceVoOffset = () => (CUES ? CUES.VO_OFFSET : BOARD ? boardInfo().voOffset : 0);
+// through boardInfo() whenever there is a board, so a stale cues.js is refused here too, not read past
+const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSET : 0);
 
 // ---- captions (plan section 8): word-by-word captions from WORDS (seconds into vo.wav).
 //   const boxes = captions(ctx, CUES ? CUES.WORDS : [], t, { safe: target.safe, size: 72 });

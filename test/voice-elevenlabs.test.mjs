@@ -200,3 +200,17 @@ test('a new take removes the old take.elevenlabs.json along with take.json befor
   assert.ok(!fs.existsSync(path.join(dir, 'take.json')), 'the old take.json survived');
   assert.ok(!fs.existsSync(path.join(dir, 'take.elevenlabs.json')), 'the old take.elevenlabs.json survived');
 });
+
+test('a key tucked inside the timing arrays is blanked in every file written (council round 3)', async () => {
+  const dir = voicePiece('voice-echo-array', {});
+  reply = (q) => {
+    const f = fakeTake(q.body.text), k = q.headers['xi-api-key'];
+    const al = { ...f.alignment, characters: [...f.alignment.characters.slice(0, -1), { echoed: k }] };
+    return { json: { audio_base64: f.pcm.toString('base64'), alignment: al } };
+  };
+  await runVoice(dir, ['--model', 'm']);
+  for (const f of fs.readdirSync(dir)) {
+    if (fs.statSync(path.join(dir, f)).isFile()) assert.ok(!fs.readFileSync(path.join(dir, f)).includes('test-key-123'), `the key is in ${f}`);
+  }
+  assert.match(fs.readFileSync(path.join(dir, 'take.elevenlabs.json'), 'utf8'), /\[ELEVENLABS_API_KEY\]/);
+});

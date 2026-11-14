@@ -259,6 +259,7 @@ test('a cues.js made before board.js changed is refused, so the picture never dr
     ['hook: true on the beat that is already the hook', withBeat('hook', { hook: true })],
     ['the default anchor written out', withBeat('save', { anchor: 'Save it as a' })],
     ['a trailing space on a line', withBeat('save', { vo: SAVE + ' ' })],
+    ['the default anchor with a stray space (matching trims it)', withBeat('save', { anchor: 'Save it as a ' })],
   ];
   for (const [what, board] of kept) {
     const t = boardTiming(board, r.cues);
@@ -287,4 +288,7 @@ test('a render refuses a cues.js made before board.js changed: the guard holds o
   assertWindows(L1.boardInfo(), ['cold', 'hook', 'mid', 'save', 'end']);
   const L2 = await import(pathToFileURL(path.join(edited, 'lib.js')).href);
   assert.throws(() => L2.boardInfo(), /board\.js changed since cues\.js was made/);
+  // captions take VO_OFFSET through the same check, so they refuse the stale cues too (council round 3)
+  assert.throws(() => L2.captions(fakeCtx().ctx, L2.CUES.WORDS, 2, { safe: { x: 84, y: 160, w: 852, h: 1320 } }), /board\.js changed since cues\.js was made/);
+  L1.captions(fakeCtx().ctx, L1.CUES.WORDS, 2, { safe: { x: 84, y: 160, w: 852, h: 1320 } });   // and the current piece still captions
 });

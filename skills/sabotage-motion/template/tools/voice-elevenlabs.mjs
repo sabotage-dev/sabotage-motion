@@ -133,10 +133,12 @@ async function main(argv) {
   const pick = (al) => (al && typeof al === 'object' ? Object.fromEntries(ARRAYS.filter((a) => a in al).map((a) => [a, al[a]])) : al);
   const timing = {};
   for (const k of ['alignment', 'normalized_alignment']) if (json[k] !== undefined) timing[k] = pick(json[k]);
-  fs.writeFileSync(path.join(ROOT, 'take.elevenlabs.json'), JSON.stringify({ model_id: model, output_format: format, text, ...timing }, null, 1) + '\n');
+  // and the key is blanked in everything written, wherever a response might have tucked it (inside an array too)
+  const blank = (str) => str.split(key).join('[ELEVENLABS_API_KEY]');
+  fs.writeFileSync(path.join(ROOT, 'take.elevenlabs.json'), blank(JSON.stringify({ model_id: model, output_format: format, text, ...timing }, null, 1)) + '\n');
   try {
     const take = fromElevenLabs(json);
-    fs.writeFileSync(path.join(ROOT, 'take.json'), JSON.stringify({ ...take, model: model, duration: +info.duration.toFixed(6), sampleRate: info.sampleRate }, null, 1) + '\n');
+    fs.writeFileSync(path.join(ROOT, 'take.json'), blank(JSON.stringify({ ...take, model: model, duration: +info.duration.toFixed(6), sampleRate: info.sampleRate }, null, 1)) + '\n');
     console.log(`wrote take.json (${take.words.length} words, ${take.tags.length} delivery tags) and take.elevenlabs.json`);
   } catch (e) {
     if (!(e instanceof CueError)) throw e;

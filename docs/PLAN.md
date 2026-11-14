@@ -283,11 +283,15 @@ match, case-sensitive) and the word sequence otherwise (case-sensitive, punctuat
 
 **Delivery tags.** A `[...]` span in a `vo` line (`[curious]`, `[short pause]`, `[chuckles]`) is a delivery tag: it
 goes to the TTS as written and shows on the board sheet as direction, but it is never a word. Every adapter moves
-tags out of `words` and `chars` so the text still reads as spoken: tags with nothing between them are cut as one run;
-a run with both sides open (an edge, a space, a closing mark such as `,` after it, an opening mark such as `(`
-before it) goes with one adjacent space, and a run glued to a word on one side goes alone, so the words around it
-never run together ("Hello [sighs], world" reads "Hello, world"; "prompt.[sighs] Save" reads "prompt. Save"); a run
-glued on both sides is refused by the board. They go into `tags`, keeping their
+tags out of `words` and `chars` so the text still reads as spoken. Tags with nothing or only spaces between them
+form one span, cut as a unit with those spaces. A span with both sides open goes with one adjacent space. A side is
+open at an edge, a space, a closing mark such as `,` after it, or an opening mark such as `(` before it; quotes
+count by position, so an apostrophe never opens. So "Hello [sighs], world" reads "Hello, world" and "Stop now
+[laughs] [sighs]." reads "Stop now.". A span glued to a word on one side goes alone ("prompt.[sighs] Save" reads
+"prompt. Save"). A span glued on both sides keeps one space if it had one, and is refused by the board if it had
+none. A test checks this on thousands of generated lines: words never merge, no space is doubled or stranded before
+punctuation, the take's character path agrees, and two lines joined into one script read as the two lines do. They
+go into `tags`, keeping their
 times. Measured on the owner's ElevenLabs takes (three takes, one model): a tag's span ends where the next word
 starts, most last about 50 ms and `[chuckles]` 0.36 to 0.45 s, and the spans are not silent (-51 to -23 dBFS RMS:
 the next word's breath and onset, or the chuckle itself). So a tag is dropped as text and kept as sound that belongs

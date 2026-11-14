@@ -407,3 +407,76 @@ test('on character timings too, the next anchor is searched for after the previo
   const r = buildCues({ board, take, samples: audio });
   near(r.cues.CUE.save, 3.34, '"save" cues on "the same prompt" in its own line');
 });
+
+// ---- council round 3: spans of tags separated by spaces, quotes, and one invariant over thousands of lines
+
+test('spans of tags with spaces between them, quotes and brackets are cut so the text reads as spoken', () => {
+  const cases = [
+    ['Stop now [laughs] [sighs].', 'Stop now.'], ['Save it [sighs] [breath], please now.', 'Save it, please now.'],
+    ['Hello [sighs] [whispers], world', 'Hello, world'], ['He said "stop [sighs]" and left now.', 'He said "stop" and left now.'],
+    ['Say "[whispers]hello" now.', 'Say "hello" now.'], ['Say “hello [sighs]” now please.', 'Say “hello” now please.'],
+    ["the players' [sighs] turn now.", "the players' turn now."], ["players'[sighs] turn now please.", "players' turn now please."],
+    ['Say ([whispers]hello) now.', 'Say (hello) now.'], ['now.[x] [y]Hello', 'now. Hello'], ['Well [sighs]... okay', 'Well... okay'],
+  ];
+  for (const [vo, want] of cases) assert.equal(lib.stripTags(vo), want, vo);
+  for (const vo of ['Say ([whispers]hello) now.', 'Say "[whispers]hello" now.', 'x[a] [b]y']) {
+    assert.deepEqual(lib.boardProblems({ beats: [{ id: 'a', vo }] }), [], `${vo} is a valid line`);
+  }
+  // a custom anchor right before a closing mark is found on a take with two spans before it
+  const take = fromElevenLabs(elevenlabsFrom([['Stop', 0.1, 0.4], ['now', 0.45, 0.8], ['[laughs]', 0.8, 1.2], ['[sighs].', 1.2, 1.6]]));
+  assert.equal(take.chars.text, 'Stop now.');
+});
+
+test('invariant: tags put anywhere a writer would put them never merge words, double spaces or strand punctuation', () => {
+  let seed = 20261113;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const WORDS = ['Stop', 'pasting', 'the', 'same', 'prompt', 'save', 'it', 'as', 'a', 'skill', 'now', 'please', 'hello', "players'", "it's", 'Claude'];
+  const word = () => {
+    let w = pick(WORDS);
+    const r = rnd();
+    if (r < 0.12) w = `"${w}"`; else if (r < 0.18) w = `“${w}”`; else if (r < 0.24) w = `(${w})`; else if (r < 0.28) w = `‘${w}’`;
+    if (rnd() < 0.3) w += pick([',', '.', '!', '?', '…', ':', ';', '...']);
+    return w;
+  };
+  const group = () => pick(['[x]', '[sighs][whispers]', '[laughs] [sighs]', '[a] [b] [c]']);
+  const isWord = (ch) => /[\p{L}\p{N}]/u.test(ch || '');
+  // where a writer would put a tag: before a closing mark or quote, after an opening one (a quote opens after a
+  // space or the start, and closes before a space, a closing mark or the end)
+  const Q = /["'“”‘’]/, CL = /[,.;:!?…)]/;
+  const closing = (s, i) => CL.test(s[i]) || (Q.test(s[i]) && (i + 1 >= s.length || s[i + 1] === ' ' || CL.test(s[i + 1]) || (Q.test(s[i + 1]) && closing(s, i + 1))));
+  const opening = (s, i) => s[i] === '(' || (Q.test(s[i]) && (i === 0 || s[i - 1] === ' ' || s[i - 1] === '(' || (Q.test(s[i - 1]) && opening(s, i - 1))));
+  // Every way a tag group can go into `base` at a natural spot: at the ends, at a space (with a space on both
+  // sides, glued left or glued right), before a closing mark (glued, or after a space) and after an opening one.
+  function insertions(base) {
+    const out = [], g = group, at = (i, ins) => base.slice(0, i) + ins + base.slice(i);
+    out.push(`${g()} ${base}`, `${g()}${base}`, `${base} ${g()}`, `${base}${g()}`);
+    for (let i = 1; i < base.length; i++) {
+      if (base[i] === ' ') out.push(at(i, ` ${g()}`), at(i, g()), at(i + 1, g()));
+      else if (closing(base, i) && base[i - 1] !== ' ') out.push(at(i, g()), at(i, ` ${g()}`));
+      else if (opening(base, i - 1) && isWord(base[i])) out.push(at(i, g()), at(i, `${g()} `));
+    }
+    return out;
+  }
+  let checked = 0;
+  const bad = [];
+  for (let n = 0; n < 400; n++) {
+    const base = Array.from({ length: 3 + Math.floor(rnd() * 5) }, word).join(' ');
+    const lines = insertions(base);
+    for (const line of lines) {
+      checked++;
+      if (lib.stripTags(line) !== base) bad.push(`strip ${JSON.stringify(line)} -> ${JSON.stringify(lib.stripTags(line))}`);
+      if (lib.boardProblems({ beats: [{ id: 'a', vo: line }] }).length) bad.push(`board refuses ${JSON.stringify(line)}`);
+    }
+    // the take's character path cuts the same way, and two lines joined into one script read as the two lines do
+    const line = pick(lines), next = insertions(Array.from({ length: 3 }, word).join(' '));
+    const other = pick(next), otherBase = lib.stripTags(other);
+    const chars = fromElevenLabs(elevenlabsFrom([[line, 0, 1]])).chars.text;
+    if (chars !== base) bad.push(`chars ${JSON.stringify(line)} -> ${JSON.stringify(chars)}`);
+    const joined = lib.stripTags(`${line} ${other}`);
+    if (joined !== `${base} ${otherBase}`) bad.push(`join ${JSON.stringify(line)} + ${JSON.stringify(other)} -> ${JSON.stringify(joined)}`);
+    if (bad.length > 12) break;
+  }
+  assert.deepEqual(bad.slice(0, 12), [], `${bad.length} of ${checked} lines read wrong`);
+  assert.ok(checked > 5000, `only ${checked} lines checked`);
+});
