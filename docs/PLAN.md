@@ -4,7 +4,7 @@
 |---|---|
 | Revision | 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
-| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and in review (section 17). |
+| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and in review (section 17). |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13 |
 | Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
 

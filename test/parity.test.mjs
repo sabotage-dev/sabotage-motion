@@ -1,0 +1,122 @@
+// Parity (plan section 17, P2): scripts/parity.mjs on synthetic premixes and masters. Identical inputs pass, a
+// 2 dB gain change fails, and each threshold is pinned from both sides: the share of windows (95%), the window
+// tolerance (0.5 dB), integrated loudness (0.5 LU) and true peak (0.5 dB). Nothing here is a real recording.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { repoRoot } from './helpers.mjs';
+import { SR, frameOf, mixTool } from './mix-helpers.mjs';
+
+const work = path.join(repoRoot, 'test', '.work', 'parity');
+fs.rmSync(work, { recursive: true, force: true });
+fs.mkdirSync(work, { recursive: true });
+const W = frameOf(0.1);                             // one 100 ms window, in frames
+
+// 10 s (100 windows) of seeded noise whose level swells and falls, with exact silence over 8.0-9.0 s.
+function premixA() {
+  const n = frameOf(10), out = new Float32Array(n * 2);
+  let s = 5;
+  const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s / 4294967296) * 2 - 1; };
+  for (let j = 0; j < n; j++) {
+    const g = (8.0 * SR <= j && j < 9.0 * SR) ? 0 : 0.1 * (1 + 0.5 * Math.sin((2 * Math.PI * j) / (3 * SR)));
+    out[2 * j] = g * rnd(); out[2 * j + 1] = g * rnd();
+  }
+  return out;
+}
+// A master: quieter noise with one isolated spike at 5 s that sets its true peak.
+function masterA() {
+  const m = premixA().map((x) => x * 0.5);
+  m[2 * frameOf(5)] = 0.9; m[2 * frameOf(5) + 1] = 0.9;
+  return m;
+}
+const gain = (x, dB) => x.map((v) => v * Math.pow(10, dB / 20));
+const write = (name, data) => { const f = path.join(work, name + '.wav'); fs.writeFileSync(f, mixTool.wavStereo(data)); return f; };
+const A = write('premixA', premixA()), MA = write('masterA', masterA());
+function parity(premixB, masterB, extra = []) {
+  const r = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A, premixB, MA, masterB, ...extra], { encoding: 'utf8' });
+  return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+}
+
+test('identical premixes and masters pass, with every window within the tolerance', () => {
+  const r = parity(write('same-premix', premixA()), write('same-master', masterA()));
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /100\.0% of windows within 0\.5 dB/);
+  assert.match(r.out, /\+0\.00 LU/);
+  assert.match(r.out, /parity: PASS/);
+});
+
+test('a 2 dB gain change on both fails on all three checks', () => {
+  const r = parity(write('g2-premix', gain(premixA(), 2)), write('g2-master', gain(masterA(), 2)));
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /parity: MISS \(envelope, loudness, truePeak\)/);
+  assert.match(r.out, /\+2\.00 LU/);
+});
+
+// +1 dB on k whole windows of premix B, starting at window 10.
+function windowsUp(k, dB = 1) {
+  const b = premixA(), f = Math.pow(10, dB / 20);
+  for (let i = 10 * W * 2; i < (10 + k) * W * 2; i++) b[i] *= f;
+  return b;
+}
+test('the share of windows: 94% within the tolerance misses, 96% passes (needs 95%)', () => {
+  const miss = parity(write('w6', windowsUp(6)), MA);
+  assert.equal(miss.status, 1, miss.out);
+  assert.match(miss.out, /94\.0% of windows/);
+  assert.match(miss.out, /parity: MISS \(envelope\)/);
+  const pass = parity(write('w4', windowsUp(4)), MA);
+  assert.equal(pass.status, 0, pass.out);
+  assert.match(pass.out, /96\.0% of windows/);
+});
+
+test('the window tolerance: every window 0.4 dB louder passes, 0.6 dB misses (needs 0.5 dB)', () => {
+  assert.equal(parity(write('all04', gain(premixA(), 0.4)), MA).status, 0);
+  const r = parity(write('all06', gain(premixA(), 0.6)), MA);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /10\.0% of windows/, 'only the ten silent windows (8.0-9.0 s, both at the floor) still match');
+  assert.match(r.out, /parity: MISS \(envelope\)/);
+});
+
+test('two silences match, and the premixes are aligned on their first sample, not searched for the best fit', () => {
+  const b = premixA();
+  for (let i = frameOf(8.0) * 2; i < frameOf(9.0) * 2; i++) b[i] = 1e-5 * ((i % 7) - 3);   // about -94 dBFS where A is exact zeros: 10 windows
+  assert.equal(parity(write('floor', b), MA).status, 0);
+  const late = new Float32Array(frameOf(10.3) * 2);
+  late.set(premixA(), frameOf(0.3) * 2);
+  const r = parity(write('late', late), MA);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /parity: MISS \(envelope\)/);
+});
+
+// Master B: the noise louder by dB, the spike (and so the true peak) left where it was; or the spike moved
+// by dB, the noise (and so the loudness) left where it was.
+function masterLouder(dB) { const m = gain(masterA(), dB); m[2 * frameOf(5)] = 0.9; m[2 * frameOf(5) + 1] = 0.9; return m; }
+function masterPeak(dB) { const m = masterA(), p = 0.9 * Math.pow(10, dB / 20); m[2 * frameOf(5)] = p; m[2 * frameOf(5) + 1] = p; return m; }
+test('integrated loudness: 0.4 LU apart passes, 0.6 LU misses (needs 0.5)', () => {
+  const pass = parity(A, write('l04', masterLouder(0.4)));
+  assert.equal(pass.status, 0, pass.out);
+  const miss = parity(A, write('l06', masterLouder(0.6)));
+  assert.equal(miss.status, 1, miss.out);
+  assert.match(miss.out, /parity: MISS \(loudness\)/);
+});
+
+test('true peak: 0.4 dB apart passes, 0.6 dB misses (needs 0.5)', () => {
+  const pass = parity(A, write('p04', masterPeak(0.4)));
+  assert.equal(pass.status, 0, pass.out);
+  const miss = parity(A, write('p06', masterPeak(0.6)));
+  assert.equal(miss.status, 1, miss.out);
+  assert.match(miss.out, /parity: MISS \(truePeak\)/);
+});
+
+test('--json prints the measurements; a missing argument or an unreadable file exits 2', () => {
+  const r = parity(A, MA, ['--json']);
+  assert.equal(r.status, 0, r.out);
+  const j = JSON.parse(r.out);
+  assert.equal(j.pass, true);
+  assert.equal(j.premix.windows, 100);
+  assert.deepEqual(j.thresholds, { windowSec: 0.1, withinDb: 0.5, share: 0.95, lufs: 0.5, tp: 0.5, floorDb: -70 });
+  const few = spawnSync(process.execPath, [path.join(repoRoot, 'scripts', 'parity.mjs'), A, A, MA], { encoding: 'utf8' });
+  assert.equal(few.status, 2);
+  assert.equal(parity(path.join(work, 'nope.wav'), MA).status, 2);
+});

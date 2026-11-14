@@ -11,6 +11,8 @@
     "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
     "test:engine": "node --test --test-concurrency=1 test/determinism.test.mjs test/frames.test.mjs test/alpha.test.mjs test/scene-swap.test.mjs test/board-sheet.test.mjs",
     "test:voice": "node --test --test-concurrency=1 test/cues.test.mjs test/board-timing.test.mjs test/voice-elevenlabs.test.mjs test/voice-live.test.mjs",
+    "test:mix": "node --test --test-concurrency=1 test/mix.test.mjs test/parity.test.mjs",
+    "test:footage": "node --test --test-concurrency=1 test/footage.test.mjs",
     "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs",
     "hooks": "node scripts/leak.mjs install"
   },

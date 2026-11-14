@@ -568,3 +568,48 @@ export function captions(ctx, WORDS, t, opts = {}) {
   ctx.restore();
   return boxes;
 }
+
+// ================================================================ footage (plan section 10)
+// tools/frames.mjs cuts a clip into assets/seq/<name>/000.jpg ... at the piece's fps and records it in
+// assets/seq/manifest.json. In the scene:
+//   export async function init() { await loadSeq('clip'); }        // every frame decoded and held in memory
+//   ctx.drawImage(seqAt('clip', t, 2.0), 0, 0, 1080, 608);          // the frame for t, the clip starting at 2.0 s
+//   seqAt('clip', t, 2.0, { loop: true })                           // loop it instead of holding the last frame
+// seqAt shows frame floor((t - t0) x fps) at the sequence's own fps: the first frame before t0, then the last
+// frame held once the clip runs out, or with loop the clip again from its first frame. Motion-blur subframes
+// stay inside one frame of the sequence. Each frame is held decoded (w x h x 4 bytes), so cut clips to the
+// size the scene draws them (frames.mjs --vf). loadSeq runs in the page only (it decodes with createImageBitmap).
+const _seqs = new Map();
+// The frame index for t: a pure function, so it can be checked without a browser. The 1e-6 keeps exact
+// frame times (f / FPS, which float arithmetic can land a hair under the boundary) on their own frame.
+export function seqIndex(frames, fps, t, t0 = 0, loop = false) {
+  if (!(frames > 0) || !(fps > 0)) throw new Error('seqIndex: a sequence needs at least one frame and an fps');
+  const i = Math.floor((t - t0) * fps + 1e-6);
+  if (i <= 0) return 0;
+  return loop ? i % frames : Math.min(i, frames - 1);
+}
+export async function loadSeq(name) {
+  if (_seqs.has(name)) return _seqs.get(name);
+  const base = new URL('./assets/seq/', import.meta.url);
+  const r = await fetch(new URL('manifest.json', base));
+  if (!r.ok) throw new Error(`loadSeq("${name}"): no assets/seq/manifest.json in this piece (cut the clip with tools/frames.mjs first)`);
+  const all = await r.json(), m = all[name];
+  if (!m) throw new Error(`loadSeq("${name}"): assets/seq/manifest.json has no sequence "${name}" (it has: ${Object.keys(all).join(', ') || 'none'})`);
+  const frames = new Array(m.frames);
+  for (let i = 0; i < m.frames; i += 16) {                      // a few at a time, to keep the encoded files in flight few
+    await Promise.all(Array.from({ length: Math.min(16, m.frames - i) }, async (_, k) => {
+      const file = `${name}/${String(i + k).padStart(3, '0')}.${m.ext || 'jpg'}`;
+      const res = await fetch(new URL(file, base));
+      if (!res.ok) throw new Error(`loadSeq("${name}"): assets/seq/${file} is missing (cut the clip again with tools/frames.mjs)`);
+      frames[i + k] = await createImageBitmap(await res.blob());
+    }));
+  }
+  const seq = { name, fps: m.fps, w: m.w, h: m.h, count: m.frames, frames };
+  _seqs.set(name, seq);
+  return seq;
+}
+export function seqAt(name, t, t0 = 0, { loop = false } = {}) {
+  const s = _seqs.get(name);
+  if (!s) throw new Error(`seqAt("${name}"): the sequence is not loaded (await loadSeq('${name}') in init)`);
+  return s.frames[seqIndex(s.count, s.fps, t, t0, loop)];
+}
