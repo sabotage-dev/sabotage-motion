@@ -11,7 +11,8 @@
 //
 // The premixes are decoded to 48 kHz stereo; sample 0 of each is the picture's first frame. The lag between them is
 // measured by cross-correlating their mono sums over A's loudest 4 s within +-20 ms, and it must be the one --lag
-// states, within 0.1 ms. A lag found at the edge of that search, or a correlation too weak to name one (under 0.5),
+// states, within 0.1 ms. A signal that repeats (a held tone) fits equally well once per period; of those equal fits
+// the one nearest the stated lag is taken. A lag found at the edge of that search, or a correlation too weak to name one (under 0.5),
 // is no clear lag, which matches only --lag 0. The lag is a check, never a correction: B is moved by the lag
 // --lag states, not by the one measured, so a timing fault in one part of the mix (the voice a few milliseconds
 // late over a bed that is not) shows up as a lag nobody stated, instead of being lined up and passed.
@@ -55,11 +56,13 @@ export function envelope(samples, { windowSec = THRESHOLDS.windowSec, floorDb = 
 // The constant lag of B against A in frames, from the cross-correlation of their mono sums over A's loudest 4 s:
 // B[j + lag] lines up with A[j], so a negative lag means B runs ahead of A. Searched within +-maxLagMs. `corr` is the
 // normalized correlation at that lag (1 = the same waveform); `found` needs it at 0.5 or more and the lag inside the
-// search, not on its edge.
-export function measureLag(a, b, { maxLagMs = THRESHOLDS.maxLagMs, chunkSec = 4, sr = SR } = {}) {
+// search, not on its edge. A signal that repeats (a held tone, a steady loop) fits equally well once per period, so
+// fits within one part in a million of the best count as equal and the one nearest `prefer` (the stated lag) is
+// taken; `fits` is how many separate equal fits there were (1 for a clear peak).
+export function measureLag(a, b, { maxLagMs = THRESHOLDS.maxLagMs, chunkSec = 4, sr = SR, prefer = 0, tieRel = 1e-6 } = {}) {
   const n = Math.min(a.length, b.length) >> 1, max = Math.round((maxLagMs / 1000) * sr);
   const len = Math.min(Math.round(chunkSec * sr), n - 2 * max);
-  if (len < sr / 10) return { lag: 0, edge: false, corr: 0, found: false, searched: false };
+  if (len < sr / 10) return { lag: 0, edge: false, corr: 0, found: false, searched: false, fits: 0 };
   const mono = (x) => { const m = new Float32Array(n); for (let j = 0; j < n; j++) m[j] = x[2 * j] + x[2 * j + 1]; return m; };
   const ma = mono(a), mb = mono(b);
   let from = max, loud = -1;
@@ -67,15 +70,24 @@ export function measureLag(a, b, { maxLagMs = THRESHOLDS.maxLagMs, chunkSec = 4,
     let e = 0; for (let j = s0; j < s0 + len; j += 8) e += ma[j] * ma[j];
     if (e > loud) { loud = e; from = s0; }
   }
-  let lag = 0, best = -Infinity;
+  const cs = new Float64Array(2 * max + 1);
+  let best = -Infinity;
   for (let L = -max; L <= max; L++) {
     let c = 0; for (let j = from; j < from + len; j++) c += ma[j] * mb[j + L];
-    if (c > best) { best = c; lag = L; }
+    cs[L + max] = c;
+    if (c > best) best = c;
+  }
+  const tie = best - Math.abs(best) * tieRel;
+  let lag = 0, near = Infinity, fits = 0;
+  for (let L = -max; L <= max; L++) {
+    if (!(cs[L + max] >= tie)) continue;
+    if (L === -max || !(cs[L - 1 + max] >= tie)) fits++;          // a new run of equal fits
+    if (Math.abs(L - prefer) < near) { near = Math.abs(L - prefer); lag = L; }
   }
   let ea = 0, eb = 0;
   for (let j = from; j < from + len; j++) { ea += ma[j] * ma[j]; eb += mb[j + lag] * mb[j + lag]; }
-  const corr = ea > 0 && eb > 0 ? best / Math.sqrt(ea * eb) : 0, edge = Math.abs(lag) === max;
-  return { lag, edge, corr, found: !edge && corr >= 0.5, searched: true };
+  const corr = ea > 0 && eb > 0 ? cs[lag + max] / Math.sqrt(ea * eb) : 0, edge = Math.abs(lag) === max;
+  return { lag, edge, corr, found: !edge && corr >= 0.5, searched: true, fits };
 }
 // B moved by `lag` frames so that its frame j + lag lands on frame j (what falls outside becomes silence).
 export function shiftFrames(x, lag) {
@@ -115,7 +127,7 @@ export function parity([premixA, premixB, masterA, masterB], th = THRESHOLDS, { 
   const a = decodeStereo(premixA), b = decodeStereo(premixB);
   const ea = envelope(a, th);
   const expected = Math.round((lagMs / 1000) * SR), tol = Math.round((th.lagTolMs / 1000) * SR);
-  const L = measureLag(a, b, th);
+  const L = measureLag(a, b, { maxLagMs: th.maxLagMs, prefer: expected });
   // no clear lag (or premixes too short to search) agrees only with no stated lag
   const lagOk = L.found ? Math.abs(L.lag - expected) <= tol : expected === 0;
   const env = compareEnvelopes(ea, envelope(shiftFrames(b, expected), th), th);
@@ -133,7 +145,7 @@ export function parity([premixA, premixB, masterA, masterB], th = THRESHOLDS, { 
   return {
     pass: Object.values(checks).every(Boolean), checks, thresholds: th,
     premix: { a: { file: premixA, sec: secA }, b: { file: premixB, sec: secB }, ...env,
-      align: { searched: L.searched, measured: L.lag, corr: L.corr, edge: L.edge, found: L.found, expected, applied: expected, ms: (expected / SR) * 1000, unalignedShare: unaligned } },
+      align: { searched: L.searched, measured: L.lag, corr: L.corr, edge: L.edge, found: L.found, fits: L.fits, expected, applied: expected, ms: (expected / SR) * 1000, unalignedShare: unaligned } },
     master: { a: { file: masterA, ...MA }, b: { file: masterB, ...MB }, dLufs: dI, dTp },
   };
 }
@@ -144,10 +156,11 @@ export function report(r) {
   const p = r.premix, m = r.master, th = r.thresholds;
   const al = p.align, msOf = (f) => (f / SR) * 1000, ms = (f) => `${Math.abs(f)} frames (${Math.abs(msOf(f)).toFixed(2)} ms)`;
   const side = (f) => `${ms(f)} ${f < 0 ? 'ahead' : 'behind'}`;
+  const fit = `correlation ${al.corr.toFixed(2)}${al.fits > 1 ? `; the signal repeats, so ${al.fits} lags fit equally well and the one nearest the stated lag is taken` : ''}`;
   const seen = !al.searched ? 'the premixes are too short to measure a lag'
-    : !al.found ? `no clear lag within ${th.maxLagMs} ms (best ${al.measured < 0 ? '-' : '+'}${ms(al.measured)}${al.edge ? ', at the search limit' : ''}, correlation ${al.corr.toFixed(2)})`
-      : al.measured === 0 ? `no lag between them (correlation ${al.corr.toFixed(2)})`
-        : `B runs ${al.measured < 0 ? 'ahead of' : 'behind'} A by ${ms(al.measured)} (correlation ${al.corr.toFixed(2)})`;
+    : !al.found ? `no clear lag within ${th.maxLagMs} ms (best ${al.measured < 0 ? '-' : '+'}${ms(al.measured)}${al.edge ? ', at the search limit' : ''}, ${fit})`
+      : al.measured === 0 ? `no lag between them (${fit})`
+        : `B runs ${al.measured < 0 ? 'ahead of' : 'behind'} A by ${ms(al.measured)} (${fit})`;
   const stated = r.checks.lag
     ? (al.expected ? `, the latency --lag ${f2(msOf(al.expected))} states; B is shifted by it before comparing` : ', and none was stated')
     : (al.expected ? `, not the ${side(al.expected)} --lag ${f2(msOf(al.expected))} states`

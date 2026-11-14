@@ -136,8 +136,11 @@ test('a lag is measured and must be the one --lag states: then B is shifted by i
   // a stated lag that is not there, or the wrong way round
   assert.match(run(write('bursts-same', bursts()), ['--lag', '-5']).out, /no lag between them \(correlation 1\.00\), not the 240 frames \(5\.00 ms\) ahead --lag -5\.00 states {2}MISS/);
   assert.match(run(behind, ['--lag', '-5']).out, /parity: MISS \(lag, envelope\)/);
-  // 1 frame from the stated lag is inside the 0.1 ms tolerance (the private mixer measured 239 frames for its 240)
+  // 1 frame from the stated lag is inside the 0.1 ms tolerance (the private mixer measured 239 frames for its 240);
+  // the tolerance rounds to 5 frames, so 5 off passes and 6 off misses on the lag alone
   assert.equal(run(write('bursts-239', lagged(bursts(), -239)), ['--lag', '-5']).status, 0);
+  assert.equal(run(write('bursts-245', lagged(bursts(), -245)), ['--lag', '-5']).status, 0);
+  assert.match(run(write('bursts-246', lagged(bursts(), -246)), ['--lag', '-5']).out, /parity: MISS \(lag\)/);
   const far = write('bursts-30ms', lagged(bursts(), frameOf(0.03))), r4 = run(far);
   assert.equal(r4.status, 1, r4.out);
   assert.match(r4.out, /no clear lag within 20 ms.*, and none was stated {2}ok/);
@@ -148,6 +151,26 @@ test('a lag is measured and must be the one --lag states: then B is shifted by i
   assert.equal(r5.status, 1, r5.out);
   assert.match(r5.out, /no clear lag within 20 ms \(best -960 frames \(20\.00 ms\), at the search limit/);
   for (const bad of [['--lag', '20'], ['--lag', '-25'], ['--lag', 'x'], ['--lag'], ['--no-align']]) assert.equal(run(ahead, bad).status, 2, bad.join(' '));
+});
+
+// The council's case (round 2, F5): a held 375 Hz tone repeats every 128 frames, so every multiple of 128 inside the
+// search fits as well as the true lag. Identical tones must pass, and a tone moved by the stated lag must pass.
+test('a signal that repeats fits equally at every period: the fit nearest the stated lag is taken, and reported', () => {
+  const tone = (shift = 0) => { const n = frameOf(5), out = new Float32Array(n * 2); for (let j = 0; j < n; j++) { const v = 0.3 * Math.cos((2 * Math.PI * 375 * (j - shift)) / SR); out[2 * j] = v; out[2 * j + 1] = v; } return out; };
+  const T = write('tone', tone());
+  const same = runOn(T, write('tone-same', tone()));
+  assert.equal(same.status, 0, same.out);
+  assert.match(same.out, /no lag between them \(correlation 1\.00; the signal repeats, so 15 lags fit equally well and the one nearest the stated lag is taken\), and none was stated {2}ok/);
+  const late = runOn(T, write('tone-late', tone(240)), ['--lag', '5', '--json']);
+  assert.equal(late.status, 0, late.out);
+  const j = JSON.parse(late.out);
+  assert.deepEqual([j.premix.align.measured, j.premix.align.fits > 1, j.checks.lag], [240, true, true]);
+  // B's gain drifts up by 5e-10 a frame (0.001 dB over the 5 s), so a later period fits a hair better than lag 0:
+  // the furthest one, 896 frames on, by under one part in a million. That is still an equal fit, not a lag.
+  const drift = tone().map((v, i) => v * (1 + 5e-10 * (i >> 1)));
+  const d = runOn(T, write('tone-drift', drift), ['--json']);
+  assert.equal(d.status, 0, d.out);
+  assert.equal(JSON.parse(d.out).premix.align.measured, 0);
 });
 
 // The council's case (round 1, F1): only B's voice runs 5 ms late, over a steady bed that does not move. The voice
