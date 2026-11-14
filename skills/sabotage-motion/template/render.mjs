@@ -8,11 +8,26 @@
 //   node render.mjs board [--slates] [--safe] [--cols N] [--out board.png]   storyboard sheet (+ board.md)
 //   node render.mjs hash 0.5,1.2 [--scale 0.25]                        SHA-256 of each frame's raw pixels
 //   node render.mjs doctor                                             check Chrome, WebGL2, ffmpeg, fonts
+//   node render.mjs check [--file out/<name>-final.mp4] [--target tiktok] [--lufs -14 --tp -1.0]
+//                         [--json] [--strict] [--plain] [--only id,id]  measured checks (check.mjs)
 //
 // Paths in --out / --dir resolve against THIS folder (the piece), not your shell's cwd; absolute paths work.
 // board: one panel per board.js beat at its key time, captions under each (default --scale 1/3);
 //         --slates draws them with slate.js, --safe shades what is outside the target's safe area (the
 //         --target, else BOARD.target). Timing comes from cues.js once it exists, else the estimate.
+// contact --safe: the same safe-area shading on every panel. Both say "(estimate)" while the target's
+//         numbers in safezones.json are not measured.
+// check: the piece's source checks (fonts, board, hook, copy, sound notes, motion, first frame, text in the
+//         safe area, overlapping text, audio spikes), plus with --file the artifact checks on a master
+//         (provenance, file spec, faststart, loudness, voice delay). One line per result; exit 1 on any
+//         FAIL (with --strict, on any WARN too); --json prints the results as JSON instead. With --file,
+//         the source checks replay the scene, params, fps, subframes and alpha mode of the render the
+//         master came from (its render.json). --plain checks a file from elsewhere as a plain file
+//         (file spec against the piece's settings at --scale, faststart, loudness with --lufs). --only
+//         runs just the named checks (provenance always runs with --file). --dump <file> also writes the
+//         raw measurements (per frame pair, the probe pixels changed by 1, 2, 3, 4, 8 and 16 levels or more;
+//         the first frame's luma; the audio windows), numbers only, for tuning the thresholds on real
+//         pieces. Exit 2 on a usage error.
 // Common: --scene file.js (default scene.js)  --target name (size, fps and safe area from safezones.json)
 //         --fps N  --sub N (motion-blur subframes, default 8)  --scale S  --crf 17  --preset slow
 //         --param key=value (repeatable; arrives in scene.init as params.key)
@@ -25,19 +40,24 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
+import * as C from './check.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));   // not URL.pathname: that keeps %20 for spaces
 const argv = process.argv.slice(2);
 const mode = argv[0];
-if (!['stills', 'contact', 'board', 'video', 'audio', 'full', 'hash', 'doctor'].includes(mode)) {
-  console.error('usage: node render.mjs <stills t1,t2,..|contact|board|video|audio|full|hash t1,..|doctor> [options]  (see header)');
+if (!['stills', 'contact', 'board', 'video', 'audio', 'full', 'hash', 'doctor', 'check'].includes(mode)) {
+  console.error('usage: node render.mjs <stills t1,t2,..|contact|board|video|audio|full|hash t1,..|doctor|check> [options]  (see header)');
   process.exit(2);
 }
 const opt = (k, d) => { const i = argv.indexOf('--' + k); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : d; };
 const flag = (k) => argv.includes('--' + k);
 const params = []; argv.forEach((a, i) => { if (a === '--param' && argv[i + 1]) params.push(argv[i + 1]); });
+const paramObj = (list) => Object.fromEntries(list.map((kv) => { const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; }));
+// check --json keeps stdout for the JSON; everything else goes to stderr
+const jsonOut = mode === 'check' && flag('json');
+const say = (...a) => (jsonOut ? console.error : console.log)(...a);
 const alphaKind = flag('alpha') ? opt('alpha', 'prores') : null;
 if (alphaKind && !['prores', 'webm'].includes(alphaKind)) { console.error('--alpha must be prores or webm'); process.exit(2); }
 const defScale = mode === 'stills' ? 0.5 : mode === 'contact' || mode === 'doctor' ? 0.25 : mode === 'board' ? 1 / 3 : 1;
@@ -51,7 +71,9 @@ const run = (cmd, args) => new Promise((res, rej) => {
 
 // ---------------------------------------------------------------- scene and target
 const sceneFile = mode === 'board' && flag('slates') ? 'slate.js' : opt('scene', 'scene.js');
-if (!/^[\w][\w./-]*\.m?js$/.test(sceneFile) || sceneFile.includes('..') || !fs.existsSync(path.join(root, sceneFile))) {
+const validScene = (f) => /^[\w][\w./-]*\.m?js$/.test(f) && !f.includes('..') && fs.existsSync(path.join(root, f));
+// check --file takes its scene from the render record, so the command line's does not have to exist
+if (!(mode === 'check' && opt('file')) && !validScene(sceneFile)) {
   console.error(`--scene ${sceneFile}: no such scene file in this piece (give a path relative to the piece, e.g. slate.js)`);
   process.exit(2);
 }
@@ -121,20 +143,23 @@ const launch = () => chromium.launch({
   ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
   headless: true, args: chromeArgs,
 });
-function pieceQuery() {
-  const qs = new URLSearchParams({ scale: String(scale), sub: String(sub), scene: sceneFile });
-  if (target) qs.set('target', target);
-  if (opt('fps')) qs.set('fps', opt('fps'));
-  if (alphaKind) qs.set('alpha', '1');
-  for (const kv of params) { const i = kv.indexOf('='); qs.set('p.' + kv.slice(0, i), kv.slice(i + 1)); }
+// The page's settings: this command line's, or (check --file) the ones a render record names.
+function pieceQuery(o = {}) {
+  const s = { scale, sub, scene: sceneFile, target, fps: opt('fps'), alpha: !!alphaKind, params: paramObj(params), check: false, ...o };
+  const qs = new URLSearchParams({ scale: String(s.scale), sub: String(s.sub), scene: s.scene });
+  if (s.target) qs.set('target', s.target);
+  if (s.fps) qs.set('fps', String(s.fps));
+  if (s.alpha) qs.set('alpha', '1');
+  if (s.check) qs.set('check', '1');
+  for (const [k, v] of Object.entries(s.params || {})) qs.set('p.' + k, v);
   return qs;
 }
-async function openPiece(browser) {
+async function openPiece(browser, o, onError) {
   const page = await browser.newPage({ viewport: { width: 540, height: 960 } });
   page.setDefaultTimeout(0);
-  page.on('console', (m) => console.log('[page]', m.text()));
-  page.on('pageerror', (e) => { console.error('[pageerror]', e.message); process.exitCode = 1; });
-  await page.goto(`http://127.0.0.1:${port}/index.html?${pieceQuery()}`);
+  page.on('console', (m) => say('[page]', m.text()));
+  page.on('pageerror', (e) => { console.error('[pageerror]', e.message); if (onError) onError(e); else process.exitCode = 1; });
+  await page.goto(`http://127.0.0.1:${port}/index.html?${pieceQuery(o)}`);
   await page.evaluate(() => window.ready);
   return page;
 }
@@ -181,7 +206,7 @@ function writeRenderJson(file, src, extra) {
     created: new Date().toISOString(),
     mode, file: path.relative(root, file) || file,
     scene: sceneFile, target, silent: INFO.SILENT,
-    params: Object.fromEntries(params.map((kv) => { const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; })),
+    params: paramObj(params),
     size: [INFO.W, INFO.H], render: [INFO.RW, INFO.RH], scale, fps: INFO.FPS, dur: INFO.DUR, sub,
     alpha: alphaKind, ...extra,
     source: src,
@@ -202,12 +227,15 @@ function videoArgs(out) {
   return [...input, '-c:v', 'libx264', '-preset', opt('preset', 'slow'), '-crf', opt('crf', '17'),
     '-maxrate', opt('maxrate', '45M'), '-bufsize', '90M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out];
 }
+let ffOut = null, ffAborting = false;
 async function renderVideo(page, out, from, to) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', ...videoArgs(out)], { stdio: ['pipe', 'inherit', 'inherit'] });
-  ff.stdin.on('error', () => {});   // EPIPE once ffmpeg has died; the close handler below reports why
-  const done = new Promise((r, j) => { ff.on('error', j); ff.on('close', (c) => (c === 0 ? r() : j(new Error('ffmpeg exited ' + c)))); });
-  done.catch((e) => { console.error(`render failed: ${e.message} (ffmpeg's own error is printed above)`); process.exit(1); });
+  ffOut = out;
+  const proc = ff;
+  proc.stdin.on('error', () => {});   // EPIPE once ffmpeg has died; the close handler below reports why
+  const done = new Promise((r, j) => { proc.on('error', j); proc.on('close', (c) => (c === 0 ? r() : j(new Error('ffmpeg exited ' + c)))); });
+  done.catch((e) => { if (ffAborting) return; console.error(`render failed: ${e.message} (ffmpeg's own error is printed above)`); process.exit(1); });
   const t0 = Date.now();
   await page.evaluate(([a, b]) => window.renderRange(a, b), [from, to]);
   const frames = Math.round(to * INFO.FPS) - Math.round(from * INFO.FPS);
@@ -215,8 +243,22 @@ async function renderVideo(page, out, from, to) {
   console.log(`video: ${frames} frames at ${INFO.RW}x${INFO.RH}, sub ${sub}: ${ms.toFixed(0)} ms/frame`);
   ff.stdin.end();
   await done;
-  ff = null;
+  ff = null; ffOut = null;
   return frames;
+}
+// The error path: when the scene throws mid-render, ffmpeg is still waiting on its stdin and would keep this
+// process alive (and itself orphaned) forever. Kill it, wait for it, and remove the partial file it wrote.
+async function abortVideo() {
+  if (!ff) return;
+  const p = ff, out = ffOut;
+  ff = null; ffOut = null; ffAborting = true;
+  if (p.exitCode === null && p.signalCode === null) {
+    const closed = new Promise((r) => p.once('close', r));
+    p.stdin.destroy();
+    p.kill('SIGKILL');
+    await closed;
+  }
+  if (out) fs.rmSync(out, { force: true });
 }
 async function renderAudioTo(page, out) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -225,33 +267,16 @@ async function renderAudioTo(page, out) {
   else audioReport(out);
 }
 // Peak, RMS and spike check on the 16-bit WAV from wav.js. A plain "peak under -1 dBFS" test misses
-// an envelope bug that fires one full-scale blip, so also flag any 50 ms window far above the loud ones.
+// an envelope bug that fires one full-scale blip, so also flag any 50 ms window far above the loud ones
+// (check.mjs spikeStats: the same analysis as check's audio_spike).
 function audioReport(file) {
-  const b = fs.readFileSync(file);
-  let off = 12, ch = 2, sr = 48000, data = null;
-  while (off < b.length - 8) {
-    const id = b.toString('ascii', off, off + 4), sz = b.readUInt32LE(off + 4);
-    if (id === 'fmt ') { ch = b.readUInt16LE(off + 10); sr = b.readUInt32LE(off + 12); }
-    if (id === 'data') { data = b.subarray(off + 8, off + 8 + sz); break; }
-    off += 8 + sz + (sz & 1);
-  }
-  if (!data || !data.length) { console.log('audio check: no samples'); return; }
-  const n = Math.floor(data.length / 2 / ch), win = Math.round(sr * 0.05), wins = [];
-  let sum = 0;
-  for (let i = 0; i < n; i += win) {
-    let wp = 0;
-    for (let j = i; j < Math.min(n, i + win); j++) for (let c = 0; c < ch; c++) {
-      const v = Math.abs(data.readInt16LE((j * ch + c) * 2)) / 32768; if (v > wp) wp = v; sum += v * v;
-    }
-    wins.push(wp);
-  }
-  const db = (x) => 20 * Math.log10(Math.max(x, 1e-9));
-  const sorted = [...wins].sort((a, b) => a - b), p90 = sorted[Math.floor(0.9 * (sorted.length - 1))];
-  const peak = sorted[sorted.length - 1], at = wins.indexOf(peak) * 0.05, rms = Math.sqrt(sum / (n * ch));
-  console.log(`audio check: peak ${db(peak).toFixed(1)} dBFS at ${at.toFixed(2)}s, RMS ${db(rms).toFixed(1)} dBFS`);
-  if (peak > 0.89) console.log('  WARN peak above -1 dBFS: lower `level` in audio.js');
-  if (peak > 0 && db(peak) - db(p90) > 18) console.log(`  WARN the ${at.toFixed(2)}s peak is ${(db(peak) - db(p90)).toFixed(0)} dB above the loud windows: likely a click or a gain envelope starting after its source`);
-  if (db(rms) < -36) console.log('  WARN very quiet overall: raise `level` in audio.js');
+  const wav = C.readWav(fs.readFileSync(file));
+  if (!wav.n) { console.log('audio check: no samples'); return; }
+  const s = C.spikeStats(wav), db = (x) => 20 * Math.log10(Math.max(x, 1e-9));
+  console.log(`audio check: peak ${db(s.peak).toFixed(1)} dBFS at ${s.at.toFixed(2)}s, RMS ${db(s.rms).toFixed(1)} dBFS`);
+  if (s.peak > 0.89) console.log('  WARN peak above -1 dBFS: lower `level` in audio.js');
+  if (s.loud && s.over > C.T.spike.db) console.log(`  WARN the ${s.at.toFixed(2)}s peak is ${s.over.toFixed(0)} dB above the loud windows: likely a click or a gain envelope starting after its source`);
+  if (db(s.rms) < -36) console.log('  WARN very quiet overall: raise `level` in audio.js');
 }
 const videoExt = alphaKind === 'prores' ? '.mov' : alphaKind === 'webm' ? '.webm' : '.mp4';
 // The container must match the codec (ProRes can't go in .mp4, x264 shouldn't go in .webm), so the
@@ -389,12 +414,229 @@ async function doctor() {
   return fails ? 1 : 0;
 }
 
+// ---------------------------------------------------------------- check (plan sections 6.5, 11, 12)
+// Gathers the measurements and hands them to check.mjs, which holds every detector and threshold.
+const relRoot = (f) => { const x = path.relative(root, f); return x && !x.startsWith('..') && !path.isAbsolute(x) ? x : f; };
+// The files a render leaves out of its source hash besides out/ and the review sheets: its own outputs.
+function recordSkips(rec) {
+  const out = path.resolve(root, rec.file), skip = new Set([out]);
+  if (rec.mode === 'full') {
+    const ext = path.extname(out);
+    skip.add(out.slice(0, -ext.length) + '.video' + ext);
+    if (rec.audio) skip.add(path.resolve(root, rec.audio));
+  }
+  return skip;
+}
+async function importPiece(name) {
+  const f = path.join(root, name);
+  if (!fs.existsSync(f)) return { mod: null };
+  try { return { mod: await import(pathToFileURL(f).href) }; } catch (e) { return { mod: null, error: `${name} failed to load: ${e.message}` }; }
+}
+async function check() {
+  const usage = (m) => { console.error(`check: ${m}`); return 2; };
+  const strict = flag('strict'), plain = flag('plain'), fileArg = opt('file', null);
+  if (flag('file') && !fileArg) return usage('--file needs a path (e.g. --file out/piece-final.mp4)');
+  if (plain && !fileArg) return usage('--plain needs --file <file>');
+  const only = opt('only') ? new Set(opt('only').split(',').map((x) => x.trim()).filter(Boolean)) : null;
+  if (flag('only') && !only) return usage('--only needs check ids, e.g. --only loudness,file_spec');
+  for (const id of only || []) if (!C.ALL_IDS.includes(id)) return usage(`--only ${id}: no such check (${C.ALL_IDS.join(', ')})`);
+  const want = (id) => !only || only.has(id) || (id === 'provenance' && fileArg && !plain);
+  const num = (k) => { if (opt(k) == null) return null; const x = Number(opt(k)); return Number.isFinite(x) ? x : NaN; };
+  const lufsOpt = num('lufs'), tpOpt = num('tp');
+  if (Number.isNaN(lufsOpt) || Number.isNaN(tpOpt)) return usage('--lufs and --tp need numbers (e.g. --lufs -14 --tp -1.0)');
+  const results = [];
+  let dump = null;
+  const push = (...xs) => { for (const x of xs.flat()) if (x && want(x.id)) results.push(x); };
+  const skipIds = (ids, scope, why) => push(ids.map((id) => ({ id, scope, level: 'SKIP', detail: `not checked: ${why}` })));
+
+  // ---- the file and the records that tie it to its source
+  let file = null, prov = null;
+  let settings = { scene: sceneFile, params: paramObj(params), fps: opt('fps') || null, sub, alpha: alphaKind, target };
+  if (fileArg) {
+    file = path.resolve(root, fileArg);
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return usage(`--file ${fileArg}: no such file`);
+    if (!plain) {
+      const mjPath = C.findMasterJson(file, root);
+      const facts = { fileRel: relRoot(file), fileSha: C.sha256File(file), mjPath, mjRel: mjPath && relRoot(mjPath) };
+      if (mjPath) { try { facts.mj = JSON.parse(fs.readFileSync(mjPath, 'utf8')); } catch (e) { facts.mjError = e.message; } }
+      if (facts.mj && facts.mj.render && facts.mj.render.file) {
+        const rp = path.resolve(root, facts.mj.render.file);
+        facts.recExists = fs.existsSync(rp);
+        if (facts.recExists) {
+          facts.recSha = C.sha256File(rp);
+          try { facts.rec = JSON.parse(fs.readFileSync(rp, 'utf8')); } catch (e) { facts.recError = e.message; }
+          if (facts.rec) facts.sourceNow = sourceHash(recordSkips(facts.rec));
+        }
+      }
+      prov = C.provenance(facts);
+      push(prov.result);
+      if (prov.rec) {
+        const r = prov.rec;
+        settings = { scene: r.scene, params: r.params || {}, fps: r.fps, sub: r.sub, alpha: r.alpha || null, target: r.target || null };
+      }
+    }
+  }
+  const runSource = !plain && (!fileArg || prov.bound);
+
+  // ---- the board and the take, in Node
+  const lib = await import(pathToFileURL(path.join(root, 'lib.js')).href);
+  const B = await importPiece('board.js'), Q = await importPiece('cues.js');
+  const BOARD = B.mod ? B.mod.BOARD || null : null;
+  const boardError = B.error || (B.mod && !BOARD ? 'board.js does not export BOARD' : null);
+  const cues = Q.mod ? { VO_OFFSET: Q.mod.VO_OFFSET, CUE: Q.mod.CUE, TAKE: Q.mod.TAKE, GAPS: Q.mod.GAPS || [], HOOK_END: Q.mod.HOOK_END, WORDS: Q.mod.WORDS || [], BOARD_KEY: Q.mod.BOARD_KEY } : null;
+  const timing = BOARD ? lib.boardTiming(BOARD, cues) : null;
+
+  // ---- the page, at the probe's scale, with the render's settings
+  let INFOc = null, page = null;
+  const sceneFail = (msg) => results.push({ id: 'scene', scope: 'source', level: 'FAIL', detail: msg });
+  const pageErrors = [];
+  if (!validScene(settings.scene)) sceneFail(`the scene ${settings.scene} is not a scene file in this piece`);
+  else {
+    browser = await launch();
+    try {
+      page = await openPiece(browser, { ...settings, scale: C.T.probeScale, check: true }, (e) => pageErrors.push(e.message));
+      INFOc = await page.evaluate(() => window.INFO);
+    } catch (e) { sceneFail(`${settings.scene} did not load: ${e.message.split('\n')[0]}`); }
+  }
+  const fps = INFOc && INFOc.FPS, dur = INFOc && INFOc.DUR;
+  const windows = timing && timing.ok ? timing.windows : dur ? [{ id: '(piece)', index: 0, start: 0, end: dur, beat: {} }] : [];
+  const zoneName = target || settings.target || (BOARD && BOARD.target) || null;
+  let zone = null, zoneWhy = null;
+  if (!zoneName) zoneWhy = 'no target: pass --target <name> or set BOARD.target';
+  else {
+    const all = JSON.parse(fs.readFileSync(path.join(root, 'safezones.json'), 'utf8')).targets || {};
+    const z = all[zoneName];
+    if (!z) zoneWhy = `unknown target ${zoneName} (safezones.json has: ${Object.keys(all).join(', ')})`;
+    else if (!z.safe) zoneWhy = `target ${zoneName} has no safe area`;
+    else if (INFOc && ((z.w && z.w !== INFOc.W) || (z.h && z.h !== INFOc.H))) zoneWhy = `target ${zoneName} is ${z.w}x${z.h}, but the piece is ${INFOc.W}x${INFOc.H}`;
+    else zone = { name: zoneName, safe: z.safe, estimate: !!z.estimate };
+  }
+  say(`check: scene ${settings.scene}${INFOc ? `, ${INFOc.W}x${INFOc.H} @ ${fps} fps, ${dur} s, sub ${settings.sub}` : ''}` +
+    `${Object.keys(settings.params || {}).length ? ', params ' + JSON.stringify(settings.params) : ''}${settings.alpha ? ', alpha ' + settings.alpha : ''}` +
+    `${zone ? `, safe zones ${zone.name}${zone.estimate ? ' (estimate)' : ''}` : ''}${file ? `, file ${relRoot(file)}` : ''}`);
+
+  // ---- source checks (11.1, 6.5)
+  if (!runSource) {
+    skipIds(C.SOURCE_IDS, 'source', plain ? '--plain checks the file alone' : 'provenance failed, so the source results would not describe this file');
+  } else {
+    // fonts
+    if (!INFOc) skipIds(['fonts'], 'source', 'the scene did not load');
+    else if (INFOc.FONT_PROBLEMS.length) push(INFOc.FONT_PROBLEMS.map((p) => ({ id: 'fonts', scope: 'source', level: 'FAIL', detail: p })));
+    else push({ id: 'fonts', scope: 'source', level: 'OK', detail: INFOc.FONTS.length ? `${INFOc.FONTS.join(', ')} load` : 'CFG.FONTS lists no fonts' });
+    // the board
+    if (boardError) push({ id: 'board_order', scope: 'source', level: 'FAIL', detail: boardError });
+    else if (!BOARD) skipIds(['board_order'], 'source', 'no board.js');
+    else push(C.boardOrderResult(lib.boardOrder(timing, dur ?? null, fps ?? null)));
+    if (!BOARD || !timing.ok) skipIds(['hook_long'], 'source', !BOARD ? 'no board.js' : 'the board cannot be timed (board_order)');
+    else if (BOARD.hookMax == null) skipIds(['hook_long'], 'source', 'the board sets no hookMax');
+    else if (!cues) skipIds(['hook_long'], 'source', 'no take yet (no cues.js)');
+    else {
+      const voiced = prov && prov.mj && prov.mj.mode === 'default';
+      push(C.hookLongResult(lib.hookLong(BOARD, cues), voiced
+        ? { voiceDelay: prov.mj.voiceDelay, voOffset: cues.VO_OFFSET, hookEnd: cues.HOOK_END, hookMax: BOARD.hookMax } : { hookMax: BOARD.hookMax }));
+    }
+    // the page's measurements
+    const boxIds = ['text_safe', 'text_overlap', 'board_copy_missing', 'board_copy_unread'];
+    const pageIds = ['motion_dead', 'first_frame_empty', ...boxIds, 'board_sfx_missing', 'audio_spike'];
+    if (!INFOc) skipIds(pageIds, 'source', 'the scene did not load');
+    else {
+      const holdsErr = C.validHolds(INFOc.HOLDS);
+      if (holdsErr) sceneFail(`${settings.scene}: ${holdsErr}`);
+      const needProbe = want('motion_dead') || want('first_frame_empty');
+      const needBoxes = INFOc.BOXES && boxIds.some(want);
+      let scan = null;
+      if (opt('dump')) dump = { format: 'sabotage-motion/check-dump@1', scene: settings.scene, params: settings.params, fps, dur, sub: settings.sub, holds: INFOc.HOLDS, windows: windows.map((w) => [w.id, w.start, w.end]) };
+      if (needProbe || needBoxes) {
+        const t0 = Date.now();
+        try {
+          scan = await page.evaluate((o) => window.checkScan(o), { probe: needProbe, samples: needBoxes, firstOnly: !want('motion_dead') });
+          say(`check: measured ${scan.frames} frames${needProbe ? ' (probe at 1/2 size, 1 subframe, grain off)' : ''}${needBoxes ? `, ${scan.samples.length} box samples` : ''} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+        } catch (e) { sceneFail(`${settings.scene} threw while it was checked: ${e.message.split('\n')[0]}`); }
+      }
+      if (!scan && (needProbe || needBoxes)) skipIds(pageIds.filter((id) => id !== 'board_sfx_missing' && id !== 'audio_spike'), 'source', 'the scene threw');
+      if (scan && dump && scan.pairs) {
+        const ks = [1, 2, 3, 4, 8, 16];
+        dump.probe = { scale: C.T.probeScale, w: scan.first.w, h: scan.first.h, first: { mean: scan.first.mean, std: scan.first.std },
+          changed: { atLeast: ks, pairs: scan.pairs.map((h) => ks.map((k) => Object.entries(h).reduce((n, [d, c]) => n + (+d >= k ? c : 0), 0))) } };
+      }
+      if (scan && needProbe) {
+        if (want('motion_dead')) push(C.motionDead(scan.pairs, { fps, holds: C.holdIntervals(holdsErr ? null : INFOc.HOLDS, timing && timing.ok ? windows : []) }));
+        if (settings.alpha) skipIds(['first_frame_empty'], 'source', 'an alpha render: an overlay\'s first frame is meant to be clear');
+        else push(C.firstFrameEmpty(scan.first));
+      }
+      if (!INFOc.BOXES) skipIds(boxIds, 'source', `${settings.scene} has no boxes(t), so its text cannot be seen without OCR`);
+      else if (scan && needBoxes) {
+        const samples = C.prepareSamples(scan.samples, INFOc.W, INFOc.H);
+        if (zone) push(C.textSafe(samples, { fps, safe: zone.safe, windows, estimate: zone.estimate, target: zone.name }));
+        else skipIds(['text_safe'], 'source', zoneWhy);
+        push(C.textOverlap(samples, { fps }));
+        if (BOARD && timing.ok) push(C.boardCopy(samples, { fps, windows }));
+        else skipIds(['board_copy_missing', 'board_copy_unread'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
+      }
+      // the effects stem, rendered afresh (the source is the render's, so it is the stem that was mixed)
+      if (INFOc.SILENT) skipIds(['board_sfx_missing', 'audio_spike'], 'source', `${settings.scene} exports silent = true, so it has no effects stem`);
+      else if (want('board_sfx_missing') || want('audio_spike')) {
+        audioOut = path.join(os.tmpdir(), `sm-check-${process.pid}.wav`);
+        try {
+          await page.evaluate(() => window.renderSound());
+          const wav = C.readWav(fs.readFileSync(audioOut));
+          if (dump) { const st = C.spikeStats(wav); dump.audio = { peak: st.peak, p90: st.p90, over: st.over, rms: st.rms, loudWindows: st.loud }; }
+          if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));
+          else skipIds(['board_sfx_missing'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
+          push(C.audioSpike(wav));
+        } catch (e) {
+          push({ id: 'audio_spike', scope: 'source', level: 'FAIL', detail: `the effects did not render: ${e.message.split('\n')[0]}` });
+          skipIds(['board_sfx_missing'], 'source', 'the effects did not render');
+        } finally { fs.rmSync(audioOut, { force: true }); }
+      }
+    }
+  }
+  for (const m of pageErrors) sceneFail(`page error: ${m}`);
+
+  // ---- artifact checks (11.2)
+  if (file) {
+    const rec = prov && prov.rec, mj = prov && prov.mj;
+    if (rec && rec.render && rec.fps) {
+      push(C.fileSpec(C.probeFile(file), { w: rec.render[0], h: rec.render[1], fps: rec.fps, dur: rec.dur, alpha: rec.alpha, silent: rec.silent }, `its render record ${mj.render.file}`));
+    } else if (INFOc) {
+      const k = +opt('scale', 1);
+      push(C.fileSpec(C.probeFile(file), { w: Math.round(INFOc.W * k), h: Math.round(INFOc.H * k), fps, dur, alpha: alphaKind, silent: INFOc.SILENT },
+        `the piece's current settings at scale ${k}${alphaKind ? ', alpha ' + alphaKind : ''}`));
+    } else skipIds(['file_spec'], 'file', 'no render record and the scene did not load, so there is nothing to compare it with');
+    if (want('faststart')) push(C.faststartResult(file, C.atomOrderFile(file)));
+    const lufs = lufsOpt != null ? lufsOpt : !plain && mj && mj.target ? mj.target.lufs : null;
+    if (lufs == null) skipIds(['loudness'], 'file', plain ? '--plain needs --lufs for a loudness target' : 'no loudness target: no master.json, and no --lufs');
+    else if (want('loudness')) push(C.loudnessResult(C.measureLoudness(file), { target: lufs, tp: tpOpt != null ? tpOpt : C.T.loudness.tp, from: lufsOpt != null ? '--lufs' : 'master.json' }));
+    if (plain) skipIds(['provenance', 'vo_delay'], 'file', '--plain checks the file alone');
+    else if (!prov.bound) skipIds(['vo_delay'], 'file', 'provenance failed, so master.json is not bound to this file');
+    else push(C.voDelayResult(mj, cues ? cues.VO_OFFSET : NaN));
+  }
+
+  // ---- report
+  if (dump) {
+    dump.results = C.toJson(results);
+    const df = path.resolve(root, opt('dump'));
+    fs.mkdirSync(path.dirname(df), { recursive: true });
+    fs.writeFileSync(df, JSON.stringify(dump) + '\n');
+    say(`check: wrote the measurements to ${opt('dump')}`);
+  }
+  const order = ['scene', 'provenance', ...C.SOURCE_IDS, 'file_spec', 'faststart', 'loudness', 'vo_delay'];
+  results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id) || (a.t ?? -1) - (b.t ?? -1));
+  const { n, exit } = C.summarize(results, { strict });
+  if (jsonOut) console.log(JSON.stringify(C.toJson(results), null, 2));
+  else for (const x of results) console.log(C.formatLine(x));
+  say(`check: ${n.FAIL} FAIL, ${n.WARN} WARN, ${n.OK} ok, ${n.SKIP} not checked${strict ? ' (--strict: a WARN fails too)' : ''}`);
+  return exit;
+}
+
 // ---------------------------------------------------------------- modes
 const t0 = Date.now();
 let browser = null;
 try {
   if (mode === 'doctor') {
     process.exitCode = await doctor();
+  } else if (mode === 'check') {
+    process.exitCode = await check();
   } else {
     browser = await launch();
     const page = await openPiece(browser);
@@ -415,12 +657,18 @@ try {
     } else if (mode === 'contact') {
       // N evenly spaced frames tiled left-to-right, top-to-bottom: one image shows the whole timeline.
       const n = +opt('n', 12), cols = +opt('cols', 4);
+      let zone = null;
+      if (flag('safe')) {   // --safe: the --target's safe area, else the board's target
+        const name = target || await page.evaluate(async () => { const l = await import('./lib.js'); return (l.BOARD && l.BOARD.target) || null; });
+        if (!name) throw new Error('--safe needs a target: pass --target <name> or set BOARD.target');
+        zone = await page.evaluate((x) => window.safeZone(x), name);
+      }
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'contact-'));
       const times = [];
       for (let i = 0; i < n; i++) {
         const t = +((DUR * (i + 0.5)) / n).toFixed(3);
         times.push(t);
-        const url = await page.evaluate((t) => window.renderStill(t), t);
+        const url = await page.evaluate(([t, z]) => window.renderStill(t, { safe: z }), [t, zone]);
         fs.writeFileSync(path.join(tmp, `f${String(i).padStart(3, '0')}.png`), Buffer.from(url.split(',')[1], 'base64'));
       }
       const out = resolveOut(opt('out', 'contact.png'));
@@ -430,6 +678,7 @@ try {
         '-vf', `tile=${cols}x${rows}:padding=6:margin=6:color=0x808080`, '-frames:v', '1', out]);
       fs.rmSync(tmp, { recursive: true, force: true });
       console.log('wrote', out, '\ntimes (reading order):', times.join(', '));
+      if (zone) console.log(`safe zones: ${zone.name}${zone.estimate ? ' (estimate: not measured yet, see safezones.json)' : ''}`);
     } else if (mode === 'board') {
       const out = resolveOut(opt('out', 'board.png'));
       const cols = +opt('cols', INFO.W > INFO.H ? 4 : 3);
@@ -474,6 +723,7 @@ try {
 } catch (e) {
   console.error(`error: ${e.message}`);
   process.exitCode = 1;
+  await abortVideo();
 } finally {
   if (browser) await browser.close().catch(() => {});
   server.close();

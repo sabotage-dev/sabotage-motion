@@ -1,47 +1,90 @@
 {
-  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Every zone here is an estimate until it is measured on the platform; an entry with \"estimate\": true has \"measured\": null. CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Each edge of the rectangle has its own record in `edges`: where it is (`at`, in design pixels), its `source`, the date it was `measured` (null until it is), and `estimate`. A target is an estimate while any of its edges is, and then render.mjs check reports text outside it as WARN rather than FAIL, and the --safe overlays say \"estimate\". CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "method": "How an edge is measured (plan Q3): render the grid scene at the target's size (node render.mjs full --scene grid.js --target <name> --out out/grid-<name>.mp4), post it privately or unlisted, open it in the platform's app on a phone, and screenshot it in the feed with the caption, the buttons and the profile row showing (a long caption too, if the platform expands it). On each side, read off the grid the first line no overlay covers, moving in from the edge, and record that number as the edge's `at`, with the date, and the app version and phone in `source`. Set the edge's `estimate` to false. Then set `safe` from the four edges (x = left, y = top, w = right - left, h = bottom - top), the target's `measured` to the date, and its `estimate` to false once all four edges are measured.",
   "targets": {
     "tiktok": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 84, "y": 160, "w": 852, "h": 1320 },
       "estimate": true, "measured": null,
-      "source": "Text column x 84-936 and bottom edge y 1480 from posted 1080x1920 pieces; top edge y 160 is a guess, not measured."
+      "source": "Text column x 84-936 and bottom edge y 1480 from posted 1080x1920 pieces; top edge y 160 is a guess. Not measured from app screenshots yet.",
+      "edges": {
+        "left": { "at": 84, "estimate": true, "measured": null, "source": "the text column of posted 1080x1920 pieces, not measured from app screenshots" },
+        "right": { "at": 936, "estimate": true, "measured": null, "source": "the text column of posted 1080x1920 pieces, not measured from app screenshots" },
+        "top": { "at": 160, "estimate": true, "measured": null, "source": "a guess" },
+        "bottom": { "at": 1480, "estimate": true, "measured": null, "source": "content kept above y 1480 in posted 1080x1920 pieces, not measured from app screenshots" }
+      }
     },
     "reels": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 72, "y": 220, "w": 936, "h": 1180 },
       "estimate": true, "measured": null,
-      "source": "Rough estimate (caption, buttons and profile row at the bottom; header at the top). Not measured."
+      "source": "Rough estimate (caption, buttons and profile row at the bottom; header at the top). Not measured.",
+      "edges": {
+        "left": { "at": 72, "estimate": true, "measured": null, "source": "rough estimate" },
+        "right": { "at": 1008, "estimate": true, "measured": null, "source": "rough estimate (the action buttons)" },
+        "top": { "at": 220, "estimate": true, "measured": null, "source": "rough estimate (the header)" },
+        "bottom": { "at": 1400, "estimate": true, "measured": null, "source": "rough estimate (the caption and profile row)" }
+      }
     },
     "shorts": {
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 72, "y": 200, "w": 840, "h": 1280 },
       "estimate": true, "measured": null,
-      "source": "Rough estimate (action buttons on the right, title and channel row at the bottom). Not measured."
+      "source": "Rough estimate (action buttons on the right, title and channel row at the bottom). Not measured.",
+      "edges": {
+        "left": { "at": 72, "estimate": true, "measured": null, "source": "rough estimate" },
+        "right": { "at": 912, "estimate": true, "measured": null, "source": "rough estimate (the action buttons)" },
+        "top": { "at": 200, "estimate": true, "measured": null, "source": "rough estimate" },
+        "bottom": { "at": 1480, "estimate": true, "measured": null, "source": "rough estimate (the title and channel row)" }
+      }
     },
     "youtube": {
       "w": 1920, "h": 1080, "fps": 30,
       "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional title-safe area (5% margin each side). Not measured."
+      "source": "Conventional title-safe area (5% margin each side). Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "square": {
       "w": 1080, "h": 1080, "fps": 30,
       "safe": { "x": 54, "y": 54, "w": 972, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin. Not measured."
+      "source": "Conventional 5% margin. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "feed45": {
       "w": 1080, "h": 1350, "fps": 30,
       "safe": { "x": 54, "y": 68, "w": 972, "h": 1214 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin on a 4:5 feed post. Not measured."
+      "source": "Conventional 5% margin on a 4:5 feed post. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 68, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1282, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "web": {
       "w": 1920, "h": 1080, "fps": 30,
       "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
       "estimate": true, "measured": null,
-      "source": "Conventional 5% margin for a site loop or hero video. Not measured."
+      "source": "Conventional 5% margin for a site loop or hero video. Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
     },
     "none": {
       "safe": null,
