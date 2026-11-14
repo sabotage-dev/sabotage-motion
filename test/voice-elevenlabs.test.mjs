@@ -19,9 +19,11 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     const r = { method: req.method, url: req.url, headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null') };
     seen.push(r);
-    const { status = 200, json, headers = {} } = reply(r);
-    res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
-    res.end(JSON.stringify(json));
+    // statusText sets the HTTP reason phrase; raw sends a body as is instead of JSON
+    const { status = 200, json, headers = {}, statusText, raw } = reply(r);
+    const h = { 'Content-Type': raw != null ? 'text/plain' : 'application/json', ...headers };
+    if (statusText) res.writeHead(status, statusText, h); else res.writeHead(status, h);
+    res.end(raw != null ? raw : JSON.stringify(json));
   });
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -154,13 +156,47 @@ test('the API key is never printed or written, even when an answer quotes it bac
   assert.ok(!r.out.includes('test-key-123'), 'the key was printed');
   // a success that carries extra fields, one of them the key: only the timing fields reach take.elevenlabs.json
   const dir2 = voicePiece('voice-echo-ok', {});
-  reply = (q) => { const f = fakeTake(q.body.text); return { json: { audio_base64: f.pcm.toString('base64'), alignment: f.alignment, normalized_alignment: f.alignment, echoed: q.headers['xi-api-key'] } }; };
+  // (round 2: the key also rides inside the alignment objects, where only the three timing arrays are copied)
+  reply = (q) => {
+    const f = fakeTake(q.body.text), k = q.headers['xi-api-key'];
+    return { json: { audio_base64: f.pcm.toString('base64'), alignment: { ...f.alignment, echoed: k }, normalized_alignment: { ...f.alignment, note: k }, echoed: k } };
+  };
   const r2 = await runVoice(dir2, ['--model', 'm']);
   assert.equal(r2.status, 0, r2.out);
   assert.ok(!r2.out.includes('test-key-123'), 'the key was printed');
   const el = JSON.parse(fs.readFileSync(path.join(dir2, 'take.elevenlabs.json'), 'utf8'));
   assert.deepEqual(Object.keys(el).sort(), ['alignment', 'model_id', 'normalized_alignment', 'output_format', 'text']);
+  const arrays = ['character_end_times_seconds', 'character_start_times_seconds', 'characters'];
+  assert.deepEqual(Object.keys(el.alignment).sort(), arrays);
+  assert.deepEqual(Object.keys(el.normalized_alignment).sort(), arrays);
   for (const f of fs.readdirSync(dir2)) {
     if (fs.statSync(path.join(dir2, f)).isFile()) assert.ok(!fs.readFileSync(path.join(dir2, f)).includes('test-key-123'), `the key is in ${f}`);
   }
+});
+
+test('the key is blanked in the HTTP status text, and before a long answer is cut short (council round 2)', async () => {
+  const dir = voicePiece('voice-echo-status', {});
+  reply = (q) => ({ status: 403, statusText: `key ${q.headers['xi-api-key']} rejected`, json: { detail: 'denied' } });
+  const r = await runVoice(dir, ['--model', 'm']);
+  assert.equal(r.status, 1);
+  assert.ok(!r.out.includes('test-key'), `the key was printed: ${r.out}`);
+  assert.match(r.out, /answered 403 key \[ELEVENLABS_API_KEY\] rejected/);
+  // a long answer with the key near where it used to be cut: no part of the key may survive the cut
+  const dir2 = voicePiece('voice-echo-long', {});
+  reply = (q) => ({ status: 500, raw: 'x'.repeat(595) + q.headers['xi-api-key'] + 'y'.repeat(200) });
+  const r2 = await runVoice(dir2, ['--model', 'm']);
+  assert.equal(r2.status, 1);
+  assert.ok(!r2.out.includes('test-'), `part of the key was printed: ${r2.out.slice(-200)}`);
+});
+
+test('a new take removes the old take.elevenlabs.json along with take.json before its audio is written (council round 2)', async () => {
+  const dir = voicePiece('voice-stale-el', {});
+  fs.writeFileSync(path.join(dir, 'take.elevenlabs.json'), JSON.stringify({ old: true }));
+  fs.writeFileSync(path.join(dir, 'take.json'), JSON.stringify({ old: true }));
+  // an mp3 answer that ffmpeg cannot convert fails after the audio is saved, before the timings are written
+  reply = () => ({ json: { audio_base64: Buffer.from('not an mp3 at all').toString('base64'), alignment: null } });
+  const r = await runVoice(dir, ['--model', 'm', '--format', 'mp3_44100_128']);
+  assert.equal(r.status, 1, r.out);
+  assert.ok(!fs.existsSync(path.join(dir, 'take.json')), 'the old take.json survived');
+  assert.ok(!fs.existsSync(path.join(dir, 'take.elevenlabs.json')), 'the old take.elevenlabs.json survived');
 });

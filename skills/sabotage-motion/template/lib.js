@@ -137,24 +137,38 @@ const EPS = 1e-9;
 export const TAG_RE = /\[[^[\]]*\]/g;
 export const isTag = (s) => /^\[[^[\]]*\]$/.test(String(s).trim());
 
-// Where each tag sits in `text`, and what removing it cuts, so what is left reads as spoken. A side of a tag
-// is open at the text's edge, at a space, or against another tag (or a cut just made). With both sides open
-// the tag goes with one adjacent space (the one after it when there is one, else the one before). A tag
-// glued to a word on one side goes alone, keeping the space on its other side: cutting that space would
-// run two words together ("prompt.[sighs] Save" reads "prompt. Save", never "prompt.Save"). tools/cues.mjs
-// cuts a take's character timings by the same rule, so a vo line and the take's text stay comparable.
+// Tags with nothing between them ("[sighs][whispers]") form one run, and a run is cut as a unit.
+export function tagRuns(text) {
+  const runs = [];
+  for (const m of String(text).matchAll(TAG_RE)) {
+    const t = { text: m[0], a: m.index, b: m.index + m[0].length }, last = runs[runs.length - 1];
+    if (last && last.b === t.a) { last.tags.push(t); last.b = t.b; } else runs.push({ a: t.a, b: t.b, tags: [t] });
+  }
+  return runs;
+}
+// Punctuation that sticks to the word across the space from it: closing marks after a run, opening marks before.
+const CLOSE_P = /[,.;:!?…)}]/, OPEN_P = /[({¿¡]/;
+// Where each tag sits in `text`, and what removing it cuts, so what is left reads as spoken. Each run of tags
+// is cut as a unit. A side of a run is open at the text's edge, at a space, at a cut just made, or at
+// punctuation that belongs to the word beyond the run (a closing mark after it, an opening mark before it).
+// With both sides open the run goes with one adjacent space: the one after it when there is one ("a [x] b" reads
+// "a b", "([x] hi)" reads "(hi)"), else the one before ("Hello [sighs], world" reads "Hello, world"). A run glued
+// to a word on one side goes alone and keeps the space on its other side, since cutting that space would run two
+// words together ("prompt.[sighs][whispers] Save" reads "prompt. Save", never "prompt.Save"). tools/cues.mjs cuts
+// a take's character timings by the same rule, so a vo line and the take's text stay comparable.
 export function tagCuts(text) {
   const s = String(text), cuts = [];
-  for (const m of s.matchAll(TAG_RE)) {
-    const a = m.index, b = a + m[0].length, prevEnd = cuts.length ? cuts[cuts.length - 1].cb : 0;
-    const leftOpen = a === 0 || a <= prevEnd || /\s/.test(s[a - 1]) || s[a - 1] === ']';
-    const rightOpen = b === s.length || /\s/.test(s[b]) || s[b] === '[';
+  for (const r of tagRuns(s)) {
+    const { a, b } = r, prevEnd = cuts.length ? cuts[cuts.length - 1].cb : 0;
+    const L = s[a - 1], R = s[b];
+    const leftOpen = a === 0 || a <= prevEnd || /\s/.test(L) || OPEN_P.test(L);
+    const rightOpen = b === s.length || /\s/.test(R) || CLOSE_P.test(R);
     let ca = a, cb = b;
     if (leftOpen && rightOpen) {
-      if (/\s/.test(s[b] || '')) cb = b + 1;
-      else if (a - 1 >= prevEnd && /\s/.test(s[a - 1] || '')) ca = a - 1;
+      if (/\s/.test(R || '')) cb = b + 1;
+      else if (a - 1 >= prevEnd && /\s/.test(L || '')) ca = a - 1;
     }
-    cuts.push({ text: m[0], a, b, ca, cb });
+    r.tags.forEach((t, k) => cuts.push({ text: t.text, a: t.a, b: t.b, ca: k === 0 ? ca : t.a, cb: k === r.tags.length - 1 ? cb : t.b }));
   }
   return cuts;
 }
@@ -214,8 +228,8 @@ export function boardProblems(board) {
       const vo = String(b.vo);
       if (typeof b.vo !== 'string' || !voWords(vo).length) p.push(`${name}: vo must be a line with at least one word`);
       if (/[[\]]/.test(vo.replace(TAG_RE, ''))) p.push(`${name}: an unmatched [ or ] in vo (a delivery tag is one [...] span)`);
-      for (const c of tagCuts(vo)) {
-        if (/\S/.test(vo[c.a - 1] || ' ') && /\S/.test(vo[c.b] || ' ') && vo[c.a - 1] !== ']' && vo[c.b] !== '[') p.push(`${name}: put a space before or after the tag ${c.text}`);
+      for (const r of tagRuns(vo)) {   // a run of tags glued on both sides would join the words around it
+        if (/\S/.test(vo[r.a - 1] || ' ') && /\S/.test(vo[r.b] || ' ')) p.push(`${name}: put a space before or after the tag ${r.tags.map((t) => t.text).join('')}`);
       }
       if (b.anchor != null) {
         if (typeof b.anchor !== 'string' || !normWords(b.anchor).length) p.push(`${name}: anchor must be a phrase from its vo line`);
@@ -259,15 +273,21 @@ export function hookLong(board, cues) {
 }
 
 // The board fields a take's cues depend on, as one string. tools/cues.mjs writes it into cues.js as
-// BOARD_KEY, and boardTiming refuses a cues.js whose key no longer matches: a line, a silent beat's dur, an
-// anchor, an occurrence, a gap, the hook, lead or hookMax changed since the cues were made, so the zeros in
-// vo.wav or VO_OFFSET may not fit the board any more. Notes that do not move time (copy, look, sfx) are left
-// out, so editing them keeps the cues.
+// BOARD_KEY, and boardTiming refuses a cues.js whose key no longer matches: a line, a leading or interleaved
+// silent beat's dur, an anchor, an occurrence, a gap, which beat is the hook, lead or hookMax changed since the
+// cues were made, so the zeros in vo.wav or VO_OFFSET may not fit the board any more. The key is taken from
+// what those fields mean, not how they are written: the default anchor written out, hook: false, or a trailing
+// space on a line keep the cues. So do the silent beats after the last voiced one (they are timed from the
+// take's end at render) and notes that move no time (copy, look, sfx).
 export function boardKey(board) {
   const lead = board.lead != null ? board.lead : BOARD_DEFAULTS.lead;
   const v = (x) => (x == null ? null : x);
-  return JSON.stringify({ lead, hookMax: v(board.hookMax),
-    beats: board.beats.map((b) => [b.id, v(b.vo), v(b.dur), v(b.anchor), v(b.occurrence), v(b.gapBefore), v(b.hook)]) });
+  const lastV = board.beats.reduce((k, b, i) => (b && b.vo != null ? i : k), -1);
+  const hb = hookBeat(board);
+  return JSON.stringify({ lead, hookMax: v(board.hookMax), hook: hb ? hb.id : null,
+    beats: board.beats.slice(0, lastV + 1).map((b) => (b.vo != null
+      ? [b.id, String(b.vo).trim(), anchorOf(b), v(b.occurrence), v(b.gapBefore)]
+      : [b.id, b.dur])) });
 }
 
 // Beat windows in picture time, half-open, contiguous, covering [0, dur) (plan section 6.3). With `cues`
@@ -294,9 +314,10 @@ export function boardTiming(board, cues = null) {
     const ids = new Set(voicedIdx.map((i) => beats[i].id));
     for (const id of ids) if (!isNum(CUE[id])) more.push(`cues.js has no cue for beat "${id}"`);
     for (const id of Object.keys(CUE)) if (!ids.has(id)) more.push(`cues.js has a cue for "${id}", which is not a voiced beat in board.js`);
-    // every cues.js that tools/cues.mjs writes carries BOARD_KEY; a hand-built cues object without one skips this
-    if (cues.BOARD_KEY != null && cues.BOARD_KEY !== boardKey(board)) {
-      more.push('board.js changed since cues.js was made (a line, a silent beat\'s dur, an anchor, a gap, lead or hookMax)');
+    // every cues.js that tools/cues.mjs writes carries BOARD_KEY; one without it cannot be checked, so it is refused
+    if (cues.BOARD_KEY == null) more.push('cues.js has no BOARD_KEY (an older tools/cues.mjs made it)');
+    else if (cues.BOARD_KEY !== boardKey(board)) {
+      more.push('board.js changed since cues.js was made (a line, a silent beat\'s dur, an anchor, a gap, the hook, lead or hookMax)');
     }
     if (more.length) return fail([...more, 'cues.js does not match board.js: run node tools/cues.mjs again']);
   }

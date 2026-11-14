@@ -100,9 +100,10 @@ async function main(argv) {
   });
   const cost = res.headers.get('character-cost') || res.headers.get('x-character-count');
   if (!res.ok) {
-    // the key never reaches the terminal, even when the answer (a proxy's, say) quotes it back
-    const answer = (await res.text()).slice(0, 600).split(key).join('[ELEVENLABS_API_KEY]');
-    console.error(`voice: the API answered ${res.status} ${res.statusText}: ${answer}`);
+    // The key never reaches the terminal, even when the answer (a proxy's, say) quotes it back: the whole line,
+    // status text included, is blanked before it is cut short, so no part of the key survives the cut either.
+    const line = `voice: the API answered ${res.status} ${res.statusText}: ${await res.text()}`.split(key).join('[ELEVENLABS_API_KEY]');
+    console.error(line.length > 700 ? line.slice(0, 700) + ' …' : line);
     return 1;
   }
   const json = await res.json();
@@ -110,7 +111,7 @@ async function main(argv) {
 
   // A new take replaces the old one as a whole: the old timings go first, so if anything below fails they
   // are never left beside the new audio for tools/cues.mjs to pair up.
-  fs.rmSync(path.join(ROOT, 'take.json'), { force: true });
+  for (const f of ['take.json', 'take.elevenlabs.json']) fs.rmSync(path.join(ROOT, f), { force: true });
   // the audio first: whatever goes wrong after this, the take is on disk
   const audio = Buffer.from(json.audio_base64, 'base64'), raw = path.join(ROOT, 'take-raw.wav');
   const [kind, rate] = format.split('_');
@@ -126,9 +127,12 @@ async function main(argv) {
   console.log(`wrote take-raw.wav (${info.duration.toFixed(2)} s at ${info.sampleRate} Hz)`);
   console.log(cost != null ? `characters billed: ${cost} (the response's character-cost header)` : 'the response reported no character cost');
 
-  // only the timing fields are kept: nothing else the response carries (a quoted key, say) is written to disk
+  // only the three timing arrays are kept: nothing else the response carries (a quoted key, say, at any depth)
+  // is written to disk
+  const ARRAYS = ['characters', 'character_start_times_seconds', 'character_end_times_seconds'];
+  const pick = (al) => (al && typeof al === 'object' ? Object.fromEntries(ARRAYS.filter((a) => a in al).map((a) => [a, al[a]])) : al);
   const timing = {};
-  for (const k of ['alignment', 'normalized_alignment']) if (json[k] !== undefined) timing[k] = json[k];
+  for (const k of ['alignment', 'normalized_alignment']) if (json[k] !== undefined) timing[k] = pick(json[k]);
   fs.writeFileSync(path.join(ROOT, 'take.elevenlabs.json'), JSON.stringify({ model_id: model, output_format: format, text, ...timing }, null, 1) + '\n');
   try {
     const take = fromElevenLabs(json);

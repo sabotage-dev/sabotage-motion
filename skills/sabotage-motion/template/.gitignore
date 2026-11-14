@@ -9,3 +9,4 @@ node_modules/
 # Secrets: an --env-file kept in the piece (API keys) must never be committed.
 .env
 *.env
+.env.*

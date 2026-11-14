@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { SR, cuesTool, lib, synthTake, voicePiece, runCues, readCues, readMonoWav, zeroRuns, levelDb, fakeCtx } from './voice-helpers.mjs';
 
 const { buildCues, fromWords, CueError } = cuesTool;
-const { boardTiming, boardOrder } = lib;
+const { boardTiming, boardOrder, boardKey } = lib;
 const near = (a, b, msg = '', eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${msg} ${a} vs ${b}`);
 const refused = (fn, re) => assert.throws(fn, (e) => e instanceof CueError && re.test(e.message), `expected a refusal matching ${re}`);
 const FPS = 30;
@@ -56,26 +56,32 @@ test('estimate: voiced beats last words / wps + 0.25 s, silent beats their dur, 
 
 test('cue-based windows for leading, interleaved, trailing and mixed silent beats (hand-made cues)', () => {
   const take = (CUE, lastWordEnd, VO_OFFSET) => ({ VO_OFFSET, CUE, TAKE: { duration: lastWordEnd + 0.3, lastWordEnd }, GAPS: [], HOOK_END: 0, WORDS: [] });
+  // hand-made cues carry the board's key, as every cues.js that tools/cues.mjs writes does
+  const timed = (board, c) => boardTiming(board, { ...c, BOARD_KEY: boardKey(board) });
   // leading: cold runs 0-1, hook opens where cold ends, the voice's lead inside it; the end is lastWordEnd + tail
-  assert.deepEqual(spans(boardTiming(BOARDS.leading, take({ hook: 0.12 }, 1.8, 1.1))), [['cold', 0, 1], ['hook', 1, 3.3]]);
+  assert.deepEqual(spans(timed(BOARDS.leading, take({ hook: 0.12 }, 1.8, 1.1))), [['cold', 0, 1], ['hook', 1, 3.3]]);
   // interleaved: save opens lead before its anchor, mid ends there and starts 1.5 s earlier
-  assert.deepEqual(spans(boardTiming(BOARDS.interleaved, take({ hook: 0.12, save: 4.05 }, 6.22, 0.1))), [['hook', 0, 2.55], ['mid', 2.55, 4.05], ['save', 4.05, 6.72]]);
+  assert.deepEqual(spans(timed(BOARDS.interleaved, take({ hook: 0.12, save: 4.05 }, 6.22, 0.1))), [['hook', 0, 2.55], ['mid', 2.55, 4.05], ['save', 4.05, 6.72]]);
   // trailing: end starts at VO_OFFSET + lastWordEnd + tail
-  assert.deepEqual(spans(boardTiming(BOARDS.trailing, take({ hook: 0.12 }, 1.8, 0.1))), [['hook', 0, 2.3], ['end', 2.3, 4.8]]);
+  assert.deepEqual(spans(timed(BOARDS.trailing, take({ hook: 0.12 }, 1.8, 0.1))), [['hook', 0, 2.3], ['end', 2.3, 4.8]]);
   // the five-beat board
-  assert.deepEqual(spans(boardTiming(BOARDS.five, take({ hook: 0.12, save: 4.05 }, 6.22, 1.1))),
+  assert.deepEqual(spans(timed(BOARDS.five, take({ hook: 0.12, save: 4.05 }, 6.22, 1.1))),
     [['cold', 0, 1], ['hook', 1, 3.55], ['mid', 3.55, 5.05], ['save', 5.05, 7.72], ['end', 7.72, 10.22]]);
   // two silent beats in a row keep their order and lengths
-  assert.deepEqual(spans(boardTiming(BOARDS.runOfTwo, take({ hook: 0.12, save: 4.05 }, 6.0, 0.1))), [['hook', 0, 2.55], ['m1', 2.55, 3.05], ['m2', 3.05, 4.05], ['save', 4.05, 6.5]]);
+  assert.deepEqual(spans(timed(BOARDS.runOfTwo, take({ hook: 0.12, save: 4.05 }, 6.0, 0.1))), [['hook', 0, 2.55], ['m1', 2.55, 3.05], ['m2', 3.05, 4.05], ['save', 4.05, 6.5]]);
   for (const name of ['leading', 'interleaved', 'trailing', 'five', 'runOfTwo']) {
     const c = take(Object.fromEntries(BOARDS[name].beats.filter((b) => b.vo).map((b, i) => [b.id, 0.12 + i * 4])), 6.3, name === 'leading' || name === 'five' ? 1.1 : 0.1);
-    assertWindows(boardTiming(BOARDS[name], c), BOARDS[name].beats.map((b) => b.id));
+    assertWindows(timed(BOARDS[name], c), BOARDS[name].beats.map((b) => b.id));
   }
   // a cues.js that no longer matches the board is reported, not timed
-  const stale = boardTiming(BOARDS.five, take({ hook: 0.12 }, 6.22, 1.1));
+  const stale = timed(BOARDS.five, take({ hook: 0.12 }, 6.22, 1.1));
   assert.equal(stale.ok, false);
   assert.match(stale.problems.join('\n'), /no cue for beat "save"/);
-  assert.match(boardTiming(BOARDS.trailing, take({ hook: 0.1, gone: 2 }, 1.8, 0.1)).problems.join('\n'), /cue for "gone", which is not a voiced beat/);
+  assert.match(timed(BOARDS.trailing, take({ hook: 0.1, gone: 2 }, 1.8, 0.1)).problems.join('\n'), /cue for "gone", which is not a voiced beat/);
+  // and a cues.js with no BOARD_KEY cannot be checked against the board, so it is refused (council round 2)
+  const keyless = boardTiming(BOARDS.leading, take({ hook: 0.12 }, 1.8, 1.1));
+  assert.equal(keyless.ok, false);
+  assert.match(keyless.problems.join('\n'), /cues\.js has no BOARD_KEY/);
 });
 
 test('a single voiced beat whose first cue is later than lead still opens at 0', () => {
@@ -215,7 +221,7 @@ test('board_order catches a bad board: CFG.DUR off by more than a frame, an out-
   assert.deepEqual(boardOrder(t, t.dur + 0.9 / FPS, FPS), [], 'within one frame passes');
   assert.match(boardOrder(t, 3.0, FPS).join('\n'), /CFG\.DUR 3 differs from boardDur\(\) .* by more than one frame/);
   // a hand-edited cues.js with "save" before "hook"
-  const bad = boardTiming(BOARDS.interleaved, { VO_OFFSET: 0.1, CUE: { hook: 2.0, save: 1.0 }, TAKE: { duration: 3, lastWordEnd: 2.5 }, GAPS: [], HOOK_END: 1, WORDS: [] });
+  const bad = boardTiming(BOARDS.interleaved, { VO_OFFSET: 0.1, CUE: { hook: 2.0, save: 1.0 }, TAKE: { duration: 3, lastWordEnd: 2.5 }, GAPS: [], HOOK_END: 1, WORDS: [], BOARD_KEY: boardKey(BOARDS.interleaved) });
   assert.equal(bad.ok, false);
   assert.match(boardOrder(bad, 3, FPS).join('\n'), /would last/);
   // windows that are not contiguous, or do not start at 0 (a timing built by hand, not by boardTiming)
@@ -236,12 +242,49 @@ test('a cues.js made before board.js changed is refused, so the picture never dr
     ['lead', { ...FIVE, lead: 0.2 }],
     ['hookMax (the gate has to run again)', { ...FIVE, hookMax: 9 }],
     ['a voice line', withBeat('hook', { vo: 'Stop pasting the same prompts.' })],
+    ['which beat is the hook', withBeat('save', { hook: true })],
+    ['an anchor', withBeat('save', { anchor: 'as a skill' })],
   ];
   for (const [what, board] of changed) {
     const t = boardTiming(board, r.cues);
     assert.equal(t.ok, false, what);
     assert.match(t.problems.join('\n'), /board\.js changed since cues\.js was made/, what);
   }
-  // notes that do not move time keep the cues
-  assertWindows(boardTiming(withBeat('mid', { copy: 'New words on screen', look: 'a slow push' }), r.cues), ['cold', 'hook', 'mid', 'save', 'end']);
+  // notes that move no time keep the cues, and so do edits that change how a field is written but not what it
+  // means, and the silent beats after the last line, which are timed from the take's end (council round 2)
+  const kept = [
+    ['copy and look', withBeat('mid', { copy: 'New words on screen', look: 'a slow push' })],
+    ['the end card\'s dur', withBeat('end', { dur: 4 })],
+    ['hook: false written out', withBeat('save', { hook: false })],
+    ['hook: true on the beat that is already the hook', withBeat('hook', { hook: true })],
+    ['the default anchor written out', withBeat('save', { anchor: 'Save it as a' })],
+    ['a trailing space on a line', withBeat('save', { vo: SAVE + ' ' })],
+  ];
+  for (const [what, board] of kept) {
+    const t = boardTiming(board, r.cues);
+    assert.ok(t.ok, `${what}: ${t.problems.join('; ')}`);
+  }
+  near(boardTiming(withBeat('end', { dur: 4 }), r.cues).dur, boardTiming(FIVE, r.cues).dur + 1.5, 'the longer end card is timed live');
+});
+
+test('a voiced beat after the first is held to its own window too: "b" and "c" closer than lead are refused (council round 2)', () => {
+  const { json, audio } = synthTake([['Go', 0.1, 0.4], ['now.', 0.45, 0.8], ['Then', 1.6, 1.62], ['stop.', 1.65, 2.0]], 2.4);
+  const board = { beats: [{ id: 'a', vo: 'Go now.' }, { id: 'b', vo: 'Then' }, { id: 'c', vo: 'stop.' }] };
+  refused(() => buildCues({ board, take: fromWords(json), samples: audio }), /beat "b": its anchor plays at 1\.700 s, outside its own window .* and inside "c"'s/);
+});
+
+test('a render refuses a cues.js made before board.js changed: the guard holds on the piece\'s own lib.js (council round 2)', async () => {
+  // Two pieces, since a module is loaded once per URL: one left as the cues were made, one whose board.js is
+  // edited afterwards. Each is imported only after its files are final.
+  const { json, audio } = fiveTake(2.70);
+  const same = voicePiece('timing-render-same', { board: FIVE, take: json, audio });
+  const edited = voicePiece('timing-render-edited', { board: FIVE, take: json, audio });
+  for (const dir of [same, edited]) { const r = runCues(dir); assert.equal(r.status, 0, r.out); }
+  // mid lengthened after the cues were made: the vo.wav zeros no longer fit, so the render must refuse
+  const longer = { ...FIVE, beats: FIVE.beats.map((b) => (b.id === 'mid' ? { ...b, dur: 2.0 } : b)) };
+  fs.writeFileSync(path.join(edited, 'board.js'), `export const BOARD = ${JSON.stringify(longer, null, 1)};\n`);
+  const L1 = await import(pathToFileURL(path.join(same, 'lib.js')).href);
+  assertWindows(L1.boardInfo(), ['cold', 'hook', 'mid', 'save', 'end']);
+  const L2 = await import(pathToFileURL(path.join(edited, 'lib.js')).href);
+  assert.throws(() => L2.boardInfo(), /board\.js changed since cues\.js was made/);
 });

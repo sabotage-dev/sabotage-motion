@@ -358,3 +358,52 @@ test('captions: two calls on the same WORDS with a different hold each keep thei
   assert.deepEqual(at(0.8, 0.1), [], 'with hold 0.1 the caption is gone 0.2 s after the last word');
   assert.deepEqual(at(0.8, 2), ['Hello', 'there.'], 'with hold 2 it is still up');
 });
+
+// ---- council round 2: runs of tags, tags against punctuation, and the anchor search on character timings
+
+test('runs of tags and tags against punctuation are cut so the text still reads as spoken, alone or joined', () => {
+  const cases = [
+    ['Hello [sighs], world.', 'Hello, world.'], ['Stop now [sighs].', 'Stop now.'],
+    ['See [a][b] this now', 'See this now'], ['See [a][b]this now', 'See this now'],
+    ['prompt.[sighs][whispers] Save it', 'prompt. Save it'], ['word [a][b]next', 'word next'],
+    ['([sighs] hello)', '(hello)'], ['[a][b] word', 'word'], ['[a] [b] word', 'word'], ['prompt. [x]', 'prompt.'],
+  ];
+  for (const [vo, want] of cases) assert.equal(lib.stripTags(vo), want, vo);
+  // a line stripped alone and the same line inside the joined board script give the same words
+  const lines = ['See [a][b]', 'this now please friend', 'Stop pasting the same prompt.[sighs]', 'Save it [sighs], please.', 'Hello [x]', '[y] there'];
+  for (let i = 0; i + 1 < lines.length; i++) {
+    assert.equal(lib.stripTags(`${lines[i]} ${lines[i + 1]}`), `${lib.stripTags(lines[i])} ${lib.stripTags(lines[i + 1])}`, `${lines[i]} | ${lines[i + 1]}`);
+  }
+  // a run glued to words on both sides would join them, so the board refuses it
+  assert.match(lib.boardProblems({ beats: [{ id: 'a', vo: 'x[a][b]y' }] }).join(), /put a space before or after the tag \[a\]\[b\]/);
+});
+
+test('an ElevenLabs take with a stacked run and a tag before a comma keeps its words apart, and an anchor across the comma is found', () => {
+  const parts = [['See', 0.1, 0.4], [' ', 0.4, 0.45], ['[a][b]', 0.45, 0.55], [' ', 0.55, 0.6], ['this.', 0.6, 1.0], [' ', 1.0, 1.8],
+    ['Save it', 1.8, 2.3], [' ', 2.3, 2.35], ['[sighs]', 2.35, 2.75], [', please now.', 2.75, 3.6]];
+  const characters = [], s = [], e = [];
+  for (const [text, a, b] of parts) {
+    for (let k = 0; k < text.length; k++) { characters.push(text[k]); s.push(a + ((b - a) * k) / text.length); e.push(a + ((b - a) * (k + 1)) / text.length); }
+  }
+  const audio = synthAudio({ duration: 4.0, words: [{ start: 0.1, end: 0.4 }, { start: 0.6, end: 1.0 }, { start: 1.8, end: 2.3 }, { start: 2.75, end: 3.6 }],
+    tags: [{ start: 0.45, end: 0.55, long: false }, { start: 2.35, end: 2.75, long: true }] });
+  const take = fromElevenLabs({ alignment: { characters, character_start_times_seconds: s, character_end_times_seconds: e } });
+  assert.equal(take.chars.text, 'See this. Save it, please now.');
+  assert.deepEqual(take.words.map((w) => w.text), ['See', 'this.', 'Save', 'it,', 'please', 'now.']);
+  const board = { beats: [{ id: 'a', vo: 'See [a][b] this.' }, { id: 'b', vo: 'Save it [sighs], please now.', anchor: 'it, please' }] };
+  const r = buildCues({ board, take, samples: audio });
+  near(r.cues.CUE.b, take.chars.starts[take.chars.text.indexOf('it, please')], '"b" cues on "it, please"');
+});
+
+test('on character timings too, the next anchor is searched for after the previous anchor\'s last character', () => {
+  const tokens = [
+    ['Stop', 0.12, 0.38], ['pasting', 0.42, 0.80], ['the', 0.84, 0.95], ['same', 0.99, 1.30], ['prompt', 1.34, 1.70], ['into', 1.74, 1.90], ['chat.', 1.94, 2.30],
+    ['Paste', 3.00, 3.30], ['the', 3.34, 3.45], ['same', 3.49, 3.80], ['prompt', 3.84, 4.20], ['into', 4.24, 4.40], ['a', 4.44, 4.50], ['skill.', 4.54, 5.00],
+  ];
+  const audio = synthAudio({ duration: 5.5, words: tokens.map(([, start, end]) => ({ start, end })) });
+  const take = fromElevenLabs(elevenlabsFrom(tokens));
+  assert.ok(take.chars, 'this take is matched on characters');
+  const board = { beats: [{ id: 'hook', vo: 'Stop pasting the same prompt into chat.' }, { id: 'save', vo: 'Paste the same prompt into a skill.', anchor: 'the same prompt' }] };
+  const r = buildCues({ board, take, samples: audio });
+  near(r.cues.CUE.save, 3.34, '"save" cues on "the same prompt" in its own line');
+});
