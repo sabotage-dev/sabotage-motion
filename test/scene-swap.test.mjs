@@ -26,7 +26,7 @@ test('--scene slate.js renders the slate\'s length, silent, without loading scen
   }
   assert.match(r.stdout, /exports silent = true/);
   const file = P('out/slate.mp4');
-  assert.equal(countFrames(file), 90, 'slate.js is 3 s at 30 fps');
+  assert.equal(countFrames(file), 90, 'slate.js is the template board\'s 3 s at 30 fps');
   assert.ok(Math.abs(+ffprobe(file).format.duration - 3.0) <= 1 / 30 + 1e-3);
   const w = readWav(P('out/slate.wav'));
   assert.ok(Math.abs(w.dur - 3.0) < 1e-3, `soundtrack ${w.dur} s`);
@@ -37,9 +37,9 @@ test('--scene slate.js renders the slate\'s length, silent, without loading scen
   assert.equal(rec.frames, 90);
 });
 
-test('a scene may set CFG.DUR in init: the slate with --param dur=1.5 is 45 frames', () => {
-  render(dir, ['video', '--scene', 'slate.js', '--param', 'dur=1.5', '--scale', '0.25', '--out', 'out/slate15']);
-  assert.equal(countFrames(P('out/slate15.mp4')), 45);
+test('a scene may set CFG.DUR in init: alt.js with --param dur=1.5 is 45 frames', () => {
+  render(dir, ['video', '--scene', 'alt.js', '--target', 'tiktok', '--param', 'dur=1.5', '--scale', '0.25', '--out', 'out/alt15']);
+  assert.equal(countFrames(P('out/alt15.mp4')), 45);
 });
 
 test('a non-silent alternate scene passes its own TL and length to audio.js', () => {

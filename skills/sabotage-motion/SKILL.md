@@ -5,8 +5,8 @@ description: Make motion-graphics videos in code. Kinetic typography, title and 
 
 # sabotage-motion
 
-This is a placeholder from the first build phase (P0): the engine template and its tests are in
-place, and the full skill text (workflow, storyboard, voice cues, mix, checks, craft notes and
+This is a placeholder from the first build phases: the engine template, the storyboard and the voice
+tools are in place with their tests, and the full skill text (workflow, storyboard, voice cues, mix, checks, craft notes and
 references) arrives in phase P4.
 
 Until then, the template works on its own:
@@ -19,5 +19,13 @@ node render.mjs stills 0.5,1.5,2.5     # style frames in stills/
 node render.mjs full --out out/<piece>.mp4
 ```
 
-The scene contract is at the top of `template/scene.js`, and every render mode and option is at the
-top of `template/render.mjs`.
+The storyboard and the voice path (phase P1) work from the piece's folder too:
+
+```sh
+node render.mjs board --slates         # board.png + board.md from board.js, before anything is animated
+node tools/cues.mjs                    # cues.js and vo.wav from a take (take.json + take-raw.wav)
+```
+
+The scene contract is at the top of `template/scene.js`, the board format at the top of
+`template/board.js`, every render mode and option at the top of `template/render.mjs`, and each tool's
+options at the top of its file in `template/tools/`.

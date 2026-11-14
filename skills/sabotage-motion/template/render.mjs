@@ -5,10 +5,14 @@
 //   node render.mjs video [--from 0 --to DUR] [--out out/<scene>.mp4]  silent video (+ <out>.render.json)
 //   node render.mjs audio [--out out/<scene>.wav]                      synthesized soundtrack only
 //   node render.mjs full  [--out out/<scene>.mp4]                      video + audio, muxed (+ <out>.render.json)
+//   node render.mjs board [--slates] [--safe] [--cols N] [--out board.png]   storyboard sheet (+ board.md)
 //   node render.mjs hash 0.5,1.2 [--scale 0.25]                        SHA-256 of each frame's raw pixels
 //   node render.mjs doctor                                             check Chrome, WebGL2, ffmpeg, fonts
 //
 // Paths in --out / --dir resolve against THIS folder (the piece), not your shell's cwd; absolute paths work.
+// board: one panel per board.js beat at its key time, captions under each (default --scale 1/3);
+//         --slates draws them with slate.js, --safe shades what is outside the target's safe area (the
+//         --target, else BOARD.target). Timing comes from cues.js once it exists, else the estimate.
 // Common: --scene file.js (default scene.js)  --target name (size, fps and safe area from safezones.json)
 //         --fps N  --sub N (motion-blur subframes, default 8)  --scale S  --crf 17  --preset slow
 //         --param key=value (repeatable; arrives in scene.init as params.key)
@@ -27,8 +31,8 @@ import { chromium } from 'playwright-core';
 const root = path.dirname(fileURLToPath(import.meta.url));   // not URL.pathname: that keeps %20 for spaces
 const argv = process.argv.slice(2);
 const mode = argv[0];
-if (!['stills', 'contact', 'video', 'audio', 'full', 'hash', 'doctor'].includes(mode)) {
-  console.error('usage: node render.mjs <stills t1,t2,..|contact|video|audio|full|hash t1,..|doctor> [options]  (see header)');
+if (!['stills', 'contact', 'board', 'video', 'audio', 'full', 'hash', 'doctor'].includes(mode)) {
+  console.error('usage: node render.mjs <stills t1,t2,..|contact|board|video|audio|full|hash t1,..|doctor> [options]  (see header)');
   process.exit(2);
 }
 const opt = (k, d) => { const i = argv.indexOf('--' + k); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : d; };
@@ -36,8 +40,8 @@ const flag = (k) => argv.includes('--' + k);
 const params = []; argv.forEach((a, i) => { if (a === '--param' && argv[i + 1]) params.push(argv[i + 1]); });
 const alphaKind = flag('alpha') ? opt('alpha', 'prores') : null;
 if (alphaKind && !['prores', 'webm'].includes(alphaKind)) { console.error('--alpha must be prores or webm'); process.exit(2); }
-const defScale = mode === 'stills' ? 0.5 : mode === 'contact' || mode === 'doctor' ? 0.25 : 1;
-const scale = +opt('scale', defScale), sub = +opt('sub', mode === 'contact' || mode === 'doctor' ? 4 : 8);
+const defScale = mode === 'stills' ? 0.5 : mode === 'contact' || mode === 'doctor' ? 0.25 : mode === 'board' ? 1 / 3 : 1;
+const scale = +opt('scale', defScale), sub = +opt('sub', mode === 'contact' || mode === 'doctor' || mode === 'board' ? 4 : 8);
 const resolveOut = (p) => path.resolve(root, p);
 const run = (cmd, args) => new Promise((res, rej) => {
   const p = spawn(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'] });
@@ -46,7 +50,7 @@ const run = (cmd, args) => new Promise((res, rej) => {
 });
 
 // ---------------------------------------------------------------- scene and target
-const sceneFile = opt('scene', 'scene.js');
+const sceneFile = mode === 'board' && flag('slates') ? 'slate.js' : opt('scene', 'scene.js');
 if (!/^[\w][\w./-]*\.m?js$/.test(sceneFile) || sceneFile.includes('..') || !fs.existsSync(path.join(root, sceneFile))) {
   console.error(`--scene ${sceneFile}: no such scene file in this piece (give a path relative to the piece, e.g. slate.js)`);
   process.exit(2);
@@ -86,6 +90,12 @@ const server = http.createServer((req, res) => {
       } else { res.writeHead(404); res.end(); }
     });
     return;
+  }
+  if (url.pathname === '/__exists') {   // lib.js asks whether the optional cues.js exists, so a piece without one logs no 404
+    const f = path.join(root, url.searchParams.get('path') || '');
+    const exists = f.startsWith(root + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ exists }));
   }
   if (url.pathname === '/__doctor') {   // a blank page carrying index.html's styles (its @font-face rules)
     const style = (fs.readFileSync(path.join(root, 'index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
@@ -252,6 +262,22 @@ const withExt = (p, ext) => {
   if (cur.toLowerCase() !== ext) { console.log(`note: ${cur} doesn't fit this codec; writing ${ext} instead`); return p.slice(0, -cur.length) + ext; }
   return p;
 };
+// board.md: the board sheet as a table, beside board.png.
+function boardMarkdown(r) {
+  const cell = (x) => String(x == null ? '' : x).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+  const out = [`# ${cell(r.title || 'Board')}`, '',
+    r.estimated ? 'Timing: estimated timing (no cues.js yet: words / wps + 0.25 s per voiced beat).'
+      : r.take ? `Timing: from cues.js. VO_OFFSET ${r.voOffset} s (picture time where vo.wav starts); take ${r.take.duration} s.`
+      : 'Timing: the beats\' own durations (no voice).',
+    `Scene: ${r.scene}. ${r.rows.length} beats, ${r.dur} s.${r.safe ? ` Safe zones: ${r.safe.target}${r.safe.estimate ? ' (estimate)' : ''}.` : ''}`,
+    '', '| # | Beat | Window (s) | Voice | On screen | Look | Sound |', '|---|---|---|---|---|---|---|'];
+  r.rows.forEach((b, i) => {
+    const flags = [b.hook ? 'hook' : '', b.hold ? 'hold' : ''].filter(Boolean).join(', ');
+    const sound = b.sfx === null ? 'silence (on purpose)' : b.sfx === undefined ? '' : `${b.sfx}${b.sfxHit ? ' (hit)' : ''}`;
+    out.push(`| ${i + 1} | ${cell(b.id)}${flags ? ` (${flags})` : ''} | ${b.start.toFixed(2)}-${b.end.toFixed(2)} | ${b.vo == null ? `(silent, ${b.dur} s)` : cell(b.vo)} | ${cell(b.on.join(' / '))} | ${cell(b.look)} | ${cell(sound)} |`);
+  });
+  return out.join('\n') + '\n';
+}
 const timesArg = () => {
   if (!argv[1] || argv[1].startsWith('--')) throw new Error(`${mode} needs times, e.g. ${mode} 0.5,1.2`);
   return argv[1].split(',').map(Number);
@@ -396,6 +422,18 @@ try {
         '-vf', `tile=${cols}x${rows}:padding=6:margin=6:color=0x808080`, '-frames:v', '1', out]);
       fs.rmSync(tmp, { recursive: true, force: true });
       console.log('wrote', out, '\ntimes (reading order):', times.join(', '));
+    } else if (mode === 'board') {
+      const out = resolveOut(opt('out', 'board.png'));
+      const cols = +opt('cols', INFO.W > INFO.H ? 4 : 3);
+      const r = await page.evaluate((o) => window.renderBoard(o), { cols, safe: flag('safe') });
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, Buffer.from(r.png.split(',')[1], 'base64'));
+      const md = out.replace(/\.png$/i, '') + '.md';
+      fs.writeFileSync(md, boardMarkdown(r));
+      console.log('wrote', out, `(${r.width}x${r.height}, ${r.rows.length} beats)`);
+      console.log('wrote', md);
+      console.log(r.estimated ? 'timing: estimated (no cues.js yet)' : r.take ? `timing: from cues.js (VO_OFFSET ${r.voOffset} s)` : 'timing: the beats\' durations (no voice)');
+      for (const p of r.order) console.log(`note: board_order would fail: ${p}`);
     } else if (mode === 'video') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
       fs.rmSync(recordOf(out), { force: true });

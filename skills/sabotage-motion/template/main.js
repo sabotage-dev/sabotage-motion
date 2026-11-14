@@ -132,3 +132,109 @@ window.renderSound = async () => {
   await fetch('/audio', { method: 'POST', body: wav });
   return wav.length;
 };
+
+// The board sheet (render.mjs board, plan 6.2): one panel per board beat, the frame at the beat's key time
+// (beat.key seconds in, default 60% of the way through), composed here on the page's own canvas with the
+// piece's fonts, with the beat's id, window, voice line, on-screen copy, visual note and sound note under
+// each panel. Returns the PNG and what render.mjs needs for board.md.
+window.renderBoard = async ({ cols, safe }) => {
+  const lib = await import('./lib.js');
+  const info = lib.boardInfo(), B = lib.BOARD;
+  for (const f of ['DISPLAY', 'BODY', 'MONO']) {
+    const faces = await document.fonts.load(`32px "${f}"`);
+    if (!faces.length || !document.fonts.check(`32px "${f}"`)) throw new Error(`board sheet: font missing: ${f} (declare it in index.html @font-face)`);
+  }
+  let zone = null, zoneName = null, zoneEstimate = false;
+  if (safe) {
+    zoneName = TARGET || B.target || null;
+    if (!zoneName) throw new Error('--safe needs a target: pass --target <name> or set BOARD.target');
+    const T = await loadTarget(zoneName);
+    if (!T.safe) throw new Error(`--safe: target ${zoneName} has no safe area`);
+    zone = T.safe; zoneEstimate = !!T.estimate;
+  }
+  const pw = RW, ph = RH, u = pw / 360, gap = Math.round(18 * u), pad = Math.round(6 * u);
+  const C = { bg: '#18181C', ink: '#ECEAE4', muted: '#9C9AA6', tag: '#E0A458', id: '#FF6A3D' };
+  const F = { title: `${Math.round(30 * u)}px DISPLAY`, meta: `${Math.round(14 * u)}px BODY`, id: `${Math.round(20 * u)}px DISPLAY`,
+    mono: `${Math.round(13 * u)}px MONO`, body: `${Math.round(14 * u)}px BODY` };
+  const LH = { id: 26 * u, mono: 17 * u, body: 19 * u };
+  const sheet = document.createElement('canvas'), sc = sheet.getContext('2d');
+  // Wrap a list of { text, color } tokens to maxW at a font; returns lines of { text, color, x }.
+  const wrapTokens = (tokens, font, maxW) => {
+    sc.font = font;
+    const sp = sc.measureText(' ').width, lines = [];
+    let line = [], x = 0;
+    for (const tk of tokens) {
+      const w = sc.measureText(tk.text).width;
+      if (line.length && x + sp + w > maxW) { lines.push(line); line = []; x = 0; }
+      if (line.length) x += sp;
+      line.push({ ...tk, x }); x += w;
+    }
+    if (line.length) lines.push(line);
+    return lines;
+  };
+  const words = (text, color) => String(text).split(/\s+/).filter(Boolean).map((t) => ({ text: t, color }));
+  const capW = pw - 2 * pad;
+  const caption = (w) => {
+    const b = w.beat, blocks = [];
+    const flags = [b.hook ? 'hook' : '', b.hold ? 'hold' : '', b.vo == null ? 'silent' : ''].filter(Boolean).join(', ');
+    blocks.push({ font: F.id, lh: LH.id, lines: wrapTokens([{ text: `${w.index + 1}. ${w.id}`, color: C.id }], F.id, capW) });
+    blocks.push({ font: F.mono, lh: LH.mono, lines: wrapTokens(words(`${w.start.toFixed(2)}-${w.end.toFixed(2)} s${flags ? '  ' + flags : ''}`, C.muted), F.mono, capW) });
+    if (b.vo != null) {
+      const toks = [{ text: 'VO', color: C.muted }, ...lib.voTokens(b.vo).flatMap((t) => (t.kind === 'tag' ? words(t.text, C.tag) : [{ text: t.text, color: C.ink }]))];
+      blocks.push({ font: F.body, lh: LH.body, lines: wrapTokens(toks, F.body, capW) });
+    }
+    const on = (b.on || []).map(String).filter(Boolean);
+    blocks.push({ font: F.body, lh: LH.body, lines: wrapTokens([{ text: 'ON', color: C.muted }, ...(on.length ? words(on.join(' / '), C.ink) : [{ text: '-', color: C.muted }])], F.body, capW) });
+    if (b.look) blocks.push({ font: F.body, lh: LH.body, lines: wrapTokens([{ text: 'LOOK', color: C.muted }, ...words(b.look, C.muted)], F.body, capW) });
+    const sfx = b.sfx === null ? 'silence (on purpose)' : b.sfx ? `${b.sfx}${b.sfxHit ? ' (hit)' : ''}` : '-';
+    blocks.push({ font: F.mono, lh: LH.mono, lines: wrapTokens([{ text: 'SFX', color: C.muted }, ...words(sfx, C.muted)], F.mono, capW) });
+    return { blocks, h: blocks.reduce((s, bl) => s + bl.lines.length * bl.lh, 0) + 3 * pad };
+  };
+  const caps = info.windows.map(caption);
+  const n = info.windows.length, rows = Math.ceil(n / cols);
+  const rowCap = Array.from({ length: rows }, (_, r) => Math.max(...caps.slice(r * cols, r * cols + cols).map((c) => c.h)));
+  const metaBits = [info.estimated ? 'estimated timing (no cues.js yet)'
+    : lib.CUES ? `timing from cues.js: VO_OFFSET ${info.voOffset.toFixed(2)} s, take ${lib.CUES.TAKE.duration.toFixed(2)} s` : 'silent board: the beats\' own durations',
+    `scene ${SCENE_FILE}`, `${n} beats, ${info.dur.toFixed(2)} s`, zone ? `safe zones: ${zoneName}${zoneEstimate ? ' (estimate)' : ''}` : ''].filter(Boolean);
+  const metaLines = wrapTokens(words(metaBits.join('  |  '), C.muted), F.meta, cols * pw + (cols - 1) * gap);
+  const headH = gap + 34 * u + metaLines.length * LH.body + gap * 0.5;
+  sheet.width = Math.round(cols * pw + (cols + 1) * gap);
+  sheet.height = Math.round(headH + rowCap.reduce((s, h) => s + ph + h + gap, 0) + gap * 0.5);
+  sc.fillStyle = C.bg; sc.fillRect(0, 0, sheet.width, sheet.height);
+  sc.textBaseline = 'alphabetic'; sc.textAlign = 'left';
+  sc.font = F.title; sc.fillStyle = C.ink;
+  sc.fillText(B.title || 'Board', gap, gap + 28 * u);
+  metaLines.forEach((l, i) => { sc.font = F.meta; for (const tk of l) { sc.fillStyle = tk.color; sc.fillText(tk.text, gap + tk.x, gap + 34 * u + (i + 0.8) * LH.body); } });
+  const rowsOut = [];
+  let y = headH;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      if (i >= n) break;
+      const w = info.windows[i], x = gap + c * (pw + gap);
+      const key = Math.min(w.end - 1e-4, Math.max(w.start, w.start + (w.beat.key != null ? w.beat.key : 0.6 * (w.end - w.start))));
+      renderAt(key);
+      sc.drawImage(canvas, x, y, pw, ph);   // the WebGL canvas keeps its buffer (preserveDrawingBuffer)
+      if (zone) {
+        const k = pw / CFG.W, zx = x + zone.x * k, zy = y + zone.y * k, zw = zone.w * k, zh = zone.h * k;
+        sc.fillStyle = 'rgba(0,0,0,0.45)';
+        sc.fillRect(x, y, pw, zy - y); sc.fillRect(x, zy + zh, pw, y + ph - zy - zh);
+        sc.fillRect(x, zy, zx - x, zh); sc.fillRect(zx + zw, zy, x + pw - zx - zw, zh);
+        sc.strokeStyle = 'rgba(255,214,0,0.8)'; sc.lineWidth = Math.max(1, u); sc.strokeRect(zx, zy, zw, zh);
+      }
+      let cy = y + ph + pad;
+      for (const bl of caps[i].blocks) {
+        sc.font = bl.font;
+        for (const l of bl.lines) { cy += bl.lh; for (const tk of l) { sc.fillStyle = tk.color; sc.fillText(tk.text, x + pad + tk.x, cy - bl.lh * 0.25); } }
+        cy += pad * 0.5;
+      }
+      const b = w.beat;
+      rowsOut.push({ id: w.id, start: w.start, end: w.end, key, vo: b.vo != null ? String(b.vo) : null, dur: b.dur != null ? b.dur : null,
+        on: (b.on || []).map(String), look: b.look || '', sfx: b.sfx === undefined ? undefined : b.sfx, sfxHit: !!b.sfxHit, hook: !!b.hook, hold: !!b.hold });
+    }
+    y += ph + rowCap[r] + gap;
+  }
+  return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, rows: rowsOut, title: B.title || null,
+    estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null,
+    cfgDur: CFG.DUR, order: lib.boardOrder(info, CFG.DUR, FPS), scene: SCENE_FILE, safe: zone ? { target: zoneName, estimate: zoneEstimate } : null };
+};

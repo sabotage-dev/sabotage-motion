@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-Planned for v1:
+Planned for v1 (the storyboard, voice-driven timing and captions are built and in review):
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -26,8 +26,51 @@ Planned for v1:
 
 Early build, not ready for use yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
 engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
-video render, `doctor`, and CI on macOS and Linux. The skill text (SKILL.md is a stub for now), the storyboard,
-voice cues, mix and master, footage and `check` come in phases P1 to P4.
+video render, `doctor`, and CI on macOS and Linux. Phase P1 is in review: the storyboard (`board.js`, the board
+sheet, the slate scene), voice-driven timing (`tools/cues.mjs`, with the hook gate), the optional ElevenLabs voice
+tool, and captions. Mix and master, footage and `check` come in P2 and P3, and the skill text (SKILL.md is a stub
+for now) in P4.
+
+## Storyboard and voice (P1, in review)
+
+Each piece has a `board.js`: its beats in order, each with a voice line (`vo`) or a length (`dur`), the
+on-screen copy, a visual note and a sound note. The scene builds its timeline from it (`beatWindow(id)`,
+`beatAt(t)`, `CFG.DUR = boardDur()` in `lib.js`), so the board is the one place timing lives. Run these in the
+piece's folder:
+
+```sh
+node render.mjs board --slates              # board.png and board.md: a placeholder card per beat, estimated timing
+node tools/voice-elevenlabs.mjs --model eleven_v4   # optional: voice the board in one take (take-raw.wav, take.json)
+node tools/cues.mjs                         # cues.js, cues.json and vo.wav from take.json and take-raw.wav
+node tools/cues.mjs --from whisper read.json --audio read.wav   # or: a human read, transcribed with openai-whisper
+node render.mjs video --scene slate.js --out out/animatic.mp4   # the animatic's picture, timed by the take
+node render.mjs board                       # the board sheet again, with the real scene and the take's timing
+```
+
+- **Timing sources.** `tools/cues.mjs` reads ElevenLabs' with-timestamps response (`--from elevenlabs`),
+  openai-whisper's JSON written with `--word_timestamps True` (`--from whisper`), or a generic
+  `{ words: [{ text, start, end }] }` file (`--from words`, the default) that any other tool can produce.
+- **Cues.** Each voiced beat is cued where its anchor phrase starts (by default the line's first four words).
+  `cues.js` holds those cues in seconds into `vo.wav`, plus `VO_OFFSET`, the picture time where the voice starts;
+  the board helpers and captions add it once, so a scene never does.
+- **Silences.** `gapBefore: 0.6` on a beat opens that much silence before its anchor, at the quietest point of the
+  pause, and is refused where the cut would split speech. Silent beats between voiced ones get the same amount of
+  silence spliced into the voice, so the picture and the voice stay in step.
+- **Delivery tags.** `[curious]`, `[short pause]`, `[chuckles]` and the like in a `vo` line go to the TTS as
+  written, but are never words, anchors or captions. Their sound belongs to the line they are written in.
+- **Hook gate.** With `hookMax: 4.0` on the board, `tools/cues.mjs` refuses a take whose hook line ends after
+  4.0 s of picture time, and says by how much.
+- **Refusals write nothing.** A missing anchor, a gap that would split speech, a late hook, an `--offset` that
+  would put the voice over the leading silent beats, or two anchors too close together stop the tool before it
+  writes a file, so a bad take never replaces a good `cues.js`.
+- **Captions.** `captions(ctx, CUES.WORDS, t, { safe: target.safe })` draws word-by-word captions inside the
+  safe area, one group of lines at a time, the spoken word popped in the accent colour, and returns their text
+  boxes.
+- **ElevenLabs.** `tools/voice-elevenlabs.mjs` reads `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` from the
+  environment or `--env-file`, sends no voice settings unless you pass `--voice-settings`, writes the audio
+  before anything else so a later error never wastes the credits, and prints the character cost. It has no
+  default model: the current one that reads delivery tags is `eleven_v4` (ElevenLabs' docs, checked
+  2026-11-13).
 
 ## Requirements
 
@@ -65,12 +108,18 @@ Use `--scale 0.5` (or less) and fewer `--sub` for drafts there. A GPU-accelerate
 ```sh
 npm ci
 npm test                                   # every suite
-npm run test:engine                        # determinism, frame count and container, alpha, scene swap
+npm run test:engine                        # determinism, frame count and container, alpha, scene swap, board sheet
+npm run test:voice                         # cues, board timing, the ElevenLabs tool against a local fake server
 npm run test:repo                          # leak check and asset inventory
 ```
 
-The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece) at scale 0.25 in a throwaway copy
-of the template under `test/.work/`. `ASSETS.md` lists every binary file with its source and licence, and a test
+The voice suites use synthetic takes only: hand-written timing files in each source's format
+(`test/fixtures/takes/`) and tone or noise bursts for the audio. One live ElevenLabs smoke test calls the real
+API and spends credits, so it is skipped unless you ask for it:
+`SM_LIVE=elevenlabs SM_LIVE_MODEL=eleven_v4 ELEVENLABS_API_KEY=... ELEVENLABS_VOICE_ID=... node --test test/voice-live.test.mjs`.
+
+The engine suites render `test/fixtures/fixture-clean` (a 2 s, 1080×1920 piece) and `test/fixtures/fixture-board`
+(a five-beat board) at scale 0.25 in throwaway copies of the template under `test/.work/`. `ASSETS.md` lists every binary file with its source and licence, and a test
 keeps it complete.
 
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist
