@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Revision | 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 in section 23.7 (2026-11-15) |
-| Open questions | Q1-Q10 in section 20 and Q11-Q17 in section 23.7, each with the default the build takes if nobody overrules it |
+| Open questions | Q1-Q10 in section 20 and Q11-Q18 in section 23.7, each with the default the build takes if nobody overrules it |
 
 ## 1. What this is
 
@@ -821,7 +821,8 @@ Round 2 fold map:
 jobs people already bring to it (owner, 2026-11-15, D11). Five additions, each a phase with its own PR and council
 round, in this order: P6 is docs only and goes first; P7 (looks and brand kit) and P8 (code and terminal motion)
 are what P9's launch video is built from; P10 (caption a clip) stands alone and closes the release. The README
-items for Linux speed and other coding agents stay out of 0.2.
+items for Linux speed and other coding agents stay out of 0.2. Council round 1 on this section (rev 1.6) is folded
+in rev 1.7 (23.8).
 
 ### 23.1 P6: the README shows motion
 
@@ -829,43 +830,59 @@ items for Linux speed and other coding agents stay out of 0.2.
   most 640 px wide, at most 5 MB. GitHub plays a video in a README only when it is uploaded through the web editor,
   so the hero is a committed GIF (Q11), made by a committed script (`scripts/readme-media.mjs`, ffmpeg palette
   pass) from the showreel example's own render, so it can be remade after any change to the reel.
-- **One prompt, three results.** The exact prompt from the P5 session tests, then the three pieces those sessions
-  made, side by side, each a GIF of at most 2 MB. One line under them says the agent designs each piece; the skill
-  supplies the engine, the craft defaults and the checks. Only the media are committed, not the three pieces;
-  PLAN 21 already records how they were made. The app in the prompt is made up.
+- **One prompt, three results.** The README prints the exact request, then the pieces three fresh Claude Code
+  sessions made with only this skill (0.1.0) installed, side by side, each a GIF of at most 2 MB. The sessions run
+  the P5 way (21): an empty home folder each, Opus, web tools off, a request that does not name the skill. One line
+  under them says the agent designs each piece; the skill supplies the engine, the craft defaults and the checks.
+  Only the media are committed, not the three pieces. The app in the request is made up, and its name is searched
+  first so it is not a real product's.
 - `ASSETS.md` lists every new file with its source and licence; the inventory test covers them.
 
 Acceptance: each GIF's size and dimensions measured; the README rendered on GitHub from the PR branch with every
-GIF playing; the asset inventory test passes; no version bump (nothing installed changes).
+GIF served; a test that fails when a README picture is missing or a GIF is over its budget; the asset inventory test
+passes; no version bump (nothing installed changes).
 
 ### 23.2 P7: looks and a brand kit
 
-- **Looks.** `looks.js` in the template: eight named looks, each a starting point the agent then makes its own.
-  A look sets palette tokens (`bg`, `bg2`, `ink`, `muted`, `accent`, `accent2`), font roles (display, body, mono),
-  the background shader look and its parameters, the post settings (bloom, grain, chromatic aberration), the motion
-  vocabulary (entrance easing, stagger, whether a light sweep or glitch is allowed) and the synthesized sound's
-  timbre. The first cut: `product` (clean light UI), `neon` (dark, glow, glitch at cuts), `paper` (warm texture,
-  serif, gentle springs, no glitch), `editorial` (bold serif, black and white plus one accent, hard cuts),
-  `retro-crt` (scanlines, phosphor), `brutalist` (condensed type, primaries, snaps), `gradient` (soft mesh,
-  rounded sans), `mono` (high-contrast black and white). `--param look=<name>` or `CFG.LOOK` picks one.
-- **Fonts.** Up to four more open-licence families so the looks differ in type, not only colour: a serif display,
-  a condensed display, a rounded sans and a hand face, Latin subsets, at most 400 KB added (Q14). Licence texts in
-  `fonts/`; `ASSETS.md` updated.
-- **Brand kit.** `brand.json` in the project root (Q17): `name`, `colors` (the same token names as a look),
-  `fonts` (family and file per role), `logo` (files for dark and light grounds), an optional base `look`. When a
-  piece is created the agent copies `brand.json` and every file it names into the piece, so the piece still
-  re-renders on its own. Brand tokens override the look's. A missing brand font fails the render the way a missing
-  font already does; `doctor` checks that every brand file exists and every colour parses. `node render.mjs brand`
-  renders a brand sheet (swatches, type specimen, logo on each ground) to approve before anything is animated.
+- **Looks.** `looks.js` in the template: eight named looks, each a starting point the agent then makes its own. A
+  look sets colour tokens (`bgA`, `bgB`, `ink`, `muted`, `accent`, `accent2`), font roles (display, body, mono), the
+  background shader id (`bg`: `none`, `gradient`, `paper`, `grid` and any the look adds) and its parameters, the
+  post settings (bloom, grain, chromatic aberration), the motion vocabulary (entrance easing, stagger, whether a
+  light sweep or glitch is allowed) and the synthesized sound's timbre. `bg` stays the shader id, as the template,
+  README and SKILL.md use it today; colours never go in it. The first cut: `product` (clean light UI), `neon`
+  (dark, glow, glitch at cuts), `paper` (warm texture, serif, gentle springs, no glitch), `editorial` (bold serif,
+  black and white plus one accent, hard cuts), `retro-crt` (scanlines, phosphor), `brutalist` (condensed type,
+  primaries, snaps), `gradient` (soft mesh, rounded sans), `mono` (high-contrast black and white).
+  `--param look=<name>` or `CFG.LOOK` picks one; explicit `--param` values still win over the look.
+- **Fonts for the looks** (Q14, Q8 amended). Up to four more open-licence families (a serif display, a condensed
+  display, a rounded sans, a hand face; Latin subsets; at most 400 KB together) live once in the skill's
+  `looks/fonts/` with their licence texts, not in the template, so the examples do not each carry a copy. A piece
+  gets a look's font files only when it uses that look: the agent copies them into the piece's `fonts/`.
+- **Font loading.** Fonts named by a look or a brand kit are registered with `FontFace` from the piece's `fonts/`
+  before `scene.init`, and added to `CFG.FONTS`, so a missing one fails the render (and is reported by `check`) the
+  way a missing `@font-face` family does today. `doctor` reads the look and the kit as well as `index.html`.
+- **What was drawn.** The harness records the font families the drawing calls set (every `ctx.font` assignment) and
+  the resolved tokens, and the render record gains `fonts_used` and `tokens`.
+- **Brand kit.** `brand.json` in the project root (Q17): `name`, `colors` (the look's token names), `fonts` (family
+  and file per role), `logo` (files for dark and light grounds), an optional base `look`. When a piece is created
+  the agent copies `brand.json` and every file it names into the piece, so the piece still re-renders on its own.
+  Precedence: `--param` over the kit over the look over the template. `doctor` checks that every kit file exists and
+  every colour parses. `node render.mjs brand` renders a brand sheet (swatches, type specimen, logo on each ground)
+  to approve before anything is animated.
 - **Skill text.** With a brand kit, use it. Without one, pick a look on purpose, say which and why, and do not fall
   back to the same palette from piece to piece. Section 14's "brand notes live in the project's CLAUDE.md" stays
-  true for prose notes; tokens and files move to `brand.json`.
+  true for prose notes; tokens and files move to `brand.json`. The README's `--param` line names the colour tokens
+  and the shader id correctly.
 
 Acceptance: a looks sheet (one 5 s card in every look) committed as `docs/media/looks.png` and shown in the README;
-every look's card passes `check` with 0 FAIL and 0 WARN; tests for token precedence (brand over look over
-template), for a missing brand font failing the render, and for `doctor` on a broken kit; the brand sheet renders;
-a fresh session given a `brand.json` and a brief makes a piece whose sampled background and accent colours match
-the kit within a delta E of 3 and whose render record names the kit's fonts.
+every look's card passes `check` with 0 FAIL and 0 WARN; tests for precedence (`--param` over kit over look over
+template), for a missing look or kit font failing the render, for `doctor` on a broken kit, and for `fonts_used`
+(a scene that declares a kit font but draws with another records the other); the brand sheet renders. Colour match,
+used in the fresh-session row: the dominant colours of `check`'s probe frames (1/2 size, grain off; k-means with
+k = 8 over every probe frame) must include one within CIEDE2000 6 of the kit's `bgA` covering at least 15% of the
+pixels, and one within 6 of its `accent` covering at least 0.5%. The fresh-session row: one session P5's way, given
+a `brand.json` (with its fonts and logo) and a brief that does not mention it, makes a piece that passes that colour
+match, whose `fonts_used` holds the kit's display and body families, and whose master passes `check --file`.
 
 ### 23.3 P8: code and terminal motion
 
@@ -875,15 +892,20 @@ the kit within a delta E of 3 and whose render record names the kit's fonts.
   scrolling), `drawDiff` (added and removed lines revealed line by line), `terminal` (a session of commands and
   output with typed commands, output timing, a spinner and a progress bar), and frames for a window, a browser and
   a phone, all generic shapes with no product's marks.
-- Every line drawn registers its box through `boxes(t)`, so `text_safe` and `text_overlap` see code and terminal
-  text like any other text.
-- Synthesized key ticks follow the typed characters, thinned to a ceiling per second so fast typing does not
-  become noise.
-- **Example** `examples/terminal-demo/` (8 s, 9:16): a made-up CLI installs and runs, then a short diff lands.
+- **Boxes.** `boxes(t)` is the scene's own pure function, so each helper has a layout-only call (as `captions` has
+  with `draw: false`) that returns the boxes of the text visible at `t`: clipped to its frame, scrolled lines left
+  out, one `group` per block so lines of one block are not overlaps of each other. Frames and the cursor are
+  `deco`. The example's `boxes(t)` returns them, so `text_safe` and `text_overlap` see code and terminal text.
+- Synthesized key ticks follow the typed characters, thinned to a ceiling per second so fast typing does not become
+  noise.
+- **Example** `examples/terminal-demo/` (8 s, 9:16): a made-up CLI installs and runs, then a short diff lands. It is
+  added to the example suites (`test/helpers.mjs`).
 
-Acceptance: golden token streams per language; the same `t` gives the same frame hash for typed code; a fixture
-with code outside the safe area fails `text_safe`; the example passes `check` and `check --file` with 0 FAIL and
-0 WARN.
+Acceptance: golden token streams per language; at stated times the visible prefix of the typed code, the terminal
+lines shown and the scroll offset equal their expected values (read from the layout call, and the frame hash
+stable at those times); a fixture whose code sits outside `tiktok-ad`'s measured safe area for more than 0.25 s
+FAILs `text_safe`, and the same block inside it passes; the example passes `check` and `check --file` with 0 FAIL
+and 0 WARN.
 
 ### 23.4 P9: a launch video for a repo
 
@@ -891,42 +913,68 @@ with code outside the safe area fails `text_safe`; the example passes `check` an
   install command, features (README headings and lists), colours with the file and line each came from (CSS custom
   properties, a Tailwind theme, a web manifest's `theme_color`), fonts (`@font-face`, font links), logo candidates
   ranked, and screenshots. It skips dependency and build folders and never touches the network.
-- **`tools/shots.mjs`** takes screenshots of a running local app with `playwright-core` (already a dependency) at
-  a stated viewport, and a scroll capture as a frame sequence that `loadSeq` reads: the scroll position is set per
-  frame, so the capture is frame-exact. No live screen recording with real-time timing.
-- **Recipe** `references/launch.md` and a SKILL.md workflow branch: scan, write `brand.json` from what the scan
-  found and show it, write the board (hook, install in a terminal, two or three feature beats with code or
-  screenshots in a frame, an end card with the logo and the install command), show the board before rendering,
-  then the usual render, mix and `check`.
-- **Example** `examples/repo-launch/` (15 s, 9:16) built from a made-up fixture repo kept inside the example (a
-  README, package metadata, a logo, a stylesheet with its colours, and screenshots the engine renders).
+- **`tools/shots.mjs`** takes pictures of a running local app or a local HTML file with `playwright-core` (already a
+  dependency) at a stated viewport. A page that does not move is one full-page screenshot that the scene pans, so
+  scrolling costs one image. A page that moves becomes a frame sequence in the layout `frames.mjs` writes and
+  `loadSeq` reads (`assets/seq/manifest.json` with frames, fps, width, height and extension; numbered files from
+  000), captured at the piece fps with the scroll position set per frame, so it is frame-exact. `loadSeq` holds every
+  frame decoded, so `shots.mjs` refuses a sequence whose decoded size (frames x width x height x 4 bytes) is over
+  1 GB and says to lower the size or the length. No live screen recording with real-time timing.
+- **Recipe** `references/launch.md` and a SKILL.md workflow branch: scan, write `brand.json` from what the scan found
+  and show it, write the board (hook, install in a terminal, two or three feature beats with code or screenshots in
+  a frame, an end card with the logo and the install command), show the board before rendering, then the usual
+  render, mix and `check`.
+- **Example** `examples/repo-launch/` (15 s, 9:16), built from a made-up fixture repo kept inside the example (a
+  README, package metadata, a logo, a stylesheet with its colours, and a static HTML page of the made-up app that
+  `shots.mjs` captures). It is added to the example suites.
 
 Acceptance: `repo-scan` tests on fixtures (colours from each source with file and line, logo ranking, dependency
-folders skipped); the same scroll capture twice gives identical frames on a static page; the example passes
-`check` and `check --file` with 0 FAIL and 0 WARN; a fresh session asked for a launch video in a copy of the
-fixture repo shows a board first, and makes a piece whose kit colours match the fixture's and whose master passes
-`check --file`.
+folders skipped); a tall fixture page with landmarks at known heights, captured as a sequence, has each landmark at
+its expected position in each frame within 1 px, and the sequence plays through `loadSeq` and `seqAt` at the piece
+fps; the full-page screenshot matches the page's full height; the decoded-size refusal is tested; the example
+passes `check` and `check --file` with 0 FAIL and 0 WARN; a fresh session P5's way, asked for a launch video in a
+copy of the fixture repo, shows a board first and makes a piece that passes P7's colour match against the fixture's
+colours and whose master passes `check --file`.
 
 ### 23.5 P10: caption a clip
 
 - **The job.** A clip with speech (a talking head, a screen recording with narration) comes back with word-by-word
   captions inside the platform's safe area, its sound levelled and mastered, checked like any other piece.
-- **Path** (Q15): the captions render with alpha and ffmpeg composites them onto the original clip, so the clip is
-  never re-encoded through the browser and keeps its quality. `tools/clip.mjs` probes the clip (size, frame rate,
-  rotation, duration, audio), extracts its audio as the voice stem for `mix.mjs`, and writes the composite with the
-  mixed audio and a render record that `check --file` accepts.
-- **Timings.** The existing adapters plus whisper.cpp's JSON output and SRT or WebVTT. SRT and WebVTT carry
-  phrase times only: words inside a phrase are spread by length and marked as estimated, and the recipe says so.
+- **Files and records** (Q15). The clip is never re-encoded through the browser:
+  1. `tools/clip.mjs probe` reads the clip: display size after rotation, frame rate, duration, audio. A variable
+     frame rate clip is first converted to a constant rate (the nearest of the clip's average rate), and the plan
+     says so to the user.
+  2. The captions render with alpha on the clip's own clock: its size, its constant frame rate, its duration. This
+     `.mov` or `.webm` is an intermediate with its own alpha render record.
+  3. `tools/clip.mjs composite` overlays it onto the clip with ffmpeg into an opaque `yuv420p` `out/<name>.mp4`,
+     and writes that picture's render record (`sabotage-motion/render@1`: its SHA-256, decoded video hash, frames,
+     fps, duration, alpha unset, plus the clip's and the overlay record's hashes, and `kind: "composite"`), so
+     `mix.mjs` accepts it and `check --file` can tie the master to it. The clip's audio is extracted beside it.
+     For a composite, `check --file` takes the text checks from the caption scene's `boxes(t)` and the picture
+     checks (first frame, stillness) from the decoded composite, never from the transparent overlay alone.
+  4. `mix.mjs` mixes and masters it as any voiced piece: the clip's audio is the voice stem, an optional bed is
+     ducked under it, and the master and `master.json` are written as today. `check --file` checks the master.
+- **Audio clock.** The clip's audio stays where it is: `clip.mjs` writes `cues.json` from the transcript with
+  `VO_OFFSET` 0, no gap splice and no tail, and the picture is exactly the clip's length.
+- **Transcription** (Q18). The timing adapters read transcripts; they do not hear speech. whisper.cpp's
+  `whisper-cli`, when installed, is an optional tool (MIT, no Python, D6) that `doctor` reports and the recipe uses;
+  without it the recipe asks for a transcript. The adapters gain whisper.cpp's JSON output and SRT or WebVTT. SRT
+  and WebVTT carry phrase times only: words inside a phrase are spread by length and marked as estimated, and the
+  recipe says so.
 - **Caption styles.** A few named styles (`pop`, `karaoke`, `boxed`, `minimal`) with emphasis words, over the
   existing `captions` helper and its safe-zone and exclude handling.
+- **Skill text.** A "caption a clip" branch in SKILL.md's workflow, beside the overlay branch (which mixes nothing).
 - **Example** `examples/caption-clip/`: the clip is made in code, with no person in it (Q12): a made-up product
-  screen recording rendered by the engine, with the example voice from P4 as its own audio, committed small. Its
-  transcript is a committed whisper output, and the example README says how it was made.
+  screen recording rendered by the engine, with the example voice from P4 as its own audio, committed small, with
+  its `VOICE.md` (Apache-2.0) beside it. Its transcript is committed, and the example README says how both were
+  made. The example suites learn that this example commits a source clip.
 
-Acceptance: adapter tests for whisper.cpp, SRT and WebVTT (word spread, estimate flag); a sync fixture (a tone at a
-known frame) comes through `clip.mjs` and the composite within one frame; caption word times match the transcript
-within one frame; the example passes `check --file` with 0 FAIL and 0 WARN; a fresh session given a clip and "add
-captions" returns a master that passes `check --file`.
+Acceptance: adapter tests for whisper.cpp, SRT and WebVTT (word spread, estimate flag); a sync fixture (a clip with
+a tone at a known frame and a transcript word at that tone) goes through the whole path, and in the master the
+caption word's first visible frame is within one frame of the tone's onset in the master's audio; the master's
+frame count and duration equal the clip's; a variable-rate clip is converted and says so; the example passes
+`check --file` with 0 FAIL and 0 WARN; a fresh session P5's way, given a clip and its SRT and "add captions to
+this", returns a master that passes `check --file`.
 
 ### 23.6 Release 0.2.0
 
@@ -938,10 +986,32 @@ feature list updated; every install route re-run from `main` on a fresh home fol
 | # | Decision or question | Ruling or default |
 |---|---|---|
 | D11 | Scope of 0.2 (owner, 2026-11-15: "1-5") | README motion, looks and a brand kit, code and terminal motion, a repo launch recipe, caption a clip. |
+| Q8 (amended) | Which fonts does the template bundle? | Still the three faces chosen in P0. The look fonts (Q14) live in the skill's `looks/fonts/` and are copied into a piece only when its look uses them. |
 | Q11 | README media format | A committed GIF: GitHub plays README video only when uploaded through its web editor, and a GIF plays everywhere the README is shown. |
 | Q12 | Where the caption example's clip comes from | Made in code with no person in it (D7, and no third-party footage licence to carry). The recipe works on any clip the user brings. |
 | Q13 | Code highlighting | Built in, for the five languages in 23.3; no dependency (D6). |
-| Q14 | Fonts for the looks | Up to four more open-licence families, Latin subsets, at most 400 KB added. |
-| Q15 | How captions meet the clip | Alpha render composited by ffmpeg onto the original clip, not the clip redrawn as a frame sequence. |
+| Q14 | Fonts for the looks | Up to four more open-licence families, Latin subsets, at most 400 KB together, in `looks/fonts/`. |
+| Q15 | How captions meet the clip | An alpha render on the clip's clock, composited by ffmpeg onto the original clip into an opaque picture with its own render record, then mixed; never the clip redrawn as a frame sequence. |
 | Q16 | Versions | P6 changes docs only and is not a release; 0.2.0 and its tag come after P10. |
 | Q17 | Where `brand.json` lives | The project root; each piece keeps its own copy and the files it names. |
+| Q18 | How a clip is transcribed | whisper.cpp's `whisper-cli` when installed (optional, reported by `doctor`); otherwise the user's transcript (whisper.cpp or openai-whisper JSON, SRT, WebVTT). |
+
+### 23.8 Council round 1 on section 23 (2026-11-15, rev 1.6 at `fcea224`)
+
+Seats: codex `gpt-6.1-sol` effort high; sonnet on Claude Code (`claude-sonnet-5-5`; its Kiro login was signed out);
+grok `grok-4.7`. All three SHIP-WITH-FIXES. Fifteen findings, each verified against the code and folded:
+
+| Finding | Seats | Fold |
+|---|---|---|
+| P10's composite had no record `mix.mjs` or `check --file` accepts | sonnet, grok, codex | 23.5 files and records, Q15 |
+| P10's voice path would move the clip's audio (`lead`, `tail`, gap splice) | sonnet, grok, codex | 23.5 audio clock |
+| P10 had no way to hear a clip | codex | 23.5 transcription, Q18 |
+| P10's sync row compared the captions with their own source | sonnet, codex | 23.5 acceptance: first visible frame against the audio |
+| P10 had no SKILL.md branch; its voice licence had to travel | grok, codex | 23.5 skill text and example |
+| P7's fonts had no loading path, and nothing recorded which fonts were drawn | sonnet, grok, codex | 23.2 font loading, what was drawn |
+| P7's colour and font rows could not be measured | codex, sonnet, grok | 23.2 acceptance: CIEDE2000 on probe frames, `fonts_used` |
+| `bg` is the shader id, not a colour | grok, codex | 23.2 looks |
+| Q8 unamended, and template fonts would be copied into every example | sonnet, grok | 23.2 fonts, Q8 amended |
+| P8's text needs layout-only boxes, groups and `deco`; typing was not proven; estimate zones only WARN | sonnet, grok, codex | 23.3 boxes and acceptance |
+| P9's scroll row passed a capture that never scrolls; no `loadSeq` contract or memory budget | codex, grok, sonnet | 23.4 shots and acceptance |
+| P6's prompt was not written down | grok | 23.1 (the README prints it) |
