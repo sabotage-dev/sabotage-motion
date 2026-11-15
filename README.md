@@ -192,7 +192,7 @@ contact sheet and board sheet committed:
 
 | Example | What it shows | `check` |
 |---|---|---|
-| `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage and an end card, with a synthesized score. The studio it ends on is fictional. | 0 FAIL; 1 WARN kept on purpose (it fades up from black) |
+| `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage and an end card, with a synthesized score. It ends on the end card of sabotage development, the studio behind this repo. | 0 FAIL; 1 WARN kept on purpose (it fades up from black) |
 | `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
 

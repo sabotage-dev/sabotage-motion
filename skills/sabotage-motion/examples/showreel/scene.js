@@ -1,6 +1,6 @@
 // SHOWREEL: 20 s of what the engine can draw, 16:9 at 60 fps, cut to a 120 BPM grid (the scene contract is in the
-// template's scene.js header). Ported from the reel the engine was first built for; the studio it ends on, ORRERY,
-// and its mark are fictional. Every frame is a pure function of t; the music in audio.js is scheduled from TL.
+// template's scene.js header). Ported from the reel the engine was first built for. It ends on the end card of
+// sabotage development, the studio behind this repo; its orrery mark was drawn for this reel. Every frame is a pure function of t; the music in audio.js is scheduled from TL.
 //
 //   0-2   the dot           a dot pops, squashes, jumps, lands; three shapes burst out and stretch into bands
 //   2-4   kinetic type      MOTION rises, an E drops in (EMOTION), the frame inverts; twelve slices whip out
@@ -19,7 +19,7 @@ import {
 
 export const CFG = { W: 1920, H: 1080, FPS: 60, DUR: boardDur(), FONTS: ['COND', 'DIDONE', 'GEO', 'DISPLAY', 'MONO'] };
 const W = CFG.W, H = CFG.H;
-const WORDMARK = 'ORRERY';
+const WORDMARK = 'SABOTAGE';
 
 // The palette.
 const C = {
@@ -143,7 +143,7 @@ function sIntro(t) {
     }
   }
   // caption typing
-  const cap = 'ORRERY  /  MOTION REEL 2026';
+  const cap = 'SABOTAGE  /  MOTION REEL 2026';
   const n = Math.floor(prog(t, 0.3, 0.95) * cap.length);
   const ca = 1 - prog(t, 1.3, 1.5);
   if (n > 0 && ca > 0) {
@@ -866,7 +866,7 @@ function montage(t, cfg) {
 }
 
 // ============================================================ 08 MARK + END CARD (16-20 s)
-// The studio's mark (the studio is fictional): an orrery. A core, two tilted orbits that draw themselves on, and
+// The studio's mark, drawn for this reel: an orrery. A core, two tilted orbits that draw themselves on, and
 // twelve planets that pop onto them one by one, on the times audio.js plucks (TL.marks), and keep orbiting.
 const ORBITS = [{ r: 178, tilt: -0.42, sq: 0.42, dir: 1, speed: 0.55 }, { r: 112, tilt: 0.55, sq: 0.5, dir: -1, speed: 0.9 }];
 const PLANETS = Array.from({ length: 12 }, (_, k) => ({ orbit: k % 2, phase: (k / 12) * TAU + (hash(k * 5.3) - 0.5) * 0.3, size: 11 + 8 * hash(k * 3.1 + 2) }));
@@ -973,7 +973,7 @@ function sClimax(t, cfg) {
     c.save();
     c.beginPath(); c.rect(tx0 - 10, base + 50, 1000, 110); c.clip();
     c.font = F.didone(74); c.fillStyle = C.paper; c.globalAlpha = 1 - sOut;
-    c.fillText('motion studio', tx0, base + 128 + (1 - se) * 90);
+    c.fillText('development', tx0, base + 128 + (1 - se) * 90);
     c.restore();
     c.save();
     c.font = F.monoR(18); c.letterSpacing = '4px'; c.fillStyle = rgba(C.paper, 0.6 * (1 - sOut)); c.textAlign = 'right';
@@ -1016,9 +1016,9 @@ export function drawHud(t, fps) {
     c.beginPath(); c.moveTo(x, y + sy * L); c.lineTo(x, y); c.lineTo(x + sx * L, y); c.stroke();
   }
   c.font = F.mono(16); c.letterSpacing = '4px';
-  c.fillText('ORRERY', m + 40, m + 26);
+  c.fillText('SABOTAGE', m + 40, m + 26);
   c.font = F.monoR(16);
-  c.fillText('MOTION REEL 2026', m + 160, m + 26);
+  c.fillText('MOTION REEL 2026', m + 190, m + 26);
   // rolling section label
   let si = 0;
   for (let i = 0; i < SECTIONS.length; i++) if (t >= SECTIONS[i][0]) si = i;

@@ -1,7 +1,7 @@
 // THE STORYBOARD of the showreel example: a 20 s, 16:9, 60 fps reel of what the engine can draw, cut to a 120 BPM
 // grid (a beat is 0.5 s, a bar 2 s). Silent beats only: the music is synthesized in audio.js from the scene's TL.
 // The reel is locked to that grid, so this board mirrors its sections rather than driving them: scene.js checks
-// the windows below against the grid at load and says which beat moved. Studio name and mark are fictional.
+// the windows below against the grid at load and says which beat moved. The mark was drawn for this reel.
 export const BOARD = {
   title: 'Showreel',
   target: 'youtube',
@@ -30,7 +30,7 @@ export const BOARD = {
     { id: 'montage', dur: 2, on: ['I MAKE PIXELS MOVE WITH NOTHING BUT CODE'],
       look: 'eight hard cuts, a quarter-second each, one word and one look per cut',
       sfx: 'a snare roll building, a glitch blip per cut, a tape stop into silence', sfxHit: true },
-    { id: 'lockup', dur: 4, on: ['ORRERY', 'motion studio'],
+    { id: 'lockup', dur: 4, on: ['SABOTAGE', 'development'],
       look: 'impact; the orrery mark draws its orbits and its planets pop in; the wordmark rises; a glint; it all pops out',
       sfx: 'a big impact, plucks as the planets land, bells, a last blip' },
   ],

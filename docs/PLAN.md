@@ -569,8 +569,8 @@ Each is a full piece (template plus its own scene and board), runnable from its 
 
 - `showreel/` (20 s, 16:9, 60 fps): the private skill's showreel ported to the current harness. Before any frame
   of it is committed, its lockup is replaced: today it ends on a third-party product name as a wordmark, a
-  "Motion Designer" subtitle, the same name in the HUD, and that product's spark mark. The public reel ends on a
-  fictional name and mark. Its fonts are macOS system fonts today; they are replaced with open-licence faces, and
+  "Motion Designer" subtitle, the same name in the HUD, and that product's spark mark. The public reel ends on this
+  repo's own studio name, sabotage development, and a mark drawn for it (an orrery). Its fonts are macOS system fonts today; they are replaced with open-licence faces, and
   the visual drift is accepted.
 - No example contains a third-party name, logo or trademark.
 - `explainer-beat/` (about 15 s, 9:16): a made-up three-beat explainer built the section 3 way: board, voice take,
