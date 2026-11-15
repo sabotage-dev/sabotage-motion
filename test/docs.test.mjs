@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { repoRoot, templateDir, examplesDir, EXAMPLES } from './helpers.mjs';
@@ -46,6 +47,67 @@ test('references/delivery.md: its safe-zone table is safezones.json, target by t
   }
   for (const name of rows.keys()) if (!zones[name]) problems.push(`${name}: in the table, not in safezones.json`);
   assert.deepEqual(problems, []);
+});
+
+// Plan 23.1: the README's pictures exist, and each GIF is within the budget scripts/readme-media.mjs holds it to
+// (the hero at most 640 px wide and 5 MB, every other GIF at most 2 MB), so the page does not load slowly.
+test('README: every picture it shows exists, and each GIF is within its size budget', async () => {
+  const { mediaProblems } = await import('../scripts/readme-media.mjs');
+  const { refs, problems } = mediaProblems(fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8'), repoRoot);
+  assert.ok(refs.includes('docs/media/hero.gif'), 'the README opens on docs/media/hero.gif');
+  assert.deepEqual(problems, []);
+});
+
+test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are each reported', async () => {
+  const { mediaProblems } = await import('../scripts/readme-media.mjs');
+  const MB = 1024 * 1024;   // the plan's budgets (23.1), written out here so a looser budget in the script fails
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-media-'));
+  const gif = (name, width, bytes) => {
+    const b = Buffer.alloc(bytes);
+    b.write('GIF89a', 0, 'latin1'); b.writeUInt16LE(width, 6); b.writeUInt16LE(100, 8);
+    fs.writeFileSync(path.join(dir, name), b);
+  };
+  gif('hero.gif', 640, 5 * MB);          // at the edge: fine
+  gif('tile-ok.gif', 270, 2 * MB);       // at the edge: fine
+  gif('tile-heavy.gif', 270, 2 * MB + 1);
+  const ok = mediaProblems('![h](hero.gif) <img src="tile-ok.gif" width="270">', dir);
+  assert.deepEqual(ok.problems, []);
+  const bad = mediaProblems('<img src="tile-heavy.gif"> ![m](gone.png)', dir);
+  assert.deepEqual(bad.problems.map((p) => p.split(':')[0]).sort(), ['gone.png', 'tile-heavy.gif']);
+  gif('hero.gif', 640, 5 * MB + 1);
+  assert.equal(mediaProblems('![h](hero.gif)', dir).problems.length, 1, 'a hero over 5 MB');
+  gif('hero.gif', 641, 1000);
+  assert.equal(mediaProblems('![h](hero.gif)', dir).problems.length, 1, 'a hero over 640 px');
+  gif('tile-wide.gif', 361, 1000);
+  gif('tile-360.gif', 360, 1000);
+  assert.deepEqual(mediaProblems('![t](tile-360.gif)', dir).problems, [], 'a tile at 360 px');
+  assert.equal(mediaProblems('![t](tile-wide.gif)', dir).problems.length, 1, 'a tile over 360 px');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('readme-media: every form GitHub renders a picture in is found, and code and links are not', async () => {
+  const { pictureRefs } = await import('../scripts/readme-media.mjs');
+  const md = [
+    '![plain](a.gif)',
+    '![titled](b.gif "a title")',
+    "![titled](c.gif 'single')",
+    '![angled](<d.gif>)',
+    '![full][e-ref] ![collapsed][] ![shortcut]',
+    '<img src="f.gif"> <img alt="x" src=\'g.gif\'> <img src=h.gif>',
+    '<img',
+    '  width="270"',
+    '  src="i.gif">',
+    '![query](j.gif?raw=true) ![fragment](k.gif#top)',
+    '```html',
+    '<img src="in-code.gif"> ![in code](in-code.gif)',
+    '```',
+    '![web](https://example.com/w.gif) ![proto](//example.com/p.gif) ![data](data:image/gif;base64,R0lG)',
+    '',
+    '[e-ref]: e.gif',
+    '[collapsed]: <l.gif> "t"',
+    '[Shortcut]: m.gif',
+  ].join('\n');
+  assert.deepEqual(pictureRefs(md).sort(), ['a.gif', 'b.gif', 'c.gif', 'd.gif', 'e.gif', 'f.gif', 'g.gif', 'h.gif', 'i.gif', 'j.gif', 'k.gif', 'l.gif', 'm.gif']);
 });
 
 // ---------------------------------------------------------------- looks and brand kits (plan 23.2)
