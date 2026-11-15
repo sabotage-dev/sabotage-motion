@@ -167,6 +167,16 @@ test('--plain checks a file from elsewhere as a plain file: file spec at --scale
   assert.deepEqual(L, { provenance: 'SKIP', file_spec: 'OK', faststart: 'OK', loudness: 'OK', vo_delay: 'SKIP' });
   assert.ok(r.results.filter((x) => x.scope === 'source').every((x) => x.level === 'SKIP' && /--plain/.test(x.detail)));
   assert.match(one(runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--scale', '0.25']).results, 'loudness').detail, /--plain needs --lufs/);
+  // --dump under --plain writes the file results (it used to write nothing and say nothing; owner check, P5)
+  fs.rmSync(path.join(dir, 'out/plain-dump.json'), { force: true });
+  const d = runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--lufs', '-14', '--scale', '0.25', '--dump', 'out/plain-dump.json']);
+  assert.equal(d.status, 0, d.out);
+  const dj = JSON.parse(fs.readFileSync(path.join(dir, 'out/plain-dump.json'), 'utf8'));
+  assert.equal(dj.format, 'sabotage-motion/check-dump@1');
+  const fsr = dj.results.find((x) => x.id === 'file_spec'), lr = dj.results.find((x) => x.id === 'loudness');
+  assert.equal(fsr.level, 'OK');
+  assert.equal(lr.level, 'OK');
+  assert.ok(lr.measured != null, 'the loudness numbers are in the dump');
 });
 
 // ---- round 1, F6: when the source checks do not run, a broken scene fails nothing

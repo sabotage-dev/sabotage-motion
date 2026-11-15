@@ -76,7 +76,9 @@ and re-mix.
   piece's current settings (`--scale`, `--alpha`), so pass the same flags the render used; `loudness` runs only
   with `--lufs`.
 - **A file made elsewhere** (an export from an editor, a re-encode): `--plain` checks it as a plain file
-  (`file_spec` against the piece's settings, `faststart`, and `loudness` with `--lufs`).
+  (`file_spec` against the piece's settings, `faststart`, and `loudness` with `--lufs`). Run it in the piece the
+  file was cut from, or one with the same size, frame rate and length: `file_spec` compares the file with the scene
+  in the folder you run it in, and fails a 75 s export checked from the 3 s template.
 - **An overlay with sound** that someone else will cut into their edit: master it with `tools/mix.mjs <name> --sting`
   (which needs an `.mp4` picture), then `check --file` binds it like any master.
 

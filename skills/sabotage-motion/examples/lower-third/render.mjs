@@ -29,7 +29,8 @@
 //         runs just the named checks (provenance always runs with --file). --dump <file> also writes the
 //         raw measurements (per frame pair, the probe pixels changed by 1, 2, 3, 4, 8 and 16 levels or more;
 //         the first frame's luma; the audio windows; each result's level and numbers), with no on-screen
-//         text or params, for tuning the thresholds on real pieces. Exit 2 on a usage error.
+//         text or params, for tuning the thresholds on real pieces (with --plain, each result's level and
+//         numbers alone). Exit 2 on a usage error.
 // Common: --scene file.js (default scene.js)  --target name (size, fps and safe area from safezones.json)
 //         --fps N  --sub N (motion-blur subframes, default 8)  --scale S  --crf 17  --preset slow
 //         --param key=value (repeatable; arrives in scene.init as params.key)
@@ -674,6 +675,8 @@ async function check() {
   }
 
   // ---- report
+  // with --plain, or when the page never ran, the dump holds the results alone
+  if (!dump && opt('dump')) dump = { format: 'sabotage-motion/check-dump@1' };
   if (dump) {
     dump.results = results.map((x) => ({ id: x.id, level: x.level, t: x.t ?? null, measured: x.measured ?? null, threshold: x.threshold ?? null }));
     const df = path.resolve(root, opt('dump'));
