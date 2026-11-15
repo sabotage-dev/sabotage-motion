@@ -6,7 +6,7 @@
       "w": 1080, "h": 1920, "fps": 30,
       "safe": { "x": 44, "y": 130, "w": 896, "h": 1306 },
       "estimate": true, "measured": null,
-      "source": "Researched 2026-11-14 from published third-party measurements of the organic TikTok UI (cadenus.io, vidova.ai): 44 left, 130 top, a 140-wide button rail on the right, and 484 at the bottom for the username, caption and sound rows. TikTok publishes only its ad zone (tiktok-ad). The owner's posted 1080x1920 pieces keep text within x 84-936, inside these edges. An estimate: the overlays move with the device and with the caption's length.",
+      "source": "Researched 2026-11-14 from published third-party measurements of the organic TikTok UI (cadenus.io, vidova.ai): 44 left, 130 top, a 140-wide button rail on the right, and 484 at the bottom for the username, caption and sound rows. TikTok publishes only its ad zone (tiktok-ad). An estimate: the overlays move with the device and with the caption's length.",
       "edges": {
         "left": { "at": 44, "estimate": true, "measured": null, "source": "third-party measurements of the organic TikTok UI agree on 44 left, 130 top and a 140-wide button rail on the right (cadenus.io/resources/blog/tiktok-safe-zone, vidova.ai/blog/instagram-reels-tiktok-youtube-shorts-safe-zones); researched 2026-11-14" },
         "right": { "at": 940, "estimate": true, "measured": null, "source": "third-party measurements of the organic TikTok UI agree on 44 left, 130 top and a 140-wide button rail on the right (cadenus.io/resources/blog/tiktok-safe-zone, vidova.ai/blog/instagram-reels-tiktok-youtube-shorts-safe-zones); researched 2026-11-14" },

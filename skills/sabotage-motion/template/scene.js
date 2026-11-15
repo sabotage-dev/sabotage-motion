@@ -1,4 +1,6 @@
-// THE CREATIVE FILE. Replace this example (a 3-second kinetic title card) with your piece.
+// THE CREATIVE FILE. Replace this example (a 3-second kinetic title card) with your piece. The example lays out
+// inside the target's safe area, exports boxes(t), and opens on a frame that is not flat, so `node render.mjs check`
+// on a fresh copy of the template reports no FAIL and no WARN; keep those three habits in your own scene.
 // Contract with main.js:
 //   CFG                      canvas size in design pixels (W, H), FPS, DUR, FONTS to verify. W, H and
 //                            FPS may be left out when you render with --target <name> (safezones.json).
@@ -32,7 +34,7 @@
 // canvases you create are NOT prepped: size them from ctx.canvas and apply the scale yourself
 // (see LAYER below). shadowBlur, shadowOffsetX/Y and ctx.filter blur radii ignore the transform:
 // multiply them by `scale` (from init) or they look too big at --scale < 1.
-import { clamp, lerp, prog, snap, whip, spring, env, rgba, rgb01, beatWindow, boardDur } from './lib.js';
+import { clamp, lerp, prog, snap, whip, spring, env, rgba, rgb01, beatWindow, boardDur, sceneTarget, freeSpan } from './lib.js';
 
 export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };
 
@@ -48,10 +50,10 @@ export const TL = {
   words: 0, hits: [],                  // filled by init(): word count + landing times
 };
 
-let ctx, S = 1, ALPHA = false, P, LAYER, lctx;
+let ctx, S = 1, ALPHA = false, P, LAYER, lctx, SAFE, EXCL;
 const L = {};
 
-export async function init({ ctx: c, scale, params, alpha }) {
+export async function init({ ctx: c, scale, params, alpha, target }) {
   ctx = c; S = scale; ALPHA = alpha;
   P = {
     title: params.title || 'Make it move',
@@ -63,14 +65,22 @@ export async function init({ ctx: c, scale, params, alpha }) {
     bgB: params.bgB || '#2A1630',
     paper: params.paper || '#EFE6D2',     // paper colour for bg=paper (pass a dark ink with it)
   };
+  // Lay out inside the safe area of the --target, else of the board's target (safezones.json), else 8% in.
+  const T = await sceneTarget(target);
+  SAFE = T && T.safe ? T.safe : { x: CFG.W * 0.08, y: CFG.H * 0.08, w: CFG.W * 0.84, h: CFG.H * 0.84 };
+  EXCL = (T && T.exclude) || [];   // areas the platform covers inside the safe area (tiktok-ad's button column)
   LAYER = document.createElement('canvas'); LAYER.width = c.canvas.width; LAYER.height = c.canvas.height;
   lctx = LAYER.getContext('2d');
-  layout();
+  // lay out across the safe width, then again beside any exclude rectangle the block's band reaches into
+  layout({ left: SAFE.x, right: SAFE.x + SAFE.w });
+  const span = freeSpan(SAFE, EXCL, L.lines[0].base - L.asc, L.subY + L.subDesc);
+  if (span.left !== SAFE.x || span.right !== SAFE.x + SAFE.w) layout(span);
 }
 
-// Word-wrap the title, auto-fitting the font size so it never exceeds 3 lines or 82% width.
-function layout() {
-  const maxW = CFG.W * 0.82, words = P.title.split(/\s+/).filter(Boolean);
+// Word-wrap the title, auto-fitting the font size so it never exceeds 3 lines or 90% of the span's width.
+function layout(span) {
+  const SW = span.right - span.left;
+  const maxW = SW * 0.9, words = P.title.split(/\s+/).filter(Boolean);
   let fs = 170, lines;
   for (;;) {
     ctx.font = `${fs}px DISPLAY`;
@@ -84,6 +94,8 @@ function layout() {
     fs -= 6;
   }
   const lh = fs * 1.02, space = ctx.measureText(' ').width;
+  const fm = ctx.measureText(P.title);
+  L.asc = fm.fontBoundingBoxAscent; L.desc = fm.fontBoundingBoxDescent;
   const widest = Math.max(...lines.map((l) => ctx.measureText(l.join(' ')).width));
   // subtitle: shrink until it fits on one line (measured with its final letter-spacing)
   let subFs = Math.max(28, fs * 0.3), subW;
@@ -93,16 +105,22 @@ function layout() {
     if (subW <= maxW || subFs <= 20) break;
     subFs -= 2;
   }
+  ctx.font = `${subFs}px BODY`;
+  L.subAsc = ctx.measureText(P.sub).fontBoundingBoxAscent; L.subDesc = ctx.measureText(P.sub).fontBoundingBoxDescent;
   ctx.font = `${fs}px DISPLAY`;
-  // left-aligned block (title, bar, subtitle share one left edge), centred as a whole
-  const blockX = (CFG.W - Math.max(widest, subW)) / 2;
+  // left-aligned block (title, bar, subtitle share one left edge), centred as a whole in the safe area
+  const blockX = span.left + (SW - Math.max(widest, subW)) / 2;
+  // the subtitle tracks in from the widest letter-spacing that still ends inside the span (at most 0.45 em);
+  // canvas letter-spacing adds its space after every character
+  const room = span.left + SW * 0.95 - blockX;
+  L.subTrack0 = clamp(subFs * 0.04 + (room - subW) / Math.max(1, [...P.sub].length), subFs * 0.04, subFs * 0.45);
   const top = CFG.H * 0.44 - (lines.length * lh) / 2;
   L.fs = fs; L.lh = lh; L.words = []; L.lines = [];
   lines.forEach((ln, li) => {
     const lw = ctx.measureText(ln.join(' ')).width, base = top + (li + 0.8) * lh;
     L.lines.push({ x0: blockX, w: lw, base });
     let x = blockX;
-    for (const w of ln) { const ww = ctx.measureText(w).width; L.words.push({ text: w, x, base, li }); x += ww + space; }
+    for (const w of ln) { const ww = ctx.measureText(w).width; L.words.push({ text: w, x, w: ww, base, li }); x += ww + space; }
   });
   const last = L.lines[L.lines.length - 1];
   L.barY = last.base + fs * 0.32; L.barH = Math.max(8, fs * 0.09);
@@ -112,6 +130,17 @@ function layout() {
   TL.hits = L.words.map((_, i) => +(TL.wordsIn + i * TL.stagger + 0.18).toFixed(3)); // spring first reaches 1
 }
 
+// Where each title word is at t: its offset below (rising in) or above (whipping out) its baseline, and the line's
+// clip mask it is drawn through. frame() draws from it and boxes() reports it, so the two always agree.
+function wordAt(i, t) {
+  const w = L.words[i], ln = L.lines[w.li];
+  const k = spring(t - (TL.wordsIn + i * TL.stagger), 2.2, 0.55);
+  const o = whip(prog(t, TL.out + i * TL.outStagger, TL.out + i * TL.outStagger + 0.35));
+  return { w, dy: (1 - k) * L.fs * 1.1 - o * L.fs * 1.25, clip: { x: ln.x0 - 40, y: ln.base - L.fs * 1.0, w: ln.w + 80, h: L.fs * 1.28 } };
+}
+const subTrack = (si) => lerp(L.subTrack0, L.subFs * 0.04, si);
+const subFade = (t) => { const si = snap(prog(t, TL.subIn, TL.subIn + 0.7)), so = prog(t, TL.out, TL.out + 0.25); return { si, a: 0.82 * si * (1 - so) }; };
+
 export function frame(t, jit) {
   const c = ctx, l = lctx;   // c arrives cleared and pre-scaled; the offscreen layer we prep ourselves
   l.setTransform(1, 0, 0, 1, 0, 0); l.clearRect(0, 0, LAYER.width, LAYER.height);
@@ -119,13 +148,10 @@ export function frame(t, jit) {
 
   // --- title words: rise from behind each line's baseline (a clip mask), spring-settled; whip out upward
   l.font = `${L.fs}px DISPLAY`; l.fillStyle = P.ink; l.textBaseline = 'alphabetic';
-  L.words.forEach((w, i) => {
-    const ln = L.lines[w.li];
-    const k = spring(t - (TL.wordsIn + i * TL.stagger), 2.2, 0.55);
-    const o = whip(prog(t, TL.out + i * TL.outStagger, TL.out + i * TL.outStagger + 0.35));
-    const dy = (1 - k) * L.fs * 1.1 - o * L.fs * 1.25;
+  L.words.forEach((_, i) => {
+    const { w, dy, clip } = wordAt(i, t);
     l.save();
-    l.beginPath(); l.rect(ln.x0 - 40, ln.base - L.fs * 1.0, ln.w + 80, L.fs * 1.28); l.clip();
+    l.beginPath(); l.rect(clip.x, clip.y, clip.w, clip.h); l.clip();
     l.fillText(w.text, w.x, w.base + dy);
     l.restore();
   });
@@ -142,6 +168,16 @@ export function frame(t, jit) {
   }
   c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(LAYER, 0, 0); c.setTransform(S, 0, 0, S, 0, 0);
 
+  // --- frame marks: a corner bracket at each corner of the safe area, there from the first frame (so the
+  // thumbnail is never a flat colour) until everything whips out; they also show where the safe area is
+  const fo = whip(prog(t, TL.out, TL.out + 0.3)), arm = 54, inset = 14;
+  if (fo < 1) {
+    c.strokeStyle = rgba(P.ink, 0.55 * (1 - fo)); c.lineWidth = 5;
+    const x0 = SAFE.x + inset, y0 = SAFE.y + inset, x1 = SAFE.x + SAFE.w - inset, y1 = SAFE.y + SAFE.h - inset;
+    for (const [x, y, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) {
+      c.beginPath(); c.moveTo(x, y + sy * arm * (1 - fo)); c.lineTo(x, y); c.lineTo(x + sx * arm * (1 - fo), y); c.stroke();
+    }
+  }
   // --- accent bar: snaps in from the left, pulses on each word landing, wipes out to the right
   const bi = snap(prog(t, TL.barIn, TL.barIn + 0.45)), bo = whip(prog(t, TL.out + 0.08, TL.out + 0.42));
   if (bi > 0 && bo < 1) {
@@ -150,11 +186,11 @@ export function frame(t, jit) {
     c.fillStyle = P.accent; c.fillRect(x0, L.barY - (h - L.barH) / 2, Math.max(0, x1 - x0), h);
   }
   // --- subtitle: tracks in from wide letter-spacing while fading up; fades on exit
-  const si = snap(prog(t, TL.subIn, TL.subIn + 0.7)), so = prog(t, TL.out, TL.out + 0.25);
-  if (si > 0 && so < 1) {
+  const { si, a } = subFade(t);
+  if (a > 0) {
     c.font = `${L.subFs}px BODY`; c.textAlign = 'left';
-    c.letterSpacing = `${lerp(L.subFs * 0.45, L.subFs * 0.04, si).toFixed(2)}px`;
-    c.fillStyle = rgba(P.ink, 0.82 * si * (1 - so));
+    c.letterSpacing = `${subTrack(si).toFixed(2)}px`;
+    c.fillStyle = rgba(P.ink, a);
     c.fillText(P.sub, L.barX, L.subY);
     c.letterSpacing = '0px';
   }
@@ -170,6 +206,27 @@ export function frame(t, jit) {
     cam: [1 + 0.03 * clamp(t / CFG.DUR), 0, 0, 0],   // slow push-in for life during holds
     clear: rgb01(P.bgA),
   };
+}
+
+// The text on screen at t, for `node render.mjs check` (see the contract above): each title word cut to its line's
+// mask, and the subtitle at its current letter-spacing, while its alpha is above 0.05.
+export function boxes(t) {
+  const out = [];
+  L.words.forEach((_, i) => {
+    const { w, dy, clip } = wordAt(i, t);
+    const y0 = Math.max(w.base + dy - L.asc, clip.y), y1 = Math.min(w.base + dy + L.desc, clip.y + clip.h);
+    const x0 = Math.max(w.x, clip.x), x1 = Math.min(w.x + w.w, clip.x + clip.w);
+    if (y1 > y0 && x1 > x0) out.push({ id: `title${i}`, text: w.text, x: x0, y: y0, w: x1 - x0, h: y1 - y0, group: 'title' });
+  });
+  const { si, a } = subFade(t);
+  if (a > 0.05) {
+    ctx.save();
+    ctx.font = `${L.subFs}px BODY`; ctx.letterSpacing = `${subTrack(si).toFixed(2)}px`;
+    const w = ctx.measureText(P.sub).width;
+    ctx.restore();
+    out.push({ id: 'sub', text: P.sub, x: L.barX, y: L.subY - L.subAsc, w, h: L.subAsc + L.subDesc, group: 'sub' });
+  }
+  return out;
 }
 
 export function post(t) {

@@ -2,10 +2,10 @@
 // mutation below breaks one detector, threshold or wire on purpose in a scratch copy of the repo, runs the
 // tests that should notice, and counts it caught when they fail. The repo itself is never touched.
 //
-//   node test/mutations.mjs              every mutation (about 15 minutes on an Apple-silicon Mac)
+//   node test/mutations.mjs              every mutation (about 25 minutes on an Apple-silicon Mac)
 //   node test/mutations.mjs --fast       only those the unit tests catch (seconds)
 //   node test/mutations.mjs --only <name-substring>
-//   node test/mutations.mjs --list
+//   node test/mutations.mjs --list       every mutation, and STALE beside any whose text is not in its file exactly once
 // Exit 1 when any mutation survives (no test failed) or no longer applies (its text is not in the file).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -65,6 +65,7 @@ const M = [
   ['file_spec: a frame either way allowed', T + 'check.mjs', [['if (p.frames !== want)', 'if (Math.abs(p.frames - want) > 1)']], UNIT],
   ['file_spec: duration within two frames', T + 'check.mjs', [['<= 1 / x.fps + 1e-6))', '<= 2 / x.fps))']], UNIT],
   ['file_spec: audio not required', T + 'check.mjs', [['if (!p.audio && !x.silent)', 'if (false)']], UNIT],
+  ['P4 file_spec: ProRes read back at 12 bits refused', T + 'check.mjs', [["prores: ['yuva444p10le', 'yuva444p12le']", "prores: ['yuva444p10le']"]], UNIT],
   ['provenance: master hash not compared', T + 'check.mjs', [['if (!mj.master || mj.master.sha256 !== f.fileSha)', 'if (!mj.master)']], UNIT],
   ['provenance: render record hash not compared', T + 'check.mjs', [['else if (f.recSha !== mj.render.sha256)', 'else if (false)']], UNIT],
   ['provenance: stale source passes', T + 'check.mjs', [['if (!rec.source || rec.source.hash !== f.sourceNow.hash)', 'if (!rec.source)']], UNIT],
@@ -76,9 +77,17 @@ const M = [
   ['faststart: order reversed', T + 'check.mjs', [['return m < d ? ok(', 'return m > d ? ok(']], UNIT],
   ['faststart: 64-bit box sizes not read', T + 'check.mjs', [["if (size === 1) { if (off + 16 > buf.length) break; size = Number(buf.readBigUInt64BE(off + 8)); }", '']], UNIT],
   ['strict: a WARN never fails', T + 'check.mjs', [['exit: n.FAIL || (strict && n.WARN) ? 1 : 0', 'exit: n.FAIL ? 1 : 0']], UNIT],
-  ['captions: no room left for the pop', T + 'lib.js', [['maxW: opts.maxW || (safe ? safe.w / CAPTION_POP_MAX : 900)', 'maxW: opts.maxW || (safe ? safe.w : 900)']], UNIT],
+  ['captions: no room left for the pop', T + 'lib.js', [['maxW: opts.maxW || (span ? (span.right - span.left) / CAPTION_POP_MAX : 900)', 'maxW: opts.maxW || (span ? (span.right - span.left) : 900)']], UNIT],
   ['captions: one group per line, not per block', T + 'lib.js', [['group: `cap-${groups.indexOf(g)}`, line: li', 'group: `cap-${groups.indexOf(g)}-${li}`, line: li']], UNIT],
   ['captions: draw: false still draws', T + 'lib.js', [['const boxes = [], draw = opts.draw !== false;', 'const boxes = [], draw = true;']], UNIT],
+  ['F2 captions: no room for the pop between words', T + 'lib.js', [['const gapOf = (a, b) => Math.max(space, ((CAPTION_POP_MAX - 1) / 2) * Math.max(a.w, b.w) + clear);', 'const gapOf = (a, b) => space;']], UNIT],
+  ['F2 captions: the clear gap ignores the stroke', T + 'lib.js', [['const clear = o.wordGap != null ? o.wordGap : space / 2 + o.stroke;', 'const clear = o.wordGap != null ? o.wordGap : space / 2;']], UNIT],
+  ['F2 captions: an oversized word keeps its width', T + 'lib.js', [['const fit = width > o.maxW ? o.maxW / width : 1;', 'const fit = 1;']], UNIT],
+  ['F2 captions: an oversized word is drawn at its full width', T + 'lib.js', [['sc = s * w.fit, tx = mx - w.raw / 2;', 'sc = s, tx = mx - w.raw / 2;']], UNIT],
+  ['P4 captions: exclude ignored', T + 'lib.js', [['const span = safe ? captionSpan(safe, opts.exclude, {', 'const span = safe ? captionSpan(safe, undefined, {']], UNIT],
+  ['P4 captions: the block centred on the safe area, not the free span', T + 'lib.js', [['const cx = opts.x != null ? opts.x : (span.left + span.right) / 2;', 'const cx = opts.x != null ? opts.x : safe.x + safe.w / 2;']], UNIT],
+  ['P4 captionSpan: a rectangle cuts the wrong side', T + 'lib.js', [['if (e.x + e.w / 2 >= (left + right) / 2) right = Math.min(right, e.x);', 'if (e.x + e.w / 2 < (left + right) / 2) right = Math.min(right, e.x);']], UNIT],
+  ['P4 captionSpan: the band ignores the block\'s height', T + 'lib.js', [['if (!(e.y < bottom && e.y + e.h > top && e.x < right', 'if (!(e.x < right']], UNIT],
   // ---- every detector wired into render.mjs check (fixture tests)
   ['render.mjs: fonts not reported', T + 'render.mjs', [["    else if (INFOc.FONT_PROBLEMS.length) push(", "    else if (false) push("]], SRC],
   ['render.mjs: board_order not run', T + 'render.mjs', [['else push(C.boardOrderResult(lib.boardOrder(timing, dur ?? null, fps ?? null)));', '']], SRC],
@@ -126,20 +135,46 @@ const M = [
   ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['cands, facts.rec || null);', 'cands);']], FILE],
   ['R2 render.mjs: a mixed --only drops its file checks', T + 'render.mjs', [['[...only].filter((id) => C.FILE_IDS.includes(id)) : [];', '([...only].every((id) => C.FILE_IDS.includes(id)) ? [...only] : []) : [];']], SRC],
   ['render.mjs: ffmpeg left running when a scene throws', T + 'render.mjs', [['  process.exitCode = 1;\n  await abortVideo();', '  process.exitCode = 1;']], ['test/render-error.test.mjs']],
+  // ---- P4: render to a temporary sibling, rename on success
+  ['P4 render.mjs: video encodes onto the output itself', T + 'render.mjs', [['const frames = await renderVideo(page, part, from, to);', 'const frames = await renderVideo(page, out, from, to);'],
+    ["      promote(part, out);\n      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });", "      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });"]], ['test/render-error.test.mjs']],
+  ['P4 render.mjs: full muxes onto the output itself', T + 'render.mjs', [["...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), part]);", "...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), out]);"],
+    ["      promote(part, out);\n      console.log('wrote', out, '(audio kept at'", "      console.log('wrote', out, '(audio kept at'"]], ['test/render-error.test.mjs']],
+  ['P4 render.mjs: full writes its effects stem onto out/<name>.wav itself', T + 'render.mjs', [['await renderAudioTo(page, apart);', 'await renderAudioTo(page, atmp);'],
+    ["'-i', vtmp, '-i', apart,", "'-i', vtmp, '-i', atmp,"], ['      promote(apart, atmp);\n', '']], ['test/render-error.test.mjs']],
+  // ---- P4: the asset inventory and the examples
+  ['P4 ASSETS.md: a binary not listed (the bed)', 'ASSETS.md', [["| `skills/sabotage-motion/examples/explainer-beat/bed.mp3` |", "| `skills/sabotage-motion/examples/explainer-beat/bed-gone.mp3` |"]], ['test/assets.test.mjs']],
+  ['P4 ASSETS.md: a listed file that is missing', 'ASSETS.md', [['|---|---|---|\n', '|---|---|---|\n| `skills/sabotage-motion/examples/showreel/fonts/missing.woff2` | made up | SIL OFL 1.1 |\n']], ['test/assets.test.mjs']],
+  ['P4 ASSETS.md: a row with no licence', 'ASSETS.md', [["synthesized from code by `examples/explainer-beat/make-bed.mjs` in this repo (no samples, no recordings) | MIT (this repo's own work), `LICENSE` |", "synthesized from code by `examples/explainer-beat/make-bed.mjs` in this repo (no samples, no recordings) |  |"]], ['test/assets.test.mjs']],
+  ['P4 examples: an example\'s engine drifts from the template', 'skills/sabotage-motion/examples/showreel/render.mjs', [["const mode = argv[0];", "const mode = argv[0] ;"]], ['test/examples.test.mjs']],
+  ['P4 examples: take.json names another engine than VOICE.md', 'skills/sabotage-motion/examples/explainer-beat/take.json', [['{ "source": "kokoro",', '{ "source": "another-tts",']], ['test/examples.test.mjs']],
+  ['P4 examples: the board moves a voiced beat its cues were made from', 'skills/sabotage-motion/examples/explainer-beat/board.js', [["gapBefore: 0.35,", "gapBefore: 0.5,"]], ['test/examples.test.mjs']],
+  ['P4 delivery.md: a safe-zone edge drifts from safezones.json', 'skills/sabotage-motion/references/delivery.md', [['| `tiktok` | 1080x1920 | 30 | x 44-940, y 130-1436 |', '| `tiktok` | 1080x1920 | 30 | x 44-950, y 130-1436 |']], ['test/docs.test.mjs']],
+  ['P4 render.mjs: a finished video is never renamed onto its output', T + 'render.mjs', [["      promote(part, out);\n      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });", "      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });"]], ['test/render-error.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);
-if (argv.includes('--list')) { for (const [n, f, , t] of M) console.log(`${n.padEnd(58)} ${path.basename(f).padEnd(11)} ${t.map((x) => path.basename(x)).join(' ')}`); process.exit(0); }
+// A mutation applies when each of its texts is in its file exactly once (as the run below requires).
+const applies = (file, edits) => { const src = fs.readFileSync(path.join(repo, file), 'utf8'); return edits.every(([from]) => src.split(from).length - 1 === 1); };
+if (argv.includes('--list')) {
+  let stale = 0;
+  for (const [n, f, e, t] of M) { const ok = applies(f, e); if (!ok) stale++; console.log(`${ok ? '     ' : 'STALE'} ${n.padEnd(58)} ${path.basename(f).padEnd(11)} ${t.map((x) => path.basename(x)).join(' ')}`); }
+  console.log(`${M.length} mutations, ${stale} stale`);
+  process.exit(stale ? 1 : 0);
+}
 const onlyI = argv.indexOf('--only'), only = onlyI >= 0 ? argv[onlyI + 1] : null;
 const todo = M.filter(([n, , , t]) => (!only || n.includes(only)) && (!argv.includes('--fast') || t === UNIT));
 
-// a scratch copy of the repo (no .git, no test/.work), sharing node_modules
+// a scratch copy of the repo (no .git, no test/.work, no example renders), sharing node_modules
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-mutate-'));
 fs.cpSync(repo, work, { recursive: true, filter: (src) => {
   const r = path.relative(repo, src).split(path.sep);
-  return !(r[0] === '.git' || r[0] === 'node_modules' || (r[0] === 'test' && r[1] === '.work'));
+  return !(r[0] === '.git' || r[0] === 'node_modules' || (r[0] === 'test' && r[1] === '.work') || (r[2] === 'examples' && r[4] === 'out'));
 } });
 fs.symlinkSync(path.join(repo, 'node_modules'), path.join(work, 'node_modules'), 'dir');
+// a git repository, so the suites that list the repo's files (git ls-files: the asset inventory, the examples) see the
+// copy's files, with its .gitignore rules, rather than failing outside a repository
+spawnSync('git', ['init', '-q'], { cwd: work });
 const originals = new Map();
 const run = (tests) => spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...tests], { cwd: work, encoding: 'utf8', maxBuffer: 256 << 20, timeout: 20 * 60 * 1000 });
 

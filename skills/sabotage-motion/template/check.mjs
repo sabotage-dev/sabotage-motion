@@ -521,7 +521,10 @@ export function probeFile(file) {
 }
 // The pixel formats a render of each alpha mode writes (render.mjs videoArgs). ffprobe reads VP9 alpha with
 // its own decoder, which reports the plain format.
-export const PIX_FMTS = { none: ['yuv420p'], prores: ['yuva444p10le'], webm: ['yuva420p', 'yuv420p'] };
+// ProRes 4444 is encoded from yuva444p10le; what ffprobe reports for it depends on the ffmpeg version (9.0 reads it
+// back as yuva444p12le, since 4444 carries up to 12 bits), so both are the right format (found in P4, on the
+// lower-third example).
+export const PIX_FMTS = { none: ['yuv420p'], prores: ['yuva444p10le', 'yuva444p12le'], webm: ['yuva420p', 'yuv420p'] };
 // file_spec: size, fps, pixel format, frame count round(DUR x FPS), duration within one frame, and an audio
 // stream unless the scene is silent.
 export function fileSpec(p, x, how) {

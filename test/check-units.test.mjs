@@ -3,7 +3,10 @@
 // No browser and no ffmpeg; check.test.mjs and check-file.test.mjs run the same detectors on real renders.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { C } from './check-helpers.mjs';
+import { templateDir } from './helpers.mjs';
 
 const FPS = 30;
 const SAFE = { x: 84, y: 160, w: 852, h: 1320 };
@@ -392,6 +395,7 @@ test('file_spec: size, fps, pixel format, frame count, duration within one frame
   assert.equal(C.fileSpec({ ...probe, duration: 19.2 + 1 / 30 }, want, 'x').level, 'OK');
   assert.equal(C.fileSpec({ ...probe, audio: false }, { ...want, silent: true }, 'x').level, 'OK');
   assert.equal(C.fileSpec({ ...probe, pixFmt: 'yuva444p10le' }, { ...want, alpha: 'prores' }, 'x').level, 'OK');
+  assert.equal(C.fileSpec({ ...probe, pixFmt: 'yuva444p12le' }, { ...want, alpha: 'prores' }, 'x').level, 'OK', 'ffmpeg 9 reads ProRes 4444 back at 12 bits (P4)');
   assert.equal(C.fileSpec({ error: 'bad' }, want, 'x').level, 'FAIL');
 });
 test('faststart: moov before mdat is fine, after is a WARN, and only an .mp4 is checked', () => {
@@ -446,4 +450,97 @@ test('captions: the words shown together share one group, draw: false draws noth
   assert.ok(twoLines > 0, 'the test needs a block of more than one line');
   assert.ok(lib.captions(ctx, WORDS, 0.5, opts).length > 0 && calls.length > 0, 'and without it, captions draw');
   assert.ok(Math.abs(lib.CAPTION_POP_MAX - 1.165) < 1e-9);
+});
+
+// P4: captions keep out of a target's exclude rectangles (tiktok-ad's button column), so a default caption line on
+// tiktok-ad passes text_safe; without opts.exclude the same words run under the column.
+test('captions: with opts.exclude, every word stays beside tiktok-ad\'s button column; without it, a line runs under it (P4)', async () => {
+  const { lib, fakeCtx } = await import('./voice-helpers.mjs');
+  const zone = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'), 'utf8')).targets['tiktok-ad'];
+  // 30 px a character: two 8-letter words make a 510 px line, which fits the 566 px left of the column
+  const WORDS = ['aaaaaaaa', 'bbbbbbbb', 'cccccccc', 'dddddddd', 'eeeeeeee', 'ffffffff', 'gggggggg', 'hhhhhhhh']
+    .map((text, i) => ({ text, start: i * 0.4, end: i * 0.4 + 0.35 }));
+  const { ctx } = fakeCtx();
+  const hits = (exclude) => {
+    let under = 0, outside = 0, n = 0;
+    for (let t = 0; t < 3.6; t += 1 / 120) {
+      for (const b of lib.captions(ctx, WORDS, t, { safe: zone.safe, exclude, size: 72, voOffset: 0, draw: false })) {
+        n++;
+        if (!C.insideRect(b, zone.safe)) outside++;
+        if (zone.exclude.some((e) => C.overlapArea(b, e) > 0)) under++;
+      }
+    }
+    return { under, outside, n };
+  };
+  const withEx = hits(zone.exclude), without = hits(undefined);
+  assert.ok(withEx.n > 0 && without.n > 0);
+  assert.deepEqual([withEx.under, withEx.outside], [0, 0], `with exclude: ${withEx.under} word samples under the column, ${withEx.outside} outside the safe area`);
+  assert.ok(without.under > 0, 'the test needs words that run under the column when exclude is not passed');
+  // the free span is the safe area's left edge to the column's left edge at the bottom, and the whole width higher up
+  assert.deepEqual(lib.captionSpan(zone.safe, zone.exclude, { size: 72 }), { left: 120, right: 780 });
+  assert.deepEqual(lib.captionSpan(zone.safe, zone.exclude, { size: 72, pos: 'top' }), { left: 120, right: 960 });
+});
+
+// ---- council round 1, F2: room for the pop between words, and a word wider than the line fitted to it
+// The words on each line at t, left to right, from the boxes captions() returns.
+const lineRuns = (bs) => {
+  const by = new Map();
+  for (const b of bs) { if (!by.has(b.line)) by.set(b.line, []); by.get(b.line).push(b); }
+  return [...by.values()].map((l) => l.sort((a, b) => a.x - b.x));
+};
+test('captions (F2a): a popped word keeps clear of its neighbours, and short words keep a plain space', async () => {
+  const { lib, fakeCtx } = await import('./voice-helpers.mjs');
+  const { ctx } = fakeCtx();   // 30 px a character, a 30 px space
+  const safe = { x: 0, y: 0, w: 1080, h: 1920 };
+  const timed = (texts) => texts.map((text, i) => ({ text, start: i * 0.3, end: i * 0.3 + 0.25 }));
+  // 14-letter words (420 px): a pop grows each side by 34.65 px, more than the 30 px space
+  const long = timed(['aaaaaaaaaaaaaa', 'bbbbbbbbbbbbbb', 'cccccccccccccc', 'dddddddddddddd', 'eeeeeeeeeeeeee', 'ffffffffffffff']);
+  for (const [opts, need] of [[{}, 15], [{ stroke: 10 }, 25], [{ wordGap: 40 }, 40]]) {
+    let pairs = 0, worst = Infinity;
+    for (let t = 0; t < 2.2; t += 1 / 240) {
+      for (const run of lineRuns(lib.captions(ctx, long, t, { safe, size: 72, voOffset: 0, draw: false, ...opts }))) {
+        for (let i = 1; i < run.length; i++) { pairs++; worst = Math.min(worst, run[i].x - (run[i - 1].x + run[i - 1].w)); }
+      }
+    }
+    assert.ok(pairs > 0, 'the test needs lines of more than one word');
+    assert.ok(worst >= need - 1e-6, `${JSON.stringify(opts)}: the closest a popped word came to its neighbour is ${worst.toFixed(2)} px, needs ${need}`);
+  }
+  // 4-letter words (120 px): the pop grows each side by 9.9 px, under half a space, so the layout is the plain one:
+  // a 30 px space between words, each line centred on the safe area
+  const short = timed(['abcd', 'efgh', 'ijkl', 'mnop', 'qrst', 'uvwx', 'yzab', 'cdef', 'ghij', 'klmn']);
+  let checked = 0;
+  for (let t = 0; t < 3.2; t += 1 / 60) {
+    for (const run of lineRuns(lib.captions(ctx, short, t, { safe, size: 72, voOffset: 0, draw: false }))) {
+      const x0 = 540 - (run.length * 120 + (run.length - 1) * 30) / 2;
+      run.forEach((b, i) => { if (!b.active) { checked++; assert.ok(Math.abs(b.x - (x0 + i * 150)) < 1e-6 && Math.abs(b.w - 120) < 1e-9, `t=${t.toFixed(3)} ${b.text} at x ${b.x}, expected ${x0 + i * 150}`); } });
+    }
+  }
+  assert.ok(checked > 0);
+});
+test('captions (F2b): a word wider than the line is scaled to fit it, beside tiktok-ad\'s buttons and inside the safe area', async () => {
+  const { lib, fakeCtx } = await import('./voice-helpers.mjs');
+  const zones = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'), 'utf8')).targets;
+  // a context that keeps its scale, so the test sees how wide each word is drawn, not only its box
+  const drawn = [];
+  const { ctx } = fakeCtx();
+  let k = 1; const stack = [];
+  Object.assign(ctx, { save() { stack.push(k); }, restore() { k = stack.pop(); }, scale(a) { k *= a; },
+    fillText: (text, x) => drawn.push({ text, x, w: 30 * text.length * k }) });
+  const big = 'w'.repeat(30);   // 900 px, wider than either line below
+  const WORDS = [{ text: 'tiny', start: 0, end: 0.3 }, { text: big, start: 0.4, end: 1.2 }, { text: 'end', start: 1.3, end: 1.6 }];
+  for (const [name, exclude, span] of [['tiktok-ad', zones['tiktok-ad'].exclude, { left: 120, right: 780 }], ['tiktok', undefined, null]]) {
+    const z = zones[name], free = span || { left: z.safe.x, right: z.safe.x + z.safe.w };
+    let seen = 0;
+    for (let t = 0; t < 2.2; t += 1 / 240) {
+      drawn.length = 0;
+      for (const b of lib.captions(ctx, WORDS, t, { safe: z.safe, exclude, size: 72, voOffset: 0 })) {
+        assert.ok(C.insideRect(b, z.safe), `${name} t=${t.toFixed(3)} ${b.text.slice(0, 6)} at x ${b.x.toFixed(1)}-${(b.x + b.w).toFixed(1)}`);
+        assert.ok(b.x >= free.left - 1e-6 && b.x + b.w <= free.right + 1e-6, `${name}: ${b.text.slice(0, 6)} leaves the free span`);
+        for (const e of exclude || []) assert.equal(C.overlapArea(b, e), 0, `${name}: ${b.text.slice(0, 6)} reaches into the button column`);
+        if (b.text === big) { seen++; assert.ok(b.w < 900, 'the long word was fitted'); }
+      }
+      for (const d of drawn) assert.ok(d.w <= free.right - free.left + 1e-6, `${name}: ${d.text.slice(0, 6)} is drawn ${d.w.toFixed(1)} px wide`);
+    }
+    assert.ok(seen > 0, `${name}: the long word showed`);
+  }
 });

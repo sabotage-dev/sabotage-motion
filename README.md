@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-Planned for v1 (the storyboard, voice-driven timing, captions, mix and master and footage are built; `check` and the safe zones are built and in review):
+Planned for v1 (the storyboard, voice-driven timing, captions, mix and master, footage, `check` and the safe zones are built; the skill text and three examples are built and in review):
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -24,13 +24,14 @@ Planned for v1 (the storyboard, voice-driven timing, captions, mix and master an
 
 ## Status
 
-Early build, not ready for use yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
+Early build, not released yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
 engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
 video render, `doctor`, and CI on macOS and Linux. Phase P1 is merged (PR #2): the storyboard (`board.js`, the board
 sheet, the slate scene), voice-driven timing (`tools/cues.mjs`, with the hook gate), the optional ElevenLabs voice
 tool, and captions. Phase P2 is merged (PR #3): mix and master (`tools/mix.mjs`) and footage (`tools/frames.mjs`,
-`loadSeq` and `seqAt`). Phase P3 is in review (PR #4): `node render.mjs check` and the safe zones. The skill text
-(SKILL.md is a stub for now) and the examples come in P4.
+`loadSeq` and `seqAt`). Phase P3 is merged (PR #4): `node render.mjs check` and the safe zones. Phase P4 is in
+review: the skill text ([SKILL.md](skills/sabotage-motion/SKILL.md) and five references), three runnable examples,
+and `ASSETS.md`. Release 0.1.0 (P5) comes next.
 
 ## Storyboard and voice (P1)
 
@@ -125,7 +126,7 @@ scene draws; `frames.mjs` prints the total and warns over 1 GB. Measured on an A
 in 1.2 s. Both rendered. The limit is the machine's free memory, so keep a sequence well under it, and smaller on
 CI runners. The clip's sound goes in through `mix.mjs --stem` (the tool's header shows the ffmpeg line).
 
-## Check and safe zones (P3, in review)
+## Check and safe zones (P3)
 
 `node render.mjs check` measures the piece before you post it, and `--file` measures the master too. Run it in
 the piece's folder:
@@ -179,6 +180,30 @@ checks.
   the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
   on real pieces.
 
+## Skill text and examples (P4, in review)
+
+[SKILL.md](skills/sabotage-motion/SKILL.md) is what Claude Code reads: the quick start, the files in a piece, the
+workflow (brief, board, board sheet, voice, cues, animatic, animate, sign-off, check, render, mix, check the master,
+deliver), craft defaults, gotchas and when to use something else. Five references go deeper:
+`references/storyboard.md`, `voice.md`, `check.md`, `techniques.md` and `delivery.md`.
+
+Three examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
+contact sheet and board sheet committed:
+
+| Example | What it shows | `check` |
+|---|---|---|
+| `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage and an end card, with a synthesized score. It ends on the end card of sabotage development, the studio behind this repo. | 0 FAIL; 1 WARN kept on purpose (it fades up from black) |
+| `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
+| `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
+
+P4 also changed the engine in four places: a render writes to `out/<name>.partial.<ext>` and renames it only when
+it is complete, so a failed render never touches an earlier good one; `captions(..., { exclude })` keeps captions
+beside a platform's covered areas (TikTok's button column on `tiktok-ad`), leaves room between words for the popped
+word, and scales a word wider than the line to fit it, and `sceneTarget()` and `freeSpan()` in `lib.js` let any
+layout keep out of covered areas too; `check`'s `file_spec` accepts ProRes 4444 read back as 12-bit (ffmpeg 9 reports
+it that way); and the template's example scene now fits its target's safe area, reports its text through `boxes(t)`
+and opens on a frame that is not flat, so `check` on a fresh copy is clean.
+
 ## Requirements
 
 - **Node** 22 or 24.
@@ -221,7 +246,8 @@ npm run test:mix                           # the mixer, control by control, and 
 npm run test:footage                       # frame sequences: the cut, the manifest, seqAt in a render
 npm run test:check                         # check's detectors, fixture-check and its masters, the safe zones
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
-npm run test:repo                          # leak check and asset inventory
+npm run test:examples                      # the three examples: engine files, outputs, VOICE.md, cues, check
+npm run test:repo                          # leak check, asset inventory, the skill text
 ```
 
 The voice suites use synthetic takes only: hand-written timing files in each source's format
