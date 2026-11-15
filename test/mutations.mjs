@@ -152,6 +152,13 @@ const M = [
   ['P4 delivery.md: a safe-zone edge drifts from safezones.json', 'skills/sabotage-motion/references/delivery.md', [['| `tiktok` | 1080x1920 | 30 | x 44-940, y 130-1436 |', '| `tiktok` | 1080x1920 | 30 | x 44-950, y 130-1436 |']], ['test/docs.test.mjs']],
   ['P4 render.mjs: a finished video is never renamed onto its output', T + 'render.mjs', [["      promote(part, out);\n      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });", "      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });"]], ['test/render-error.test.mjs']],
   ['P5 render.mjs: --dump under --plain writes nothing again', T + 'render.mjs', [["  if (!dump && opt('dump')) dump = { format: 'sabotage-motion/check-dump@1' };\n", '']], ['test/check-file.test.mjs']],
+  ['P6 readme-media: the hero budget allows 50 MB', 'scripts/readme-media.mjs', [['hero: { bytes: 5 * 1024 * 1024, width: 640 }', 'hero: { bytes: 50 * 1024 * 1024, width: 640 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: GIFs never measured', 'scripts/readme-media.mjs', [["    if (!r.endsWith('.gif')) continue;", '    continue;']], ['test/docs.test.mjs']],
+  ['P6 readme-media: the hero width allows 1280 px', 'scripts/readme-media.mjs', [['hero: { bytes: 5 * 1024 * 1024, width: 640 }', 'hero: { bytes: 5 * 1024 * 1024, width: 1280 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: the tile budget allows 20 MB', 'scripts/readme-media.mjs', [['tile: { bytes: 2 * 1024 * 1024, width: 360 }', 'tile: { bytes: 20 * 1024 * 1024, width: 360 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: the tile width allows 3600 px', 'scripts/readme-media.mjs', [['tile: { bytes: 2 * 1024 * 1024, width: 360 }', 'tile: { bytes: 2 * 1024 * 1024, width: 3600 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: <img> tags never read', 'scripts/readme-media.mjs', [['refs.push(m[1] ?? m[2] ?? m[3]);', 'void m;']], ['test/docs.test.mjs']],
+  ['P6 readme-media: reference images never resolved', 'scripts/readme-media.mjs', [['    const d = defs.get((m[2] || m[1]).trim().toLowerCase());\n    if (d) refs.push(d);', '    void m;']], ['test/docs.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);
