@@ -27,7 +27,7 @@ Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Googl
 
 ## Install
 
-Pick one route. Each was tested on a clean user account before the release.
+Pick one route. Each was tested from GitHub on a fresh, empty home folder before this release.
 
 **As a Claude Code plugin** (from this repo, which is also its marketplace):
 
