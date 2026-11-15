@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 in section 23.7 (2026-11-15) |
@@ -720,7 +720,7 @@ mutations before the round.
 | Q3 | How are safe zones measured? | Ad zones come from the platforms' published templates, measured (`tiktok-ad`, `reels-ad`, `shorts-ad`). Organic zones come from published third-party measurements, compared and cited, since no platform publishes one; they ship as sourced estimates (`"estimate": true`, so `text_safe` WARNs), and no owner step is needed (owner, 2026-11-14). Section 12 has both. |
 | Q4 | Which checks FAIL and which WARN? | As in sections 6.5 and 11: FAIL for a stale or unmatched master, a wrong file, wrong loudness, a voice delay that differs from `VO_OFFSET`, a late hook, text outside a measured safe area for more than 0.25 s in a beat, a missing font; WARN for craft and for anything measured against an estimate. `--strict` makes WARN fail. |
 | Q5 | Require Google Chrome, or also allow Playwright's own Chromium? | Chrome or `CHROME_PATH`. Playwright's Chromium is documented only if P0 shows WebGL2 working in it headless on both OSes. |
-| Q6 | List on skills.sh? | Yes, if the P5 install test passes. |
+| Q6 | List on skills.sh? | Yes, once the 0.2 features are complete: at the 0.2.0 release (owner, 2026-11-15: "we list when there features complete"). Until then every skills CLI install runs with telemetry off. |
 | Q7 | Keep the private description's "no After Effects, HyperFrames or Remotion"? | No; other products are named only in the "when to use something else" section. |
 | Q8 | Which fonts does the template bundle? | Two open-licence families (a display face and a text face, plus a mono), chosen in P0, licence files in `fonts/`. |
 | Q9 | Determinism across machines? | Not promised: GPU and SwiftShader output differ. Tests compare frames on one machine; cross-machine output is compared by eye. |
@@ -835,7 +835,12 @@ in rev 1.7 (23.8).
   the P5 way (21): an empty home folder each, Opus, web tools off, a request that does not name the skill. One line
   under them says the agent designs each piece; the skill supplies the engine, the craft defaults and the checks.
   Only the media are committed, not the three pieces. The app in the request is made up, and its name is searched
-  first so it is not a real product's.
+  first so it is not a real product's. The request, word for word:
+
+  > Make me a 5-second vertical (9:16) motion-graphics title card for a made-up travel app called Plumtrail, with
+  > the line "Plan trips in one tap". Build it in this folder, render the final mastered MP4, and run the quality
+  > check on that file. When you're done, tell me the final file's path and what the check said.
+
 - `ASSETS.md` lists every new file with its source and licence; the inventory test covers them.
 
 Acceptance: each GIF's size and dimensions measured; the README rendered on GitHub from the PR branch with every
@@ -861,8 +866,12 @@ passes; no version bump (nothing installed changes).
 - **Font loading.** Fonts named by a look or a brand kit are registered with `FontFace` from the piece's `fonts/`
   before `scene.init`, and added to `CFG.FONTS`, so a missing one fails the render (and is reported by `check`) the
   way a missing `@font-face` family does today. `doctor` reads the look and the kit as well as `index.html`.
-- **What was drawn.** The harness records the font families the drawing calls set (every `ctx.font` assignment) and
-  the resolved tokens, and the render record gains `fonts_used` and `tokens`.
+- **What was drawn.** The harness records, at every `fillText` and `strokeText` call, the families in the `ctx.font`
+  in effect (parsed from the shorthand), and the resolved tokens; the render record gains `fonts_used` and
+  `tokens`. An assignment made only to measure or lay out text (as `captions(..., { draw: false })` does) is not a
+  draw and is not recorded.
+- **Colour probe.** `check`'s probe keeps luma only today; P7 adds an RGB sample of the same probe frames (1/2 size,
+  grain off) for the colour match below.
 - **Brand kit.** `brand.json` in the project root (Q17): `name`, `colors` (the look's token names), `fonts` (family
   and file per role), `logo` (files for dark and light grounds), an optional base `look`. When a piece is created
   the agent copies `brand.json` and every file it names into the piece, so the piece still re-renders on its own.
@@ -877,12 +886,15 @@ passes; no version bump (nothing installed changes).
 Acceptance: a looks sheet (one 5 s card in every look) committed as `docs/media/looks.png` and shown in the README;
 every look's card passes `check` with 0 FAIL and 0 WARN; tests for precedence (`--param` over kit over look over
 template), for a missing look or kit font failing the render, for `doctor` on a broken kit, and for `fonts_used`
-(a scene that declares a kit font but draws with another records the other); the brand sheet renders. Colour match,
-used in the fresh-session row: the dominant colours of `check`'s probe frames (1/2 size, grain off; k-means with
-k = 8 over every probe frame) must include one within CIEDE2000 6 of the kit's `bgA` covering at least 15% of the
-pixels, and one within 6 of its `accent` covering at least 0.5%. The fresh-session row: one session P5's way, given
-a `brand.json` (with its fonts and logo) and a brief that does not mention it, makes a piece that passes that colour
-match, whose `fonts_used` holds the kit's display and body families, and whose master passes `check --file`.
+(a scene that measures with the kit's fonts but draws with another records only the other); the brand sheet
+renders. Colour match, used in the fresh-session rows: every pixel of the RGB probe frames is given to the nearest
+colour (CIEDE2000) among the kit's tokens and every look's default tokens, and a pixel more than 10 from all of
+them is given to none; the kit's `bgA` and `bgB` together must take at least 15% of the pixels and its `accent` at
+least 0.5%, and no look's defaults may take more than either. No clustering, so the result does not change from run
+to run. The fixture kit's `bgA`, `bgB` and `accent` are each more than 15 from every look's tokens, so the template's
+or a look's palette cannot pass for it. The fresh-session row: one session P5's way, given that `brand.json` (with
+its fonts and logo) and a brief that does not mention it, makes a piece that passes the colour match, whose
+`fonts_used` holds the kit's display and body families, and whose master passes `check --file`.
 
 ### 23.3 P8: code and terminal motion
 
@@ -942,20 +954,32 @@ colours and whose master passes `check --file`.
   captions inside the platform's safe area, its sound levelled and mastered, checked like any other piece.
 - **Files and records** (Q15). The clip is never re-encoded through the browser:
   1. `tools/clip.mjs probe` reads the clip: display size after rotation, frame rate, duration, audio. A variable
-     frame rate clip is first converted to a constant rate (the nearest of the clip's average rate), and the plan
-     says so to the user.
-  2. The captions render with alpha on the clip's own clock: its size, its constant frame rate, its duration. This
-     `.mov` or `.webm` is an intermediate with its own alpha render record.
-  3. `tools/clip.mjs composite` overlays it onto the clip with ffmpeg into an opaque `yuv420p` `out/<name>.mp4`,
-     and writes that picture's render record (`sabotage-motion/render@1`: its SHA-256, decoded video hash, frames,
-     fps, duration, alpha unset, plus the clip's and the overlay record's hashes, and `kind: "composite"`), so
-     `mix.mjs` accepts it and `check --file` can tie the master to it. The clip's audio is extracted beside it.
-     For a composite, `check --file` takes the text checks from the caption scene's `boxes(t)` and the picture
-     checks (first frame, stillness) from the decoded composite, never from the transparent overlay alone.
-  4. `mix.mjs` mixes and masters it as any voiced piece: the clip's audio is the voice stem, an optional bed is
-     ducked under it, and the master and `master.json` are written as today. `check --file` checks the master.
-- **Audio clock.** The clip's audio stays where it is: `clip.mjs` writes `cues.json` from the transcript with
-  `VO_OFFSET` 0, no gap splice and no tail, and the picture is exactly the clip's length.
+     frame rate clip is first converted to a constant rate: its average rate, rounded to the nearest of 23.976, 24,
+     25, 29.97, 30, 50, 59.94 and 60, and the recipe tells the user.
+  2. **Clip timing.** A clip piece runs on the clip's clock: `CFG.DUR` is the clip's duration and `CFG.FPS` its
+     constant rate. Its board, if it has one, is a single silent beat of that length, so `boardTiming` adds no
+     `lead` or `tail`. `clip.mjs` writes both `cues.js` (which the captions and `check` read) and `cues.json` (which
+     `mix.mjs` reads) from the transcript, with `VO_OFFSET` 0, no gap splice and the words at their own times; it
+     does not go through `tools/cues.mjs`, which needs a voiced board.
+  3. The captions render with alpha on that clock. The `.mov` or `.webm` is an intermediate with its own ordinary
+     alpha render record.
+  4. `tools/clip.mjs composite` overlays it onto the clip with ffmpeg into an opaque `yuv420p` `out/<name>.mp4`, and
+     writes that picture's render record: every `sabotage-motion/render@1` field the mixer and `check` read today
+     (`sha256` as bare hex, `video.hash` with its `sha256:` prefix, `frames`, `fps`, `dur`, `render: [w, h]`,
+     `alpha: null`, `silent`, `scene`, `params`, `sub`, `target`, no `from`), with `source` copied from the overlay's
+     record, plus `kind: "composite"`, `clip` (the clip's SHA-256) and `overlay` (the overlay record's SHA-256). The
+     clip's audio is extracted to `vo.wav`.
+  5. `node tools/mix.mjs <name> --no-sfx` mixes it as a voiced piece: `vo.wav` is the voice, an optional bed is
+     ducked under it, and the master and `master.json` are written as today. A caption style with its own sound
+     renders `out/<name>.wav` from the caption scene instead of `--no-sfx`; its record then matches the composite's
+     scene, params, fps and duration, as the effects link requires.
+  6. **`check` for a composite.** `render.mjs check` and `check.mjs` branch on `kind: "composite"`: the overlay
+     record named by `overlay` must exist, match its hash and bind to the current source (a stale overlay FAILs
+     provenance); the text checks replay the caption scene with the overlay's settings (alpha included) through
+     `boxes(t)`; the picture checks (`first_frame_empty`, `motion_dead`) run on frames decoded from the composite with
+     ffmpeg, a decode path `check` does not have today; `file_spec` reads the composite's own record (`yuv420p`);
+     `vo_delay` reads `cues.js`'s `VO_OFFSET` 0. Safe zones: a 9:16 clip of another size gets the target's zones
+     scaled to it; any other shape has `text_safe` reported as not checked, and the recipe says so.
 - **Transcription** (Q18). The timing adapters read transcripts; they do not hear speech. whisper.cpp's
   `whisper-cli`, when installed, is an optional tool (MIT, no Python, D6) that `doctor` reports and the recipe uses;
   without it the recipe asks for a transcript. The adapters gain whisper.cpp's JSON output and SRT or WebVTT. SRT
@@ -970,16 +994,19 @@ colours and whose master passes `check --file`.
   made. The example suites learn that this example commits a source clip.
 
 Acceptance: adapter tests for whisper.cpp, SRT and WebVTT (word spread, estimate flag); a sync fixture (a clip with
-a tone at a known frame and a transcript word at that tone) goes through the whole path, and in the master the
-caption word's first visible frame is within one frame of the tone's onset in the master's audio; the master's
-frame count and duration equal the clip's; a variable-rate clip is converted and says so; the example passes
+a white flash in its picture and a tone in its audio at the same known frame, and a transcript word at that tone)
+goes through the whole path, and in the master the tone's onset is within one frame of that frame (the clip's own
+time, so a shared offset of voice and captions fails), the flash is still at that frame, and the caption word's
+first visible frame is within one frame of it; the master's frame count and duration equal the clip's; a stale
+overlay FAILs `check --file`; a variable-rate clip is converted and says so; the example passes
 `check --file` with 0 FAIL and 0 WARN; a fresh session P5's way, given a clip and its SRT and "add captions to
 this", returns a master that passes `check --file`.
 
 ### 23.6 Release 0.2.0
 
 After P10: version 0.2.0 in `plugin.json`, `package.json` and the lockfile; the README's examples table and
-feature list updated; every install route re-run from `main` on a fresh home folder; tag `v0.2.0` (Q16).
+feature list updated; every install route re-run from `main` on a fresh home folder; tag `v0.2.0` (Q16); then the
+skills.sh listing (Q6): one `npx skills add sabotage-dev/sabotage-motion` with telemetry on.
 
 ### 23.7 Decision and defaults
 
@@ -1015,3 +1042,18 @@ grok `grok-4.7`. All three SHIP-WITH-FIXES. Fifteen findings, each verified agai
 | P8's text needs layout-only boxes, groups and `deco`; typing was not proven; estimate zones only WARN | sonnet, grok, codex | 23.3 boxes and acceptance |
 | P9's scroll row passed a capture that never scrolls; no `loadSeq` contract or memory budget | codex, grok, sonnet | 23.4 shots and acceptance |
 | P6's prompt was not written down | grok | 23.1 (the README prints it) |
+
+Round 2 (2026-11-15, delta at `4276c6b`; same three seats, all SHIP-WITH-FIXES). Eleven of the fifteen round 1
+findings were closed by all three seats. What was still open, verified and folded in rev 1.8:
+
+| Finding | Seats | Fold |
+|---|---|---|
+| The composite record named too few fields (`source`, `render`, `dur`, `silent`, `scene`, `params`), nothing read `kind`, and `check` had no decoded-picture probe | grok, sonnet, codex | 23.5 steps 4 and 6 |
+| `clip.mjs` wrote `cues.json` only, but captions and `vo_delay` read `cues.js`; a board would still add `tail`; the mixer needs `vo.wav` and an effects stem or `--no-sfx` | sonnet, grok | 23.5 steps 2, 4 and 5 |
+| The sync row passed when voice and captions shared a wrong offset | sonnet, grok | 23.5 acceptance: the tone and a flash at the clip's own frame |
+| The colour probe keeps luma only; k-means is unseeded and splits gradients; a kit near a default palette passes vacuously | sonnet, codex, grok | 23.2 colour probe and colour match (nearest palette, fixture kit far from every look) |
+| An assigned font is not a drawn font | codex, sonnet, grok | 23.2 what was drawn (`fillText`/`strokeText`) |
+| The exact request was not in the plan | grok | 23.1 |
+| A variable rate's target set was unstated; a clip of another size skipped `text_safe` silently | sonnet | 23.5 steps 1 and 6 |
+
+No round 3: what remains is how P7 and P10 implement these contracts, which their own code reviews check.
