@@ -92,8 +92,9 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
    where a full render takes minutes.
 9. **Get sign-off on a rendered sample** (a contact sheet or a short preview) before polishing. Taste is theirs.
 10. **Check, render, mix, check the master.** First `node render.mjs check` (fix every FAIL; read every WARN). Every
-    file in the piece is source, `board.js` notes included, so finish them before the final render: a later edit makes
-    the master stale, and `check --file` fails it until you render and mix again. Then, for:
+    source file in the piece counts, `board.js` notes included (only `out/`, `stills/`, the review sheets and render
+    records do not), so finish them before the final render: a later edit makes a mixed master stale, and
+    `check --file` fails it until you render and mix again. Then, for:
     - **a video**: `node render.mjs full --out out/<name>.mp4`, then `node tools/mix.mjs <name>` (voice, bed and
       effects, mastered to -14 LUFS; `--master-only` for the effects alone, also -14 LUFS; `--sting` for an asset cut
       into someone else's video, -20 LUFS), then `node render.mjs check --file out/<name>-final.mp4`;

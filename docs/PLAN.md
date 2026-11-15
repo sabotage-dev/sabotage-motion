@@ -512,7 +512,7 @@ overlays shade it.
   - `tiktok`: x 44 to 940, y 130 to 1436. Left, top and the 140-wide button rail from third-party measurements that
     agree (cadenus.io, vidova.ai); the bottom 484 px for the username, caption and sound rows (cadenus.io; 480-484
     elsewhere), which matches TikTok's own In-Feed ad template's 660 px less the ad's call-to-action and sponsored
-    label. The owner's posted pieces keep text within x 84 to 936, inside these edges.
+    label.
   - `reels`: x 86 to 960, y 250 to 1600. The more conservative of two organic measurements on each edge
     (adchecklab.com, measured in the Instagram app; vidova.ai and outfy.com).
   - `shorts`: x 48 to 888, y 288 to 1540. The top, sides and button rail from Google's vertical-video ad zone (the
