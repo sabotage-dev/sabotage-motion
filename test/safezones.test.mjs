@@ -55,7 +55,8 @@ test('the organic targets carry the researched edges: tiktok 44/940/130/1436, re
   assert.deepEqual(zones.targets.shorts.safe, { x: 48, y: 288, w: 840, h: 1252 });
   assert.match(zones.targets.tiktok.edges.left.source, /cadenus\.io.*vidova\.ai/);
   assert.match(zones.targets.tiktok.edges.bottom.source, /484 px for the username, caption and sound rows/);
-  assert.match(zones.targets.tiktok.source, /x 84-936, inside these edges/);
+  assert.match(zones.targets.tiktok.source, /third-party measurements of the organic TikTok UI \(cadenus\.io, vidova\.ai\)/);
+  assert.doesNotMatch(zones.targets.tiktok.source, /owner/i, 'the shipped source cites published measurements only (council round 1, F5)');
   assert.match(zones.targets.reels.edges.top.source, /adchecklab\.com.*vidova\.ai \/ outfy\.com/);
   assert.match(zones.targets.shorts.edges.bottom.source, /380 px for the title, channel and subscribe rows/);
 });

@@ -97,7 +97,7 @@ on purpose to prove a test notices.
 | a hit | 10 ms more than 12 dB over the 100 ms before it | The plan's value; a sustained sound fails it, a click passes. |
 | spike | 18 dB over the 90th percentile of the non-silent 50 ms windows | Tuned in P3: silence is left out of the percentile, because a stem with sound in under a tenth of its windows otherwise compared every sound with silence. Measured: the check fixture's effects 7.9 dB, the template's 11.9 dB (P3); the explainer's 14.1 dB and the showreel's 2.8 dB (P4). |
 | loudness | within 1 LU; true peak at or under -1.0 dBTP | AAC adds about 0.5 dB of true peak, which is why the mixer aims at -2.0 dBTP (-3.0 for stings). |
-| captions | lines fill the safe width / 1.165 | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). |
+| captions | lines fill the safe width / 1.165; between words, a space or the pop's growth plus half a space and the stroke, whichever is larger | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). A popped long word used to touch its neighbours, and a word wider than the line was drawn whole, past the safe edge or into an `exclude` rectangle; both are fixed (P4, council round 1): the gap grows beside long words, and an oversized word is scaled to fit the line. |
 
 The organic safe zones (`tiktok`, `reels`, `shorts`) are estimates, so `text_safe` only warns on them; the ad
 zones are measured from the platforms' templates and fail. `references/delivery.md` section 1 has the numbers,
@@ -127,7 +127,7 @@ names:
 |---|---|---|---|
 | `explainer-beat` | 11 ok, 0 WARN | 16 ok, 0 WARN | none |
 | `lower-third` (`--alpha`) | 7 ok, 4 not checked (silent, no hook, an overlay's first frame) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok | none |
-| `showreel` | 0 FAIL, 1 WARN, 5 not checked | 0 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks and `hook_long` say "not checked". |
+| `showreel` | 0 FAIL, 1 WARN, 5 not checked | 0 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. |
 
 The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad`. CI runs every source
 check except the two probe checks on all three examples on macOS and Linux; the probe checks and the masters run on

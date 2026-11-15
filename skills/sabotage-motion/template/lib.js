@@ -494,12 +494,17 @@ const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSE
 // keeps out of them: its lines are filled to the width the rectangles leave free at the block's height, and centred
 // in it. Without it, a full line on tiktok-ad runs under the button column and check's text_safe fails it.
 //   captions(ctx, CUES.WORDS, t, { safe: target.safe, exclude: target.exclude })
+// Between two words the layout leaves a normal space, or more where a popped word would come too close to its
+// neighbour: the popped word grows by (CAPTION_POP_MAX - 1) / 2 of its width on each side, and opts.wordGap (default
+// half a space plus opts.stroke) is the clear space kept beyond that, so the active word never touches the words
+// beside it. Short words keep the normal space. A word wider than the line (opts.maxW, after exclude) is scaled
+// down to fit it, so it never crosses the safe edge or an exclude rectangle; every other word keeps its size.
 const _capCache = new WeakMap();
 // The largest scale a popped word reaches: anticip dips below 0 before it settles, so 1.15 - 0.15 x (-0.072).
 // The default line width leaves this much room, so the popped word at either end of a full line stays inside.
 export const CAPTION_POP_MAX = 1.165;
 function captionLayout(ctx, WORDS, o) {
-  const key = JSON.stringify([o.font, o.maxW, o.lines, o.breakGap, o.sentence, o.upper, o.hold]);
+  const key = JSON.stringify([o.font, o.maxW, o.lines, o.breakGap, o.sentence, o.upper, o.hold, o.wordGap, o.stroke]);
   let byKey = _capCache.get(WORDS);
   if (!byKey) { byKey = new Map(); _capCache.set(WORDS, byKey); }
   if (byKey.has(key)) return byKey.get(key);
@@ -508,23 +513,29 @@ function captionLayout(ctx, WORDS, o) {
   WORDS.forEach((w, i) => {
     const raw = String(w.text || '').trim();
     if (!raw || isTag(raw)) return;
-    const text = o.upper ? raw.toUpperCase() : raw;
-    words.push({ i, text, start: w.start, end: w.end, w: ctx.measureText(text).width });
+    const text = o.upper ? raw.toUpperCase() : raw, width = ctx.measureText(text).width;
+    // a word wider than the line is scaled down to fit it: fit is that scale, w the width it takes
+    const fit = width > o.maxW ? o.maxW / width : 1;
+    words.push({ i, text, start: w.start, end: w.end, raw: width, fit, w: width * fit, gap: 0 });
   });
   const space = ctx.measureText(' ').width;
   ctx.restore();
+  // the advance between two words: a space, or the popped word's growth toward its neighbour plus the clear gap
+  const clear = o.wordGap != null ? o.wordGap : space / 2 + o.stroke;
+  const gapOf = (a, b) => Math.max(space, ((CAPTION_POP_MAX - 1) / 2) * Math.max(a.w, b.w) + clear);
   const groups = [];
   let g = null, line = null;
   words.forEach((w, k) => {
     const prev = words[k - 1];
     const brk = !g || (prev && (w.start - prev.end > o.breakGap || (o.sentence && /[.!?]["')\]]*$/.test(prev.text))));
     if (brk) { g = { lines: [] }; groups.push(g); line = null; }
-    if (line && line.w + space + w.w > o.maxW) {
+    if (line && line.w + gapOf(line.words[line.words.length - 1], w) + w.w > o.maxW) {
       if (g.lines.length >= o.lines) { g = { lines: [] }; groups.push(g); }
       line = null;
     }
     if (!line) { line = { words: [], w: 0 }; g.lines.push(line); }
-    line.w += (line.words.length ? space : 0) + w.w;
+    w.gap = line.words.length ? gapOf(line.words[line.words.length - 1], w) : 0;
+    line.w += w.gap + w.w;
     line.words.push(w);
   });
   groups.forEach((gr, k) => {
@@ -575,10 +586,11 @@ export function captions(ctx, WORDS, t, opts = {}) {
   const o = {
     font: opts.font || `${size}px ${opts.family || 'DISPLAY'}`, maxW: opts.maxW || (span ? (span.right - span.left) / CAPTION_POP_MAX : 900),
     lines: nLines, breakGap: opts.breakGap != null ? opts.breakGap : 0.6, sentence: opts.sentence !== false,
-    upper: !!opts.upper, hold: opts.hold != null ? opts.hold : 0.5,
+    upper: !!opts.upper, hold: opts.hold != null ? opts.hold : 0.5, wordGap: opts.wordGap != null ? opts.wordGap : null,
+    stroke: opts.stroke || 0,
   };
   const tv = t - (opts.voOffset != null ? opts.voOffset : pieceVoOffset());
-  const { groups, space } = captionLayout(ctx, WORDS, o);
+  const { groups } = captionLayout(ctx, WORDS, o);
   const g = groups.find((x) => tv >= x.t0 && tv < x.t1);
   if (!g) return [];
   const alpha = g.byHold ? clamp((g.t1 - tv) / Math.max(1e-6, fadeOut)) : 1;
@@ -601,22 +613,24 @@ export function captions(ctx, WORDS, t, opts = {}) {
     const base = lastBase - (n - 1 - li) * lineH;
     let x = cx - l.w / 2;
     for (const w of l.words) {
+      x += w.gap;
       const on = w === active;
       const k = on ? prog(tv, w.start, w.start + popDur) : 1;
       const s = on ? (opts.pop === 'spring' ? 1.15 - 0.15 * spring(tv - w.start, 4, 0.45) : 1.15 - 0.15 * anticip(k)) : 1;
-      const mx = x + w.w / 2, my = base - size * 0.35;
+      // sc: the pop times the fit of an oversized word; tx: where the word's own (unfitted) text starts
+      const mx = x + w.w / 2, my = base - size * 0.35, sc = s * w.fit, tx = mx - w.raw / 2;
       if (draw) {
         ctx.save();
-        ctx.translate(mx, my); ctx.scale(s, s); ctx.translate(-mx, -my);
-        if (opts.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = opts.stroke; ctx.strokeStyle = opts.strokeColor || '#000000'; ctx.strokeText(w.text, x, base); }
+        ctx.translate(mx, my); ctx.scale(sc, sc); ctx.translate(-mx, -my);
+        if (opts.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = opts.stroke; ctx.strokeStyle = opts.strokeColor || '#000000'; ctx.strokeText(w.text, tx, base); }
         ctx.fillStyle = on ? accent : ink;
-        ctx.fillText(w.text, x, base);
+        ctx.fillText(w.text, tx, base);
         ctx.restore();
       }
       const top = base - size * 0.8, h = size;
-      boxes.push({ id: `cap${w.i}`, text: w.text, x: mx + (x - mx) * s, y: my + (top - my) * s, w: w.w * s, h: h * s,
+      boxes.push({ id: `cap${w.i}`, text: w.text, x: mx - (w.w / 2) * s, y: my + (top - my) * sc, w: w.w * s, h: h * sc,
         group: `cap-${groups.indexOf(g)}`, line: li, active: on });
-      x += w.w + space;
+      x += w.w;
     }
   });
   ctx.restore();

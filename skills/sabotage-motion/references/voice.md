@@ -133,7 +133,10 @@ Words are grouped into lines that fit the safe width (less room for the pop), sh
 with the spoken word popped and coloured. A new group starts after a sentence end or a pause longer than `breakGap`.
 `VO_OFFSET` is added inside; tags never show. **Pass the target's `exclude`**: on `tiktok-ad` a full default line
 otherwise runs under the button column (x 780 to 960 from y 840 down) and `text_safe` fails it; with `exclude` the
-block keeps to the width left of the column at its height. `maxW`, `x` and `y` override the layout by hand.
+block keeps to the width left of the column at its height. A word wider than that width is scaled down to fit it,
+so it never crosses the safe edge or the column. Between words the layout leaves room for the pop, so the spoken
+word never touches its neighbours: a plain space where the pop fits, more beside long words (`wordGap` sets the clear
+space kept, by default half a space plus `stroke`). `maxW`, `x` and `y` override the layout by hand.
 `references/techniques.md` section 11 lists every option.
 
 ## 9. The mix (`tools/mix.mjs`)

@@ -156,8 +156,10 @@ implementation is: `T:` is `template/scene.js`, `R:` `examples/showreel/scene.js
   `pop: 'spring'`) in the accent colour, adds `VO_OFFSET` itself, and never shows delivery tags. It returns one box
   per word; with `draw: false` it only returns them, for `boxes(t)`. Options: `size`, `family`, `lines`, `pos`
   (`bottom`, `center`, `top`), `maxW`, `x`/`y`, `upper`, `stroke`, `strokeColor`, `color`, `accent`, `breakGap`,
-  `hold`. Lines are filled to the safe width less room for the pop, so a popped word at the end of a line stays
-  inside.
+  `hold`, `wordGap`. Lines are filled to the safe width less room for the pop, so a popped word at the end of a line
+  stays inside. Between words the layout leaves room for the pop too: a plain space where the pop fits, more beside
+  long words, so the spoken word never touches its neighbours (`wordGap` is the clear space it keeps, by default half
+  a space plus the `stroke`). A word wider than the line is scaled down to fit it.
 - **Captions beside a platform's buttons**: pass the target's `exclude` and the block keeps to the width those
   rectangles leave free at its height (on `tiktok-ad`, the left of x 780 at the bottom), centred there. Without it
   a full line runs under TikTok's button column and `check`'s `text_safe` fails it. For other layouts, `freeSpan()`

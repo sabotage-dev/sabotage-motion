@@ -198,8 +198,9 @@ contact sheet and board sheet committed:
 
 P4 also changed the engine in four places: a render writes to `out/<name>.partial.<ext>` and renames it only when
 it is complete, so a failed render never touches an earlier good one; `captions(..., { exclude })` keeps captions
-beside a platform's covered areas (TikTok's button column on `tiktok-ad`), and `sceneTarget()` and `freeSpan()` in
-`lib.js` let any layout do the same; `check`'s `file_spec` accepts ProRes 4444 read back as 12-bit (ffmpeg 9 reports
+beside a platform's covered areas (TikTok's button column on `tiktok-ad`), leaves room between words for the popped
+word, and scales a word wider than the line to fit it, and `sceneTarget()` and `freeSpan()` in `lib.js` let any
+layout keep out of covered areas too; `check`'s `file_spec` accepts ProRes 4444 read back as 12-bit (ffmpeg 9 reports
 it that way); and the template's example scene now fits its target's safe area, reports its text through `boxes(t)`
 and opens on a frame that is not flat, so `check` on a fresh copy is clean.
 

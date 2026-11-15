@@ -21,6 +21,7 @@ engine's overlays on top), or animating UI inside a web app.
 
 ```sh
 cp -R "${CLAUDE_SKILL_DIR}/template" motion/<piece>
+chmod -R u+w motion/<piece>                   # cp keeps the source's modes: a read-only install copies read-only
 cd motion/<piece> && npm install              # playwright-core; it drives the installed Google Chrome
 node render.mjs doctor                        # Chrome, WebGL2, ffmpeg, fonts: says what to install if anything is missing
 node render.mjs contact --param "title=Hello there"   # 12 frames of the whole timeline in contact.png
@@ -90,11 +91,20 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
    frames, timed by the take), `contact` and `stills`, and Read the PNGs: one image shows the whole arc in seconds,
    where a full render takes minutes.
 9. **Get sign-off on a rendered sample** (a contact sheet or a short preview) before polishing. Taste is theirs.
-10. **Check, render, mix, check the master.** `node render.mjs check` (fix every FAIL; read every WARN), then
-    `node render.mjs full --out out/<name>.mp4` (or `video --alpha` for an overlay), `node tools/mix.mjs <name>` (voice,
-    bed and effects, mastered to -14 LUFS; `--master-only` or `--sting` for effects alone), and
-    `node render.mjs check --file out/<name>-final.mp4`. `references/check.md` says what each result means.
-11. **Deliver** the master's full path. If the person's chat tool limits attachments, send a preview encode
+10. **Check, render, mix, check the master.** First `node render.mjs check` (fix every FAIL; read every WARN). Every
+    file in the piece is source, `board.js` notes included, so finish them before the final render: a later edit makes
+    the master stale, and `check --file` fails it until you render and mix again. Then, for:
+    - **a video**: `node render.mjs full --out out/<name>.mp4`, then `node tools/mix.mjs <name>` (voice, bed and
+      effects, mastered to -14 LUFS; `--master-only` for the effects alone, also -14 LUFS; `--sting` for an asset cut
+      into someone else's video, -20 LUFS), then `node render.mjs check --file out/<name>-final.mp4`;
+    - **an overlay** (transparent, with no mix: the mixer takes only an `.mp4` picture):
+      `node render.mjs video --alpha --out out/<name>.mov`, then `node render.mjs check --alpha` and
+      `node render.mjs check --file out/<name>.mov --plain --alpha`. For WebM:
+      `node render.mjs video --alpha webm --out out/<name>.webm`, then
+      `node render.mjs check --file out/<name>.webm --plain --alpha webm`.
+
+    `references/check.md` says what each result means.
+11. **Deliver** the master's full path (for an overlay, the `.mov` or `.webm`). If the person's chat tool limits attachments, send a preview encode
     (`references/delivery.md`) and keep the master. Leave the source in the piece folder so it can be re-rendered.
 
 ## Craft defaults that make it look designed
@@ -124,7 +134,7 @@ motion blur, post, shader looks, data and UI motion, captions, lower thirds, sou
 ## Examples
 
 Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folder, with its `contact.png` and
-`board.png` committed. Copy one as a starting point the same way as the template.
+`board.png` committed. Copy one as a starting point the same way as the template (`cp -R`, then `chmod -R u+w`).
 
 - `showreel/` (20 s, 16:9, 60 fps): what the engine can draw, cut to a 120 BPM grid: kinetic type, shape morphs,
   22,000 particles, a raymarched blob, liquid metaballs refracting type, a data panel, an eight-cut montage, and an

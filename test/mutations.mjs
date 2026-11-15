@@ -5,7 +5,7 @@
 //   node test/mutations.mjs              every mutation (about 25 minutes on an Apple-silicon Mac)
 //   node test/mutations.mjs --fast       only those the unit tests catch (seconds)
 //   node test/mutations.mjs --only <name-substring>
-//   node test/mutations.mjs --list
+//   node test/mutations.mjs --list       every mutation, and STALE beside any whose text is not in its file exactly once
 // Exit 1 when any mutation survives (no test failed) or no longer applies (its text is not in the file).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -80,6 +80,10 @@ const M = [
   ['captions: no room left for the pop', T + 'lib.js', [['maxW: opts.maxW || (span ? (span.right - span.left) / CAPTION_POP_MAX : 900)', 'maxW: opts.maxW || (span ? (span.right - span.left) : 900)']], UNIT],
   ['captions: one group per line, not per block', T + 'lib.js', [['group: `cap-${groups.indexOf(g)}`, line: li', 'group: `cap-${groups.indexOf(g)}-${li}`, line: li']], UNIT],
   ['captions: draw: false still draws', T + 'lib.js', [['const boxes = [], draw = opts.draw !== false;', 'const boxes = [], draw = true;']], UNIT],
+  ['F2 captions: no room for the pop between words', T + 'lib.js', [['const gapOf = (a, b) => Math.max(space, ((CAPTION_POP_MAX - 1) / 2) * Math.max(a.w, b.w) + clear);', 'const gapOf = (a, b) => space;']], UNIT],
+  ['F2 captions: the clear gap ignores the stroke', T + 'lib.js', [['const clear = o.wordGap != null ? o.wordGap : space / 2 + o.stroke;', 'const clear = o.wordGap != null ? o.wordGap : space / 2;']], UNIT],
+  ['F2 captions: an oversized word keeps its width', T + 'lib.js', [['const fit = width > o.maxW ? o.maxW / width : 1;', 'const fit = 1;']], UNIT],
+  ['F2 captions: an oversized word is drawn at its full width', T + 'lib.js', [['sc = s * w.fit, tx = mx - w.raw / 2;', 'sc = s, tx = mx - w.raw / 2;']], UNIT],
   ['P4 captions: exclude ignored', T + 'lib.js', [['const span = safe ? captionSpan(safe, opts.exclude, {', 'const span = safe ? captionSpan(safe, undefined, {']], UNIT],
   ['P4 captions: the block centred on the safe area, not the free span', T + 'lib.js', [['const cx = opts.x != null ? opts.x : (span.left + span.right) / 2;', 'const cx = opts.x != null ? opts.x : safe.x + safe.w / 2;']], UNIT],
   ['P4 captionSpan: a rectangle cuts the wrong side', T + 'lib.js', [['if (e.x + e.w / 2 >= (left + right) / 2) right = Math.min(right, e.x);', 'if (e.x + e.w / 2 < (left + right) / 2) right = Math.min(right, e.x);']], UNIT],
@@ -150,7 +154,14 @@ const M = [
 ];
 
 const argv = process.argv.slice(2);
-if (argv.includes('--list')) { for (const [n, f, , t] of M) console.log(`${n.padEnd(58)} ${path.basename(f).padEnd(11)} ${t.map((x) => path.basename(x)).join(' ')}`); process.exit(0); }
+// A mutation applies when each of its texts is in its file exactly once (as the run below requires).
+const applies = (file, edits) => { const src = fs.readFileSync(path.join(repo, file), 'utf8'); return edits.every(([from]) => src.split(from).length - 1 === 1); };
+if (argv.includes('--list')) {
+  let stale = 0;
+  for (const [n, f, e, t] of M) { const ok = applies(f, e); if (!ok) stale++; console.log(`${ok ? '     ' : 'STALE'} ${n.padEnd(58)} ${path.basename(f).padEnd(11)} ${t.map((x) => path.basename(x)).join(' ')}`); }
+  console.log(`${M.length} mutations, ${stale} stale`);
+  process.exit(stale ? 1 : 0);
+}
 const onlyI = argv.indexOf('--only'), only = onlyI >= 0 ? argv[onlyI + 1] : null;
 const todo = M.filter(([n, , , t]) => (!only || n.includes(only)) && (!argv.includes('--fast') || t === UNIT));
 
