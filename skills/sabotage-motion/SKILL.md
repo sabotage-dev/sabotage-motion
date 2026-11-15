@@ -50,6 +50,7 @@ size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a 
 | `index.html` | `@font-face` declarations; the bundled faces are in `fonts/` | Fonts only |
 | `shaders.js` | Background shaders (`SCENE`: gradient, paper, grid, crt, mesh) and the composite, bloom and post chain | To add a shader |
 | `lib.js` | Easing (`snap`, `swift`, `whip`, `anticip`), `spring`, noise, `env`, colours, the board helpers (`beatWindow`, `beatAt`, `boardDur`), `captions`, `loadSeq`/`seqAt`, `sceneTarget`, `freeSpan` | Rarely |
+| `code.js` | Code and terminal motion: highlighting (`codeTheme`), typed code (`codeBlock`, `drawCode`), diffs (`diffBlock`, `drawDiff`), a terminal session (`termSession`, `terminal`), window, browser and phone frames (`drawFrame`), key ticks (`typedTimes`, `keyTicks`, `keySounds`) | Rarely |
 | `slate.js` | A placeholder card per beat, for the board sheet and the animatic | No |
 | `grid.js` | A labelled measuring grid at a target's size (optional, for reading safe-zone edges off screenshots) | No |
 | `cues.js`, `cues.json` | Written by `tools/cues.mjs` from a voice take; never by hand | No |
@@ -67,7 +68,8 @@ Read the `scene.js` header before writing a scene. The rules that keep frames co
   which ignore the transform (write `blur(${18 * scale}px)`, or glows look 4x too wide on quarter-size sheets)
 - build `TL` from the board (`beatWindow(id)`) and set `CFG.DUR = boardDur()`, so retiming a beat moves everything
 - when you replace the example `TL`, rewrite the cues in `audio.js` too (they read its fields)
-- export `boxes(t)` for any text you draw, so `check` can see it without OCR (captions return theirs)
+- export `boxes(t)` for any text you draw, so `check` can see it without OCR (captions return theirs, and so does every
+  `code.js` helper with `draw: false`)
 
 ## Workflow
 
@@ -144,6 +146,9 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
 - Match the effect vocabulary to the brand. Neon, glitch and scramble-decode suit tech and sci-fi; warm, human
   brands get paper texture, gentle springs, hand-feel type and no glitch at all. Each look carries its vocabulary
   (`style.motion`: entrance, stagger, whether a sweep or a glitch is allowed, hard cuts or whips); keep to it.
+- Code and terminals: build the blocks in `init` from `codeTheme(style)`, so the code takes the piece's colours and
+  mono face; type with a seeded cadence, fade or lift windows in place rather than sliding them in from off screen, and
+  thin the key ticks with `keyTicks` (`references/code.md`).
 - Keep text inside the target's safe area, and out of its `exclude` rectangles (TikTok's button column on
   `tiktok-ad`). `sceneTarget(target)` gives a scene its target's safe area even without `--target`, `freeSpan()` the
   width an exclude rectangle leaves free at a given height, and `captions(..., { safe, exclude })` keeps captions
@@ -165,6 +170,9 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
   clean on the master.
 - `lower-third/` (5 s, 16:9, transparent): a name strap rendered `--alpha` to ProRes 4444 and WebM, and the recipe
   that composites it onto footage (`references/delivery.md`).
+- `terminal-demo/` (8 s, 9:16): a made-up command-line tool installed and run in a terminal (typed commands, a progress
+  bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look, and
+  `check` clean on the source and the master (`references/code.md`).
 
 ## Gotchas (each one cost time before)
 
@@ -207,5 +215,7 @@ measured checks, and rendering it exactly on one machine.
 - `references/check.md`: every check, its threshold, the measurements behind it, and how to silence it on purpose;
   overlays and files from elsewhere.
 - `references/techniques.md`: the motion craft catalog, with pointers into the template and the examples.
+- `references/code.md`: code and terminal motion (`code.js`): highlighting and its colours, typed code, diffs, a terminal
+  session, frames, the boxes `check` reads, key ticks.
 - `references/delivery.md`: sizes and safe areas, encode settings, alpha overlays, compositing recipes, loudness
   targets, footage, previews.

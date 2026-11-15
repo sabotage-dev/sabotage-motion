@@ -1,4 +1,4 @@
-// The three examples (plan section 15), without a browser: each is a full piece whose engine files are the
+// The examples (plan sections 15 and 23.3), without a browser: each is a full piece whose engine files are the
 // template's, byte for byte (only its own scene, board, sound and look differ), it commits its contact.png and
 // board.png and no other output, the voiced one's cues still match its board, and its VOICE.md names the engine,
 // the voice and a licence that allows redistribution, matching take.json. test/examples-check.test.mjs runs `check`
@@ -15,6 +15,7 @@ const OWN = {
   showreel: ['scene.js', 'board.js', 'audio.js', 'shaders.js', 'index.html', '.gitignore'],
   'explainer-beat': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
   'lower-third': ['scene.js', 'board.js', '.gitignore'],
+  'terminal-demo': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
 };
 // The template's files as the repo publishes them (tracked, or new and not ignored), so render outputs and other
 // ignored files in the template folder (CI renders a benchmark there) are not part of the comparison.

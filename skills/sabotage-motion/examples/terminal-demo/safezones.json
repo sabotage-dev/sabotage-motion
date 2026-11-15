@@ -1,0 +1,134 @@
+{
+  "about": "Delivery presets for --target <name>: canvas size and fps (design pixels), and the safe rectangle where text and key objects belong (x, y, w, h from the top-left). Each edge of the rectangle has its own record in `edges`: where it is (`at`, in design pixels), its `source`, the date it was `measured` (null until it is), and `estimate`. A target may also list `exclude`: rectangles inside `safe` that the platform covers anyway (TikTok's action-button column), each { x, y, w, h, source }; text that overlaps one counts as outside the safe area, and the --safe overlays shade it. A target is an estimate while any of its edges is, and then render.mjs check reports text outside it as WARN rather than FAIL, and the --safe overlays say \"estimate\". The *-ad targets are the platforms' published safe zones for 9:16 ads, measured from their sources; they are stricter than organic posts. The organic targets (tiktok, reels, shorts) are researched estimates: no platform publishes an organic zone, so their edges come from published third-party measurements, cited with the research date. CFG.W, CFG.H and CFG.FPS in a scene win over these.",
+  "method": "How the numbers are set (plan Q3). The ad targets (*-ad) are measured from each platform's published safe-zone template or spec, scaled to the canvas, each edge citing its source, with estimate false. No platform publishes an organic zone, so the organic targets (tiktok, reels, shorts) take each edge from published third-party measurements of the app's UI, compared and cited, with the research date in its source; where they disagree, the more conservative figure, unless a source shows why it differs. They keep estimate true and measured null, because the overlays move with the device and with the caption's length, so render.mjs check reports text outside them as WARN, never FAIL. An area the app covers inside the rectangle (a column of buttons) goes in exclude. To refine an edge from an in-app screenshot, scale it so the video is 1080 px wide and record the first row or column no overlay covers; grid.js, a labelled grid, can help read positions off it.",
+  "targets": {
+    "tiktok": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 44, "y": 130, "w": 896, "h": 1306 },
+      "estimate": true, "measured": null,
+      "source": "Researched 2026-11-14 from published third-party measurements of the organic TikTok UI (cadenus.io, vidova.ai): 44 left, 130 top, a 140-wide button rail on the right, and 484 at the bottom for the username, caption and sound rows. TikTok publishes only its ad zone (tiktok-ad). An estimate: the overlays move with the device and with the caption's length.",
+      "edges": {
+        "left": { "at": 44, "estimate": true, "measured": null, "source": "third-party measurements of the organic TikTok UI agree on 44 left, 130 top and a 140-wide button rail on the right (cadenus.io/resources/blog/tiktok-safe-zone, vidova.ai/blog/instagram-reels-tiktok-youtube-shorts-safe-zones); researched 2026-11-14" },
+        "right": { "at": 940, "estimate": true, "measured": null, "source": "third-party measurements of the organic TikTok UI agree on 44 left, 130 top and a 140-wide button rail on the right (cadenus.io/resources/blog/tiktok-safe-zone, vidova.ai/blog/instagram-reels-tiktok-youtube-shorts-safe-zones); researched 2026-11-14" },
+        "top": { "at": 130, "estimate": true, "measured": null, "source": "third-party measurements of the organic TikTok UI agree on 44 left, 130 top and a 140-wide button rail on the right (cadenus.io/resources/blog/tiktok-safe-zone, vidova.ai/blog/instagram-reels-tiktok-youtube-shorts-safe-zones); researched 2026-11-14" },
+        "bottom": { "at": 1436, "estimate": true, "measured": null, "source": "484 px for the username, caption and sound rows (cadenus.io; 480-484 elsewhere; vidova gives 320). It matches TikTok's own In-Feed ad template's 660 px bottom less the ad's call-to-action and sponsored label. It grows with longer captions. Researched 2026-11-14" }
+      }
+    },
+    "reels": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 86, "y": 250, "w": 874, "h": 1350 },
+      "estimate": true, "measured": null,
+      "source": "the more conservative of two organic measurements on each edge: adchecklab.com/articles/instagram-reels-safe-zone-template, measured in the Instagram app (250 top, 319 bottom, 86 left, 119 right), and vidova.ai / outfy.com (108 top, 320 bottom, 60 left, 120 right). Meta publishes only the ad zone, which is the reels-ad target. Researched 2026-11-14",
+      "edges": {
+        "left": { "at": 86, "estimate": true, "measured": null, "source": "the more conservative of two organic measurements on each edge: adchecklab.com/articles/instagram-reels-safe-zone-template, measured in the Instagram app (250 top, 319 bottom, 86 left, 119 right), and vidova.ai / outfy.com (108 top, 320 bottom, 60 left, 120 right). Meta publishes only the ad zone, which is the reels-ad target. Researched 2026-11-14" },
+        "right": { "at": 960, "estimate": true, "measured": null, "source": "the more conservative of two organic measurements on each edge: adchecklab.com/articles/instagram-reels-safe-zone-template, measured in the Instagram app (250 top, 319 bottom, 86 left, 119 right), and vidova.ai / outfy.com (108 top, 320 bottom, 60 left, 120 right). Meta publishes only the ad zone, which is the reels-ad target. Researched 2026-11-14" },
+        "top": { "at": 250, "estimate": true, "measured": null, "source": "the more conservative of two organic measurements on each edge: adchecklab.com/articles/instagram-reels-safe-zone-template, measured in the Instagram app (250 top, 319 bottom, 86 left, 119 right), and vidova.ai / outfy.com (108 top, 320 bottom, 60 left, 120 right). Meta publishes only the ad zone, which is the reels-ad target. Researched 2026-11-14" },
+        "bottom": { "at": 1600, "estimate": true, "measured": null, "source": "the more conservative of two organic measurements on each edge: adchecklab.com/articles/instagram-reels-safe-zone-template, measured in the Instagram app (250 top, 319 bottom, 86 left, 119 right), and vidova.ai / outfy.com (108 top, 320 bottom, 60 left, 120 right). Meta publishes only the ad zone, which is the reels-ad target. Researched 2026-11-14" }
+      }
+    },
+    "shorts": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 48, "y": 288, "w": 840, "h": 1252 },
+      "estimate": true, "measured": null,
+      "source": "Researched 2026-11-14: the top, the sides and the button rail from Google's vertical-video ad safe zone (288 top, 48 left, 192 right; the same UI on organic Shorts), and 380 at the bottom for the title, channel and subscribe rows, where three organic sources agree. YouTube publishes only its ad zone (shorts-ad). An estimate: the overlays move with the device and with the title's length.",
+      "edges": {
+        "left": { "at": 48, "estimate": true, "measured": null, "source": "Google's own vertical-video ad safe zone (support.google.com/google-ads/answer/16041697: 288 top, 48 left, 192 right). The top bar, the sides and the like/comment/share rail are the same UI on organic Shorts. Third-party organic figures disagree, and some ignore the button rail. Researched 2026-11-14" },
+        "right": { "at": 888, "estimate": true, "measured": null, "source": "Google's own vertical-video ad safe zone (support.google.com/google-ads/answer/16041697: 288 top, 48 left, 192 right). The top bar, the sides and the like/comment/share rail are the same UI on organic Shorts. Third-party organic figures disagree, and some ignore the button rail. Researched 2026-11-14" },
+        "top": { "at": 288, "estimate": true, "measured": null, "source": "Google's own vertical-video ad safe zone (support.google.com/google-ads/answer/16041697: 288 top, 48 left, 192 right). The top bar, the sides and the like/comment/share rail are the same UI on organic Shorts. Third-party organic figures disagree, and some ignore the button rail. Researched 2026-11-14" },
+        "bottom": { "at": 1540, "estimate": true, "measured": null, "source": "380 px for the title, channel and subscribe rows, where three organic sources agree (vidova.ai, kreatli.com/guides/youtube-shorts-safe-zone, youtubetoolkit.com/blog/youtube-shorts-dimensions). Google's ad zone reserves 672 because ads add an ad card and a call-to-action. Researched 2026-11-14" }
+      }
+    },
+    "tiktok-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 120, "y": 240, "w": 840, "h": 1020 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920",
+      "edges": {
+        "left": { "at": 120, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "right": { "at": 960, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "top": { "at": 240, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" },
+        "bottom": { "at": 1260, "estimate": false, "measured": "2026-11-14", "source": "TikTok's In-Feed safe zone template, 'In-Feed-Standard Version LTR.zip' (Feed.png, file dated 2025-04-14, drawn on a 720x1280 grid: 80 sides, 160 top, 440 bottom, a 120-wide button column over the bottom 720), linked from ads.tiktok.com/help/article/tiktok-auction-in-feed-ads; edges measured from the PNG at 1080x1920" }
+      },
+      "exclude": [
+        { "x": 780, "y": 840, "w": 180, "h": 420, "source": "the template's 120-wide action-button column over the bottom 720 of its 720x1280 grid, at 1080x1920: x 780-960 from y 840 down to the safe area's bottom" }
+      ]
+    },
+    "reels-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 65, "y": 269, "w": 950, "h": 979 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels",
+      "edges": {
+        "left": { "at": 65, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "right": { "at": 1015, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "top": { "at": 269, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Meta's ads guide for Instagram Reels (facebook.com/business/ads-guide/update/video/instagram-reels): 'Consider leaving at least 14% of the top, 35% of the bottom, and 6% on each side of your asset free from text, logos...'; 14%, 35% and 6% of 1920/1080 rounded to whole pixels" }
+      }
+    },
+    "shorts-ad": {
+      "w": 1080, "h": 1920, "fps": 30,
+      "safe": { "x": 48, "y": 288, "w": 840, "h": 960 },
+      "estimate": false, "measured": "2026-11-14",
+      "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920",
+      "edges": {
+        "left": { "at": 48, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "right": { "at": 888, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "top": { "at": 288, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" },
+        "bottom": { "at": 1248, "estimate": false, "measured": "2026-11-14", "source": "Google Ads Help, 'Safe zones for vertical video ads on YouTube' (support.google.com/google-ads/answer/16041697): the reference image's labels are 288 top, 672 bottom, 48 left, 192 right on 1080x1920" }
+      }
+    },
+    "youtube": {
+      "w": 1920, "h": 1080, "fps": 30,
+      "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
+      "estimate": true, "measured": null,
+      "source": "Conventional title-safe area (5% margin each side). Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
+    },
+    "square": {
+      "w": 1080, "h": 1080, "fps": 30,
+      "safe": { "x": 54, "y": 54, "w": 972, "h": 972 },
+      "estimate": true, "measured": null,
+      "source": "Conventional 5% margin. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
+    },
+    "feed45": {
+      "w": 1080, "h": 1350, "fps": 30,
+      "safe": { "x": 54, "y": 68, "w": 972, "h": 1214 },
+      "estimate": true, "measured": null,
+      "source": "Conventional 5% margin on a 4:5 feed post. Not measured.",
+      "edges": {
+        "left": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 68, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1282, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
+    },
+    "web": {
+      "w": 1920, "h": 1080, "fps": 30,
+      "safe": { "x": 96, "y": 54, "w": 1728, "h": 972 },
+      "estimate": true, "measured": null,
+      "source": "Conventional 5% margin for a site loop or hero video. Not measured.",
+      "edges": {
+        "left": { "at": 96, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "right": { "at": 1824, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "top": { "at": 54, "estimate": true, "measured": null, "source": "conventional 5% margin" },
+        "bottom": { "at": 1026, "estimate": true, "measured": null, "source": "conventional 5% margin" }
+      }
+    },
+    "none": {
+      "safe": null,
+      "estimate": true, "measured": null,
+      "source": "No platform: size and fps come from CFG, and no safe area applies."
+    }
+  }
+}

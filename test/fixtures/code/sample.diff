@@ -1,0 +1,13 @@
+diff --git a/src/clock.ts b/src/clock.ts
+index 3f2a1c0..9b8e7d4 100644
+--- a/src/clock.ts
++++ b/src/clock.ts
+@@ -14,3 +14,3 @@ function lap(clock) {
+   const now = clock.read();
+-  const ms = now - clock.start + 1;
++  const ms = now - clock.start;
+--- a removed line that starts with two dashes
+\ No newline at end of file
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
