@@ -466,13 +466,20 @@ const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSE
 
 // ---- captions (plan section 8): word-by-word captions from WORDS (seconds into vo.wav).
 //   const boxes = captions(ctx, CUES ? CUES.WORDS : [], t, { safe: target.safe, size: 72 });
-// Lines are filled to opts.maxW (default: the safe width) with measureText; a group of up to opts.lines
+// Lines are filled to opts.maxW with measureText (default: the safe width less room for the pop, so a
+// popped word at the end of a full line stays inside the safe area); a group of up to opts.lines
 // lines shows at a time, and a new group starts after a sentence end or a pause longer than
 // opts.breakGap. The active word pops (anticip, or a spring with pop: 'spring') from 1.15 to 1 and takes
 // the accent colour. The block sits inside opts.safe (bottom by default; pos: 'center' | 'top'), or at
 // opts.x / opts.y (its centre and its last baseline). Returns one text box per drawn word, in design
-// pixels, for a scene's boxes(t). VO_OFFSET is added here (opts.voOffset overrides it); tags never show.
+// pixels, for a scene's boxes(t); the words shown together share one `group`, so render.mjs check reads
+// them as one phrase. VO_OFFSET is added here (opts.voOffset overrides it); tags never show.
+// opts.draw: false lays the words out and returns their boxes without drawing, for boxes(t):
+//   export const boxes = (t) => captions(ctx, CUES.WORDS, t, { ...capOpts, draw: false });
 const _capCache = new WeakMap();
+// The largest scale a popped word reaches: anticip dips below 0 before it settles, so 1.15 - 0.15 x (-0.072).
+// The default line width leaves this much room, so the popped word at either end of a full line stays inside.
+export const CAPTION_POP_MAX = 1.165;
 function captionLayout(ctx, WORDS, o) {
   const key = JSON.stringify([o.font, o.maxW, o.lines, o.breakGap, o.sentence, o.upper, o.hold]);
   let byKey = _capCache.get(WORDS);
@@ -519,7 +526,7 @@ export function captions(ctx, WORDS, t, opts = {}) {
   if (!safe && (opts.x == null || opts.y == null)) throw new Error('captions: pass opts.safe (target.safe from init) or opts.x and opts.y');
   const size = opts.size || 64;
   const o = {
-    font: opts.font || `${size}px ${opts.family || 'DISPLAY'}`, maxW: opts.maxW || (safe ? safe.w : 900),
+    font: opts.font || `${size}px ${opts.family || 'DISPLAY'}`, maxW: opts.maxW || (safe ? safe.w / CAPTION_POP_MAX : 900),
     lines: opts.lines || 2, breakGap: opts.breakGap != null ? opts.breakGap : 0.6, sentence: opts.sentence !== false,
     upper: !!opts.upper, hold: opts.hold != null ? opts.hold : 0.5,
   };
@@ -541,7 +548,7 @@ export function captions(ctx, WORDS, t, opts = {}) {
     : pos === 'center' ? safe.y + safe.h / 2 + blockH / 2 + size * 0.3
     : safe.y + safe.h - margin - size * 0.2;
   const ink = opts.color || '#FFFFFF', accent = opts.accent || '#FFD23F';
-  const boxes = [];
+  const boxes = [], draw = opts.draw !== false;
   ctx.save();
   ctx.font = o.font; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.globalAlpha = (ctx.globalAlpha == null ? 1 : ctx.globalAlpha) * alpha;
@@ -553,15 +560,17 @@ export function captions(ctx, WORDS, t, opts = {}) {
       const k = on ? prog(tv, w.start, w.start + popDur) : 1;
       const s = on ? (opts.pop === 'spring' ? 1.15 - 0.15 * spring(tv - w.start, 4, 0.45) : 1.15 - 0.15 * anticip(k)) : 1;
       const mx = x + w.w / 2, my = base - size * 0.35;
-      ctx.save();
-      ctx.translate(mx, my); ctx.scale(s, s); ctx.translate(-mx, -my);
-      if (opts.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = opts.stroke; ctx.strokeStyle = opts.strokeColor || '#000000'; ctx.strokeText(w.text, x, base); }
-      ctx.fillStyle = on ? accent : ink;
-      ctx.fillText(w.text, x, base);
-      ctx.restore();
+      if (draw) {
+        ctx.save();
+        ctx.translate(mx, my); ctx.scale(s, s); ctx.translate(-mx, -my);
+        if (opts.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = opts.stroke; ctx.strokeStyle = opts.strokeColor || '#000000'; ctx.strokeText(w.text, x, base); }
+        ctx.fillStyle = on ? accent : ink;
+        ctx.fillText(w.text, x, base);
+        ctx.restore();
+      }
       const top = base - size * 0.8, h = size;
       boxes.push({ id: `cap${w.i}`, text: w.text, x: mx + (x - mx) * s, y: my + (top - my) * s, w: w.w * s, h: h * s,
-        group: `cap-${groups.indexOf(g)}-${li}`, active: on });
+        group: `cap-${groups.indexOf(g)}`, line: li, active: on });
       x += w.w + space;
     }
   });
