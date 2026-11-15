@@ -344,6 +344,20 @@ test('effectsLink (round 1, F8): the effects stem must be one a render of the cu
   const p = C.provenance(facts({ effectsProblem: 'the effects stem out/p.wav was rendered from another source' }));
   assert.equal(p.result.level, 'FAIL'); assert.equal(p.bound, false); assert.match(p.result.detail, /another source/);
 });
+test('effectsLink (council round 2): a record binds the stem only when made with the picture\'s scene, params, fps and length', () => {
+  const stem = { file: 'out/p.wav', sha256: 'W' };
+  const pic = { scene: 'scene.js', params: { a: '1', b: '2' }, fps: 30, dur: 4, source: { hash: 'S' } };
+  const ar = (o = {}) => ({ file: 'out/p.wav.render.json', rec: { audioSha256: 'W', scene: 'scene.js', params: { b: '2', a: '1' }, fps: 30, dur: 4, source: { hash: 'S' }, ...o }, sourceNow: { hash: 'S' } });
+  assert.equal(C.effectsLink(stem, [ar()], pic), null, 'the same settings, the params in another order');
+  assert.match(C.effectsLink(stem, [ar({ params: {} })], pic), /rendered with other settings than the picture \(params \{\} vs \{"a":"1","b":"2"\}\)/);
+  assert.match(C.effectsLink(stem, [ar({ scene: 'alt.js' })], pic), /scene alt\.js vs scene\.js/);
+  assert.match(C.effectsLink(stem, [ar({ fps: 25 })], pic), /fps 25 vs 30/);
+  assert.match(C.effectsLink(stem, [ar({ dur: 5 })], pic), /length 5 vs 4 s/);
+  assert.equal(C.effectsLink(stem, [ar({ params: {} }), ar()], pic), null, 'a record with the picture\'s settings wins over one without');
+  const own = { ...pic, audioSha256: 'W' };
+  assert.equal(C.effectsLink(stem, [{ file: 'out/p.mp4.render.json', rec: own, sourceNow: { hash: 'S' } }], own), null, 'full: the picture\'s own record');
+  assert.match(C.effectsLink(stem, [ar({ params: {}, source: { hash: 'S2' } })], pic), /other settings/, 'settings are named before the source');
+});
 const facts = (o = {}) => ({
   fileRel: 'out/p-final.mp4', fileSha: 'F', mjPath: '/p/out/p.master.json', mjRel: 'out/p.master.json',
   mj: { mode: 'default', master: { sha256: 'F', video: { hash: 'V' } }, render: { file: 'out/p.mp4.render.json', sha256: 'R' } },

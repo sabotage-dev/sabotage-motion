@@ -165,7 +165,9 @@ test('usage errors exit 2 and say why', () => {
   for (const [args, re] of [[['--only', 'nope'], /--only nope: no such check/], [['--file', 'out/missing.mp4'], /no such file/],
     [['--plain'], /--plain needs --file/], [['--lufs', 'x'], /need numbers/],
     // round 1, F7: file checks with no file would print nothing and pass
-    [['--only', 'loudness'], /--only loudness: those are checks of a file: give it with --file/], [['--only', 'provenance,file_spec'], /give it with --file/]]) {
+    [['--only', 'loudness'], /--only loudness: that is a check of a file: give it with --file/], [['--only', 'provenance,file_spec'], /those are checks of a file: give it with --file/],
+    // council round 2: a file check beside source checks would be dropped without a word
+    [['--only', 'loudness,text_safe'], /--only loudness: that is a check of a file: give it with --file/]]) {
     const r = runCheck(dir, args, { json: false });
     assert.equal(r.status, 2, r.out); assert.match(r.out, re);
   }

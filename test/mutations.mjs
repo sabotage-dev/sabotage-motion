@@ -114,12 +114,17 @@ const M = [
   ['F4 exclude: the polygon\'s own edges are not separating axes', T + 'check.mjs', [['    if (len > 1e-9) axes.push([-dy / len, dx / len]);\n', '']], UNIT],
   ['F5 render.mjs: an effects failure only under audio_spike', T + 'render.mjs', [["for (const id of ['board_sfx_missing', 'audio_spike']) push({ id, scope: 'source', level: 'FAIL', detail: `the effects did not render", "for (const id of ['audio_spike']) push({ id, scope: 'source', level: 'FAIL', detail: `the effects did not render"]], SRC],
   ['F6 render.mjs: a scene problem FAILs a run that does not check the scene', T + 'render.mjs', [['  const quiet = !runSource;', '  const quiet = false;']], FILE],
-  ['F7 render.mjs: --only file checks without --file is allowed', T + 'render.mjs', [['  if (only && !fileArg && [...only].every((id) => C.FILE_IDS.includes(id))) return usage(', '  if (false) return usage(']], SRC],
+  ['F7 render.mjs: --only file checks without --file is allowed', T + 'render.mjs', [['  if (fileOnly.length) return usage(', '  if (false) return usage(']], SRC],
   ['F8 provenance: the effects problem ignored', T + 'check.mjs', [['    if (f.effectsProblem) probs.push(f.effectsProblem);\n', '']], UNIT],
   ['F8 effectsLink: the source not compared', T + 'check.mjs', [['  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {', '  if (false) {']], UNIT],
   ['F8 render.mjs: audio writes no record', T + 'render.mjs', [['      writeAudioRecord(out, src);\n', '']], FILE],
   ['F8 render.mjs: full does not record its stem\'s hash', T + 'render.mjs', [[', audioSha256: sha256(fs.readFileSync(atmp)) });', ' });']], FILE],
-  ['F8 render.mjs: the effects stem not looked up', T + 'render.mjs', [['          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands);\n', '']], FILE],
+  ['F8 render.mjs: the effects stem not looked up', T + 'render.mjs', [['          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands, facts.rec || null);\n', '']], FILE],
+  // ---- council round 2 fold
+  ['R2 sceneProblem: the folder\'s case counts', T + 'render.mjs', [['low = parts.map((x) => x.toLowerCase());', 'low = parts;']], ['test/render-error.test.mjs']],
+  ['R2 effectsLink: the settings not compared', T + 'check.mjs', [['hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];', 'hits[0] : hits[0];']], UNIT],
+  ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['cands, facts.rec || null);', 'cands);']], FILE],
+  ['R2 render.mjs: a mixed --only drops its file checks', T + 'render.mjs', [['[...only].filter((id) => C.FILE_IDS.includes(id)) : [];', '([...only].every((id) => C.FILE_IDS.includes(id)) ? [...only] : []) : [];']], SRC],
   ['render.mjs: ffmpeg left running when a scene throws', T + 'render.mjs', [['  process.exitCode = 1;\n  await abortVideo();', '  process.exitCode = 1;']], ['test/render-error.test.mjs']],
 ];
 

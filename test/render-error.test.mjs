@@ -72,5 +72,10 @@ test('a scene under out/, stills/ or node_modules/ is refused: it is outside the
     const r = spawnSync(process.execPath, ['render.mjs', 'video', '--scene', f], { cwd: dir, encoding: 'utf8' });
     assert.equal(r.status, 2); assert.match(r.stderr, /is outside the source hash/);
   }
+  // council round 2: the folder's case does not matter (on macOS's default disk OUT/x.js opens out/x.js)
+  for (const [f, under] of [['OUT/x.js', 'OUT'], ['Stills/x.js', 'Stills'], ['lib/Node_Modules/x.js', 'Node_Modules']]) {
+    const r = spawnSync(process.execPath, ['render.mjs', 'video', '--scene', f, '--scale', '0.25', '--sub', '1', '--out', 'out/refused.mp4'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 2, `${f}: ${r.stdout}${r.stderr}`); assert.match(r.stderr, new RegExp(`a scene under ${under}/ is outside the source hash`));
+  }
   assert.ok(!fs.existsSync(path.join(dir, 'out', 'refused.mp4')));
 });

@@ -479,12 +479,27 @@ export function provenance(f) {
 
 // The effects stem a master was mixed with must be one a render made from this source (P2 round 1, folded in P3):
 // a record whose audioSha256 is the stem's SHA-256 (the picture's own record from `full`, or the stem's
-// <wav>.render.json from `audio`), with that record's source hash equal to the current source. candidates:
-// [{ file, rec, sourceNow }]. Returns a problem sentence, or null when the stem is bound or the master has none.
-export function effectsLink(stem, candidates) {
+// <wav>.render.json from `audio`), with that record's source hash equal to the current source. The source hash does
+// not cover --scene or --param, which both change the effects, so the record must also have been made with the
+// picture's scene, params, fps and length (council round 2). candidates: [{ file, rec, sourceNow }]; pic: the
+// picture's render record. Returns a problem sentence, or null when the stem is bound or the master has none.
+const paramKey = (p) => JSON.stringify(Object.entries(p || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+export function soundDiff(a, b) {
+  const d = [];
+  if (a.scene !== b.scene) d.push(`scene ${a.scene} vs ${b.scene}`);
+  if (paramKey(a.params) !== paramKey(b.params)) d.push(`params ${JSON.stringify(a.params || {})} vs ${JSON.stringify(b.params || {})}`);
+  if (a.fps !== b.fps) d.push(`fps ${a.fps} vs ${b.fps}`);
+  if (!(Math.abs(a.dur - b.dur) < 1e-9)) d.push(`length ${a.dur} vs ${b.dur} s`);
+  return d;
+}
+export function effectsLink(stem, candidates, pic = null) {
   if (!stem) return null;
-  const match = candidates.find((c) => c.rec && c.rec.audioSha256 === stem.sha256);
-  if (!match) return `the effects stem ${stem.file} is not one a render recorded (no render record has its SHA-256): render it again (full, or audio --out ${stem.file}) and mix again`;
+  const hits = candidates.filter((c) => c.rec && c.rec.audioSha256 === stem.sha256);
+  if (!hits.length) return `the effects stem ${stem.file} is not one a render recorded (no render record has its SHA-256): render it again (full, or audio --out ${stem.file}) and mix again`;
+  const match = pic ? hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];
+  if (!match) {
+    return `the effects stem ${stem.file} was rendered with other settings than the picture (${soundDiff(hits[0].rec, pic).join(', ')}): render it again with the picture's scene and params (audio --out ${stem.file}) and mix again`;
+  }
   if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
     return `the effects stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
   }

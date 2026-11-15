@@ -214,6 +214,15 @@ test('the effects stem is tied to a render record of this source: audio writes o
   // a --no-sfx master of the same picture has no stem to tie, and binds
   mix(d, ['fx', '--no-sfx']);
   assert.equal(prov('fx').level, 'OK');
+  // council round 2: effects rendered from the same source but with other params than the picture do not bind
+  render(d, ['video', ...R, '--to', '2', '--param', 'stray=1', '--out', 'out/pm.mp4']);
+  render(d, ['audio', '--out', 'out/pm.wav']);
+  mix(d, ['pm']);
+  const pm = prov('pm');
+  assert.equal(pm.level, 'FAIL'); assert.match(pm.detail, /the effects stem out\/pm\.wav was rendered with other settings than the picture \(params \{\} vs \{"stray":"1"\}\)/);
+  render(d, ['audio', '--param', 'stray=1', '--out', 'out/pm.wav']);
+  mix(d, ['pm']);
+  assert.equal(prov('pm').level, 'OK', 'the same params bind');
   // the sequence the review names: full, an audio.js edit, audio, a mix (also stale, since the edit stays)
   render(d, ['full', ...R, '--out', 'out/fl.mp4']);
   assert.equal(readJson(Q('out/fl.mp4.render.json')).audioSha256, sha256File(Q('out/fl.wav')), 'full records the stem it wrote');

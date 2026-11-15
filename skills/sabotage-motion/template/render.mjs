@@ -72,10 +72,13 @@ const run = (cmd, args) => new Promise((res, rej) => {
 // ---------------------------------------------------------------- scene and target
 const sceneFile = mode === 'board' && flag('slates') ? 'slate.js' : opt('scene', 'scene.js');
 // Why a scene file cannot be used, or null. A scene must sit inside the source hash (sourceHash below): one under
-// the top-level out/ or stills/, or any node_modules/ or .git/, could change without marking a master stale.
+// the top-level out/ or stills/, or any node_modules/ or .git/, could change without marking a master stale. The
+// folder names are compared ignoring case: on a case-insensitive disk (macOS's default) OUT/x.js is out/x.js.
 function sceneProblem(f) {
   if (!/^[\w][\w./-]*\.m?js$/.test(f) || f.includes('..')) return `${f}: not a scene file name (give a path relative to the piece, e.g. slate.js)`;
-  const parts = f.split('/'), skipped = ['out', 'stills'].includes(parts[0]) ? parts[0] : parts.find((x) => x === 'node_modules' || x === '.git');
+  const parts = f.split('/'), low = parts.map((x) => x.toLowerCase());
+  const at = ['out', 'stills'].includes(low[0]) ? 0 : low.findIndex((x) => x === 'node_modules' || x === '.git');
+  const skipped = at >= 0 ? parts[at] : null;
   if (skipped) return `${f}: a scene under ${skipped}/ is outside the source hash that render.json records, so an edit to it would not mark a master stale; keep scenes beside render.mjs or in a folder of their own`;
   if (!fs.existsSync(path.join(root, f))) return `${f}: no such scene file in this piece (give a path relative to the piece, e.g. slate.js)`;
   return null;
@@ -467,7 +470,8 @@ async function check() {
   const only = opt('only') ? new Set(opt('only').split(',').map((x) => x.trim()).filter(Boolean)) : null;
   if (flag('only') && !only) return usage('--only needs check ids, e.g. --only loudness,file_spec');
   for (const id of only || []) if (!C.ALL_IDS.includes(id)) return usage(`--only ${id}: no such check (${C.ALL_IDS.join(', ')})`);
-  if (only && !fileArg && [...only].every((id) => C.FILE_IDS.includes(id))) return usage(`--only ${[...only].join(',')}: those are checks of a file: give it with --file <master>`);
+  const fileOnly = only && !fileArg ? [...only].filter((id) => C.FILE_IDS.includes(id)) : [];
+  if (fileOnly.length) return usage(`--only ${fileOnly.join(',')}: ${fileOnly.length > 1 ? 'those are checks' : 'that is a check'} of a file: give it with --file <master>`);
   const want = (id) => !only || only.has(id) || (id === 'provenance' && fileArg && !plain);
   const num = (k) => { if (opt(k) == null) return null; const x = Number(opt(k)); return Number.isFinite(x) ? x : NaN; };
   const lufsOpt = num('lufs'), tpOpt = num('tp');
@@ -504,7 +508,7 @@ async function check() {
           if (fs.existsSync(ar)) {
             try { const rec = JSON.parse(fs.readFileSync(ar, 'utf8')); cands.push({ file: relRoot(ar), rec, sourceNow: sourceHash(recordSkips(rec)) }); } catch { /* not a record */ }
           }
-          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands);
+          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands, facts.rec || null);
         }
       }
       prov = C.provenance(facts);

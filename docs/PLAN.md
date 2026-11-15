@@ -467,7 +467,8 @@ A master is only as good as the source it came from, so the artifact checks firs
   to the file after the mix (another audio track, a re-encode) breaks the match.
 - The effects stem is bound too (P3 round 1): `full` records its WAV's SHA-256, `audio` writes `<wav>.render.json`
   with the source hash and the WAV's SHA-256, and `provenance` requires the stem `master.json` names to match a record's
-  WAV hash, made from the current source (a `--no-sfx` master has no stem to bind).
+  WAV hash, made from the current source (a `--no-sfx` master has no stem to bind). The source hash does not cover
+  `--scene` or `--param`, so that record must also carry the picture's scene, params, fps and length (round 2).
 
 | Check | Level | How it is measured |
 |---|---|---|
