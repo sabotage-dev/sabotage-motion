@@ -112,6 +112,40 @@ test('text_safe on tiktok-ad: a box inside the safe rectangle but in the button 
   assert.deepEqual(levels(run(680)), ['OK'], 'its right edge on x 780, the column\'s left edge');
   assert.deepEqual(levels(run(681)), ['FAIL']);
 });
+test('text_safe on tiktok-ad with a turned camera (round 1, F4): the exclude test uses the visible quad, not its bounding box', async () => {
+  const fs = await import('node:fs'), path = await import('node:path'), { templateDir } = await import('./helpers.mjs');
+  const z = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'), 'utf8')).targets['tiktok-ad'];
+  const cam = [1, Math.PI / 4, 0.13258252147247768, -0.029462782549439466];
+  const run = (b) => C.textSafe(samples(0, 30, 8, () => [box('t', 'TURN', b.x, b.y, b.w, b.h)], () => cam),
+    { fps: FPS, safe: z.safe, exclude: z.exclude, windows: piece, estimate: z.estimate, target: 'tiktok-ad' });
+  // the reviewer's case: at 45 degrees the bounding box reaches into the button column, the box itself does not
+  const clear = { x: 440, y: 950, w: 200, h: 20 };
+  const v = C.visibleBox(clear, cam, 1080, 1920);
+  assert.ok(C.insideRect(v, z.safe) && C.overlapArea(v, z.exclude[0]) > 0, 'the bounding box overlaps the column');
+  assert.equal(C.polyRectDepth(C.visibleQuad(clear, cam, 1080, 1920), z.exclude[0]), 0);
+  assert.deepEqual(levels(run(clear)), ['OK']);
+  // 60 px lower, the turned box really crosses the column
+  const into = { x: 440, y: 1010, w: 200, h: 20 };
+  assert.ok(C.insideRect(C.visibleBox(into, cam, 1080, 1920), z.safe), 'still inside the safe edges');
+  const x = run(into);
+  assert.deepEqual(levels(x), ['FAIL']); assert.match(x[0].detail, /in an area it excludes/);
+});
+test('visibleQuad and polyRectDepth: the box through the camera, cut to the frame; the overlap depth by separating axes', () => {
+  assert.deepEqual(C.visibleQuad({ x: 100, y: 200, w: 50, h: 20 }, [1, 0, 0, 0], 1080, 1920), [[100, 200], [150, 200], [150, 220], [100, 220]]);
+  assert.equal(C.visibleQuad({ x: -300, y: 200, w: 50, h: 20 }, [1, 0, 0, 0], 1080, 1920), null);
+  // zoomed out, the frame shows past the layer's edges; text off the canvas is still never drawn
+  assert.equal(C.visibleQuad({ x: -300, y: 900, w: 200, h: 80 }, [0.5, 0, 0, 0], 1080, 1920), null);
+  const half = C.visibleQuad({ x: -100, y: 900, w: 200, h: 80 }, [0.5, 0, 0, 0], 1080, 1920);
+  near(Math.min(...half.map((p) => p[0])), 270); near(Math.max(...half.map((p) => p[0])), 320);
+  const cut = C.visibleQuad({ x: 1000, y: 200, w: 200, h: 20 }, [1, 0, 0, 0], 1080, 1920);
+  assert.ok(cut.every(([px]) => px <= 1080) && Math.max(...cut.map((p) => p[0])) === 1080, JSON.stringify(cut));
+  const sq = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  near(C.polyRectDepth(sq, { x: 90, y: 50, w: 100, h: 100 }), 10);
+  assert.equal(C.polyRectDepth(sq, { x: 100, y: 0, w: 50, h: 50 }), 0, 'touching is not overlapping');
+  const diamond = [[50, 0], [100, 50], [50, 100], [0, 50]];
+  assert.equal(C.polyRectDepth(diamond, { x: 80, y: 80, w: 40, h: 40 }), 0, 'the corner of the rect sits outside the diamond\'s edge');
+  assert.ok(C.polyRectDepth(diamond, { x: 60, y: 60, w: 40, h: 40 }) > 0);
+});
 test('text_safe: an estimate target with an exclude rectangle WARNs instead of failing', () => {
   const zone = { safe: SAFE, exclude: [{ x: 780, y: 840, w: 156, h: 640 }] };
   const x = C.textSafe(samples(0, 30, 8, () => [box('col', 'COL', 800, 1000, 100, 60)]), { fps: FPS, ...zone, windows: piece, estimate: true, target: 'est' });
@@ -166,6 +200,17 @@ test('board_copy_unread: under max(1.0, 0.25 x words) s on screen is a WARN; exa
   // five words need 1.25 s
   assert.equal(shown(37, 'one two three four five').level, 'WARN');
   assert.equal(shown(38, 'one two three four five').level, 'OK');
+});
+test('board_copy_unread counts every occurrence of the string (round 1, F3): SAVE in one box 0.1 s, then in another 1.9 s, is read', () => {
+  const run = (until2) => C.boardCopy(samples(0, 60, 1, (t) => {
+    const f = Math.round(t * FPS - 0.25);
+    return f < 3 ? [box('one', 'SAVE', 100, 600)] : f < until2 ? [box('two', 'SAVE', 400, 900)] : [];
+  }), { fps: FPS, windows: [beat('x', 0, 2, ['SAVE'])] }).find((x) => x.id === 'board_copy_unread');
+  const both = run(60);
+  assert.equal(both.level, 'OK', JSON.stringify(both));
+  // the same string on screen for 0.1 s in total is still unread
+  const brief = run(3);
+  assert.equal(brief.level, 'WARN'); near(brief.measured, 0.1, 1e-4);
 });
 test('board copy: matching ignores case and runs of whitespace; boxes off screen are never seen', () => {
   const s = samples(0, 60, 1, () => [box('a', 'Hello   World', 100, 600, 300), box('z', 'hidden', -900, 600)]);
@@ -287,6 +332,18 @@ test('board_order and hook_long verdicts', () => {
 });
 
 // ---------------------------------------------------------------- 11.2
+test('effectsLink (round 1, F8): the effects stem must be one a render of the current source recorded', () => {
+  const stem = { file: 'out/p.wav', sha256: 'W' };
+  const rec = (audioSha256, source = 'S') => ({ audioSha256, source: { hash: source } });
+  assert.equal(C.effectsLink(null, []), null, 'a --no-sfx master has no stem to tie');
+  assert.equal(C.effectsLink(stem, [{ file: 'a', rec: rec('W'), sourceNow: { hash: 'S' } }]), null);
+  assert.equal(C.effectsLink(stem, [{ file: 'a', rec: rec('X'), sourceNow: { hash: 'S' } }, { file: 'b', rec: rec('W'), sourceNow: { hash: 'S' } }]), null, 'the stem\'s own audio record');
+  assert.match(C.effectsLink(stem, [{ file: 'a', rec: rec('X'), sourceNow: { hash: 'S' } }]), /not one a render recorded/);
+  assert.match(C.effectsLink(stem, []), /not one a render recorded/);
+  assert.match(C.effectsLink(stem, [{ file: 'b', rec: rec('W', 'S2'), sourceNow: { hash: 'S' } }]), /rendered from another source/);
+  const p = C.provenance(facts({ effectsProblem: 'the effects stem out/p.wav was rendered from another source' }));
+  assert.equal(p.result.level, 'FAIL'); assert.equal(p.bound, false); assert.match(p.result.detail, /another source/);
+});
 const facts = (o = {}) => ({
   fileRel: 'out/p-final.mp4', fileSha: 'F', mjPath: '/p/out/p.master.json', mjRel: 'out/p.master.json',
   mj: { mode: 'default', master: { sha256: 'F', video: { hash: 'V' } }, render: { file: 'out/p.mp4.render.json', sha256: 'R' } },

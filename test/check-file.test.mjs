@@ -168,3 +168,61 @@ test('--plain checks a file from elsewhere as a plain file: file spec at --scale
   assert.ok(r.results.filter((x) => x.scope === 'source').every((x) => x.level === 'SKIP' && /--plain/.test(x.detail)));
   assert.match(one(runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--scale', '0.25']).results, 'loudness').detail, /--plain needs --lufs/);
 });
+
+// ---- round 1, F6: when the source checks do not run, a broken scene fails nothing
+test('--plain with a broken scene: faststart alone exits 0, and file_spec says not checked, with no scene FAIL (round 1, F6)', () => {
+  const broken = P('broken.js');
+  fs.writeFileSync(broken, "export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: 1, FONTS: [] };\nexport async function init() { throw new Error('planted: broken scene'); }\nexport function frame(t, jit) { return { t, jit }; }\nexport function post(t) { return { t }; }\n");
+  try {
+    const fast = runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--scene', 'broken.js', '--only', 'faststart']);
+    assert.equal(fast.status, 0, fast.out);
+    assert.deepEqual(fast.results.map((x) => [x.id, x.level]), [['faststart', 'OK']]);
+    const all = runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--scene', 'broken.js', '--scale', '0.25']);
+    assert.equal(all.status, 0, all.out);
+    assert.ok(!all.results.some((x) => x.id === 'scene'), JSON.stringify(all.results.filter((x) => x.id === 'scene')));
+    const fsr = one(all.results, 'file_spec');
+    assert.equal(fsr.level, 'SKIP'); assert.match(fsr.detail, /the scene did not load .*planted: broken scene/);
+  } finally { fs.rmSync(broken, { force: true }); }
+});
+
+// ---- round 1, F8: the effects stem a master was mixed with is tied to a render of the current source
+test('the effects stem is tied to a render record of this source: audio writes one, and a stem from other source fails provenance (round 1, F8)', () => {
+  const d = checkPiece('check-file-fx');
+  const Q = (f) => path.join(d, f);
+  const prov = (name) => one(runCheck(d, ['--file', `out/${name}-final.mp4`, '--only', 'provenance']).results, 'provenance');
+  const editAudio = () => { const f = Q('audio.js'), o = fs.readFileSync(f, 'utf8'); fs.writeFileSync(f, o.replace('tone(t, 1000, 0.3', 'tone(t, 1250, 0.3')); return () => fs.writeFileSync(f, o); };
+  // a video, then its effects from `audio`: the stem's own record binds it
+  render(d, ['video', ...R, '--to', '2', '--out', 'out/fx.mp4']);
+  render(d, ['audio', '--out', 'out/fx.wav']);
+  const ar = readJson(Q('out/fx.wav.render.json'));
+  assert.equal(ar.mode, 'audio'); assert.equal(ar.audioSha256, sha256File(Q('out/fx.wav'))); assert.match(ar.source.hash, /^sha256:/);
+  mix(d, ['fx']);
+  const bound = prov('fx');
+  assert.equal(bound.level, 'OK', bound.detail); assert.match(bound.detail, /its effects stem came from a render of this source/);
+  // the gap: the effects rendered from an edited audio.js, the edit then undone, so the picture's record binds again
+  const undo = editAudio();
+  render(d, ['audio', '--out', 'out/fx.wav']);
+  undo();
+  mix(d, ['fx']);
+  const other = prov('fx');
+  assert.equal(other.level, 'FAIL'); assert.match(other.detail, /the effects stem out\/fx\.wav was rendered from another source/);
+  assert.doesNotMatch(other.detail, /stale/, 'the picture itself is bound');
+  // a stem no render made
+  fs.rmSync(Q('out/fx.wav.render.json'));
+  mix(d, ['fx']);
+  assert.match(prov('fx').detail, /the effects stem out\/fx\.wav is not one a render recorded/);
+  // a --no-sfx master of the same picture has no stem to tie, and binds
+  mix(d, ['fx', '--no-sfx']);
+  assert.equal(prov('fx').level, 'OK');
+  // the sequence the review names: full, an audio.js edit, audio, a mix (also stale, since the edit stays)
+  render(d, ['full', ...R, '--out', 'out/fl.mp4']);
+  assert.equal(readJson(Q('out/fl.mp4.render.json')).audioSha256, sha256File(Q('out/fl.wav')), 'full records the stem it wrote');
+  mix(d, ['fl']);
+  assert.equal(prov('fl').level, 'OK');
+  const undo2 = editAudio();
+  try {
+    render(d, ['audio', '--out', 'out/fl.wav']);
+    mix(d, ['fl']);
+    assert.equal(prov('fl').level, 'FAIL');
+  } finally { undo2(); }
+});

@@ -71,6 +71,45 @@ export function visibleBox(b, cam, W, H) {
   m.w = Math.max(...xs) - m.x; m.h = Math.max(...ys) - m.y;
   return clipRect(m, W, H);
 }
+// The same visible part as a polygon: the canvas-cut box's four corners through the camera, cut to the frame
+// (Sutherland-Hodgman against its four edges). Exact where a turned camera makes the bounding box too big.
+export function visibleQuad(b, cam, W, H) {
+  const c = clipRect(b, W, H);
+  if (!c) return null;
+  let poly = [[c.x, c.y], [c.x + c.w, c.y], [c.x + c.w, c.y + c.h], [c.x, c.y + c.h]].map(([x, y]) => camPoint(x, y, cam, W, H));
+  const clip = (inside, cut) => {
+    const out = [];
+    poly.forEach((p, i) => {
+      const q = poly[(i + 1) % poly.length], pin = inside(p), qin = inside(q);
+      if (pin) out.push(p);
+      if (pin !== qin) out.push(cut(p, q));
+    });
+    poly = out;
+  };
+  const at = (p, q, k, v) => { const u = (v - p[k]) / (q[k] - p[k]); return [p[0] + u * (q[0] - p[0]), p[1] + u * (q[1] - p[1])]; };
+  clip((p) => p[0] >= 0, (p, q) => at(p, q, 0, 0)); clip((p) => p[0] <= W, (p, q) => at(p, q, 0, W));
+  clip((p) => p[1] >= 0, (p, q) => at(p, q, 1, 0)); clip((p) => p[1] <= H, (p, q) => at(p, q, 1, H));
+  return poly.length >= 3 ? poly : null;
+}
+// How far a convex polygon reaches into an axis-aligned rectangle, by the separating-axis test: the smallest
+// overlap of their projections on the rectangle's axes and the polygon's edge normals. 0 when an axis separates
+// them, or they only touch.
+export function polyRectDepth(poly, r) {
+  const rect = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
+  const axes = [[1, 0], [0, 1]];
+  poly.forEach((p, i) => {
+    const q = poly[(i + 1) % poly.length], dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy);
+    if (len > 1e-9) axes.push([-dy / len, dx / len]);
+  });
+  let depth = Infinity;
+  for (const [ax, ay] of axes) {
+    const pr = (pts) => { let lo = Infinity, hi = -Infinity; for (const [x, y] of pts) { const v = x * ax + y * ay; lo = Math.min(lo, v); hi = Math.max(hi, v); } return [lo, hi]; };
+    const [a0, a1] = pr(poly), [b0, b1] = pr(rect), o = Math.min(a1, b1) - Math.max(a0, b0);
+    if (!(o > 1e-6)) return 0;
+    depth = Math.min(depth, o);
+  }
+  return depth;
+}
 export const insideRect = (b, s) => b.x >= s.x - 1e-6 && b.y >= s.y - 1e-6 && b.x + b.w <= s.x + s.w + 1e-6 && b.y + b.h <= s.y + s.h + 1e-6;
 export function overlapArea(a, b) {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
@@ -100,7 +139,7 @@ export function windowAt(windows, t) {
 // time the render uses (n subframes in that frame). Each gets `vis`: the boxes on screen, with their visible
 // rectangle after the camera (`v`).
 export function prepareSamples(samples, W, H) {
-  return samples.map((s) => ({ ...s, vis: (s.boxes || []).map((b) => ({ ...b, v: visibleBox(b, s.cam, W, H) })).filter((b) => b.v) }));
+  return samples.map((s) => ({ ...s, vis: (s.boxes || []).map((b) => ({ ...b, v: visibleBox(b, s.cam, W, H), q: visibleQuad(b, s.cam, W, H) })).filter((b) => b.v) }));
 }
 
 // ---------------------------------------------------------------- 11.1 source checks
@@ -116,9 +155,10 @@ export function textSafe(samples, { fps, safe, exclude = [], windows, estimate =
     for (const b of s.vis) {
       if (b.deco) continue;
       const out = Math.max(safe.x - b.v.x, safe.y - b.v.y, b.v.x + b.v.w - safe.x - safe.w, b.v.y + b.v.h - safe.y - safe.h);
-      // how far the box reaches into an excluded rectangle: the smaller side of the overlap
-      const into = Math.max(0, ...exclude.map((x) => (overlapArea(b.v, x) > 0
-        ? Math.min(Math.min(b.v.x + b.v.w, x.x + x.w) - Math.max(b.v.x, x.x), Math.min(b.v.y + b.v.h, x.y + x.h) - Math.max(b.v.y, x.y)) : 0)));
+      // how far the box reaches into an excluded rectangle, tested on its visible quad, not its bounding box (which a
+      // turned camera makes bigger than the box); against the axis-aligned safe edges the bounding box is exact
+      const quad = b.q || [[b.v.x, b.v.y], [b.v.x + b.v.w, b.v.y], [b.v.x + b.v.w, b.v.y + b.v.h], [b.v.x, b.v.y + b.v.h]];
+      const into = Math.max(0, ...exclude.map((x) => polyRectDepth(quad, x)));
       if (insideRect(b.v, safe) && !(into > 0)) continue;
       const k = `${b.id}\u0000${w ? w.id : ''}`;
       const a = acc.get(k) || { id: b.id, text: b.text, beat: w ? w.id : null, exp: 0, t: s.t, worst: 0, excluded: false };
@@ -191,17 +231,23 @@ export function boardCopy(samples, { fps, windows }) {
     for (const str of on) {
       strings++;
       const want = norm(str);
-      let best = null;
+      // every occurrence, in every group: the string is on screen while any box of any match is ("in total", 6.5)
+      const ids = new Set();
+      let found = false;
       for (const m of groups.values()) {
         const entries = [...m.values()].sort((a, b) => a.first - b.first || a.order - b.order).map((e) => ({ ...e, n: norm(e.text) })).filter((e) => e.n);
         let text = '';
         const spans = entries.map((e) => { const a = text ? text.length + 1 : 0; text = text ? `${text} ${e.n}` : e.n; return { id: e.id, a, b: text.length }; });
-        const at = text.indexOf(want);
-        if (at < 0) continue;
-        const ids = spans.filter((sp) => sp.b > at && sp.a < at + want.length).map((sp) => sp.id);
+        for (let at = text.indexOf(want); at >= 0; at = text.indexOf(want, at + 1)) {
+          found = true;
+          for (const sp of spans) if (sp.b > at && sp.a < at + want.length) ids.add(sp.id);
+        }
+      }
+      let best = null;
+      if (found) {
         let time = 0;
-        inW.forEach((s, si) => { if (ids.some((id) => seen.get(id).has(si))) time += 1 / (s.n * fps); });
-        if (!best || time > best.time) best = { time, ids };
+        inW.forEach((s, si) => { if ([...ids].some((id) => seen.get(id).has(si))) time += 1 / (s.n * fps); });
+        best = { time };
       }
       const nw = words(str), need = Math.max(T.copyUnread.min, T.copyUnread.perWord * nw);
       if (!best) {
@@ -425,9 +471,24 @@ export function provenance(f) {
     rec = f.rec;
     if (!rec.source || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the render (${mj.render.file}): the master is stale, render and mix again`);
     if (!rec.video || !mj.master || !mj.master.video || rec.video.hash !== mj.master.video.hash) probs.push('the master\'s decoded picture does not hash the same as its render\'s: the mixer did not copy the picture untouched');
+    if (f.effectsProblem) probs.push(f.effectsProblem);
   }
   if (probs.length) return { result: P('FAIL', probs.join('; ')), rec: f.recExists && !f.recError ? f.rec : null, mj, bound: false };
-  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render`), rec, mj, bound: true };
+  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render${(mj.stems || []).some((x) => x.role === 'effects') ? '; its effects stem came from a render of this source' : ''}`), rec, mj, bound: true };
+}
+
+// The effects stem a master was mixed with must be one a render made from this source (P2 round 1, folded in P3):
+// a record whose audioSha256 is the stem's SHA-256 (the picture's own record from `full`, or the stem's
+// <wav>.render.json from `audio`), with that record's source hash equal to the current source. candidates:
+// [{ file, rec, sourceNow }]. Returns a problem sentence, or null when the stem is bound or the master has none.
+export function effectsLink(stem, candidates) {
+  if (!stem) return null;
+  const match = candidates.find((c) => c.rec && c.rec.audioSha256 === stem.sha256);
+  if (!match) return `the effects stem ${stem.file} is not one a render recorded (no render record has its SHA-256): render it again (full, or audio --out ${stem.file}) and mix again`;
+  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
+    return `the effects stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
+  }
+  return null;
 }
 
 // ffprobe facts for file_spec

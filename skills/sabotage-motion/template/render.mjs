@@ -3,7 +3,7 @@
 //   node render.mjs stills 0.5,1.2,2.4 [--scale 0.5] [--dir stills]   PNG style frames
 //   node render.mjs contact [--n 12] [--cols 4] [--scale 0.25]         one PNG grid of the whole timeline
 //   node render.mjs video [--from 0 --to DUR] [--out out/<scene>.mp4]  silent video (+ <out>.render.json)
-//   node render.mjs audio [--out out/<scene>.wav]                      synthesized soundtrack only
+//   node render.mjs audio [--out out/<scene>.wav]                      synthesized soundtrack only (+ <out>.render.json)
 //   node render.mjs full  [--out out/<scene>.mp4]                      video + audio, muxed (+ <out>.render.json)
 //   node render.mjs board [--slates] [--safe] [--cols N] [--out board.png]   storyboard sheet (+ board.md)
 //   node render.mjs hash 0.5,1.2 [--scale 0.25]                        SHA-256 of each frame's raw pixels
@@ -71,10 +71,18 @@ const run = (cmd, args) => new Promise((res, rej) => {
 
 // ---------------------------------------------------------------- scene and target
 const sceneFile = mode === 'board' && flag('slates') ? 'slate.js' : opt('scene', 'scene.js');
-const validScene = (f) => /^[\w][\w./-]*\.m?js$/.test(f) && !f.includes('..') && fs.existsSync(path.join(root, f));
+// Why a scene file cannot be used, or null. A scene must sit inside the source hash (sourceHash below): one under
+// the top-level out/ or stills/, or any node_modules/ or .git/, could change without marking a master stale.
+function sceneProblem(f) {
+  if (!/^[\w][\w./-]*\.m?js$/.test(f) || f.includes('..')) return `${f}: not a scene file name (give a path relative to the piece, e.g. slate.js)`;
+  const parts = f.split('/'), skipped = ['out', 'stills'].includes(parts[0]) ? parts[0] : parts.find((x) => x === 'node_modules' || x === '.git');
+  if (skipped) return `${f}: a scene under ${skipped}/ is outside the source hash that render.json records, so an edit to it would not mark a master stale; keep scenes beside render.mjs or in a folder of their own`;
+  if (!fs.existsSync(path.join(root, f))) return `${f}: no such scene file in this piece (give a path relative to the piece, e.g. slate.js)`;
+  return null;
+}
 // check --file takes its scene from the render record, so the command line's does not have to exist
-if (!(mode === 'check' && opt('file')) && !validScene(sceneFile)) {
-  console.error(`--scene ${sceneFile}: no such scene file in this piece (give a path relative to the piece, e.g. slate.js)`);
+if (!(mode === 'check' && opt('file')) && sceneProblem(sceneFile)) {
+  console.error(`--scene ${sceneProblem(sceneFile)}`);
   process.exit(2);
 }
 const sceneBase = path.basename(sceneFile).replace(/\.m?js$/, '');
@@ -218,6 +226,18 @@ function writeRenderJson(file, src, extra) {
   console.log('wrote', out);
 }
 
+// audio writes a record for its WAV (out/scene.wav.render.json): the source it came from and the WAV's SHA-256, so a
+// master's effects stem can be tied to a render of the current source (check's provenance). full records the same
+// in its own record (audio, audioSha256).
+function writeAudioRecord(file, src) {
+  const sha = sha256(fs.readFileSync(file));
+  const rec = { format: 'sabotage-motion/render@1', created: new Date().toISOString(), mode, file: path.relative(root, file) || file,
+    scene: sceneFile, target, silent: INFO.SILENT, params: paramObj(params), fps: INFO.FPS, dur: INFO.DUR,
+    audio: path.relative(root, file) || file, audioSha256: sha, source: src, sha256: sha };
+  fs.writeFileSync(recordOf(file), JSON.stringify(rec, null, 2) + '\n');
+  console.log('wrote', recordOf(file));
+}
+
 // ---------------------------------------------------------------- encoders
 function videoArgs(out) {
   const { RW, RH, FPS } = INFO;
@@ -228,14 +248,21 @@ function videoArgs(out) {
     '-maxrate', opt('maxrate', '45M'), '-bufsize', '90M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out];
 }
 let ffOut = null, ffAborting = false;
+// The files this render is writing (its output; for full also the .video temp), removed on any failure, so a failed
+// render never leaves a half-written file beside the deleted record. Cleared once the record is written.
+const partials = new Set();
+function removePartials() {
+  for (const f of partials) { try { if (fs.statSync(f).isFile()) fs.rmSync(f, { force: true }); } catch { /* not there */ } }
+  partials.clear();
+}
 async function renderVideo(page, out, from, to) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', ...videoArgs(out)], { stdio: ['pipe', 'inherit', 'inherit'] });
-  ffOut = out;
+  ffOut = out; partials.add(out);
   const proc = ff;
   proc.stdin.on('error', () => {});   // EPIPE once ffmpeg has died; the close handler below reports why
   const done = new Promise((r, j) => { proc.on('error', j); proc.on('close', (c) => (c === 0 ? r() : j(new Error('ffmpeg exited ' + c)))); });
-  done.catch((e) => { if (ffAborting) return; console.error(`render failed: ${e.message} (ffmpeg's own error is printed above)`); process.exit(1); });
+  done.catch((e) => { if (ffAborting) return; console.error(`render failed: ${e.message} (ffmpeg's own error is printed above)`); removePartials(); process.exit(1); });
   const t0 = Date.now();
   await page.evaluate(([a, b]) => window.renderRange(a, b), [from, to]);
   const frames = Math.round(to * INFO.FPS) - Math.round(from * INFO.FPS);
@@ -440,6 +467,7 @@ async function check() {
   const only = opt('only') ? new Set(opt('only').split(',').map((x) => x.trim()).filter(Boolean)) : null;
   if (flag('only') && !only) return usage('--only needs check ids, e.g. --only loudness,file_spec');
   for (const id of only || []) if (!C.ALL_IDS.includes(id)) return usage(`--only ${id}: no such check (${C.ALL_IDS.join(', ')})`);
+  if (only && !fileArg && [...only].every((id) => C.FILE_IDS.includes(id))) return usage(`--only ${[...only].join(',')}: those are checks of a file: give it with --file <master>`);
   const want = (id) => !only || only.has(id) || (id === 'provenance' && fileArg && !plain);
   const num = (k) => { if (opt(k) == null) return null; const x = Number(opt(k)); return Number.isFinite(x) ? x : NaN; };
   const lufsOpt = num('lufs'), tpOpt = num('tp');
@@ -467,6 +495,17 @@ async function check() {
           try { facts.rec = JSON.parse(fs.readFileSync(rp, 'utf8')); } catch (e) { facts.recError = e.message; }
           if (facts.rec) facts.sourceNow = sourceHash(recordSkips(facts.rec));
         }
+        // the effects stem it was mixed with (none for --no-sfx): the picture's own record, or the stem's audio record
+        const fx = (facts.mj.stems || []).find((x) => x.role === 'effects');
+        if (fx) {
+          const cands = [];
+          if (facts.rec) cands.push({ file: facts.mj.render.file, rec: facts.rec, sourceNow: facts.sourceNow });
+          const ar = path.resolve(root, fx.file) + '.render.json';
+          if (fs.existsSync(ar)) {
+            try { const rec = JSON.parse(fs.readFileSync(ar, 'utf8')); cands.push({ file: relRoot(ar), rec, sourceNow: sourceHash(recordSkips(rec)) }); } catch { /* not a record */ }
+          }
+          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands);
+        }
       }
       prov = C.provenance(facts);
       push(prov.result);
@@ -486,11 +525,16 @@ async function check() {
   const cues = Q.mod ? { VO_OFFSET: Q.mod.VO_OFFSET, CUE: Q.mod.CUE, TAKE: Q.mod.TAKE, GAPS: Q.mod.GAPS || [], HOOK_END: Q.mod.HOOK_END, WORDS: Q.mod.WORDS || [], BOARD_KEY: Q.mod.BOARD_KEY } : null;
   const timing = BOARD ? lib.boardTiming(BOARD, cues) : null;
 
-  // ---- the page, at the probe's scale, with the render's settings
-  let INFOc = null, page = null;
-  const sceneFail = (msg) => results.push({ id: 'scene', scope: 'source', level: 'FAIL', detail: msg });
+  // ---- the page, at the probe's scale, with the render's settings. When the source checks do not run (--plain, or
+  // provenance failed), the scene is loaded only for file_spec, and only when no render record gives the settings;
+  // a scene that fails then makes file_spec "not checked", never a scene FAIL in a run that does not check the scene.
+  let INFOc = null, page = null, sceneWhy = null;
+  const quiet = !runSource;
+  const sceneFail = (msg) => { if (quiet) sceneWhy = sceneWhy || msg; else results.push({ id: 'scene', scope: 'source', level: 'FAIL', detail: msg }); };
   const pageErrors = [];
-  if (!validScene(settings.scene)) sceneFail(`the scene ${settings.scene} is not a scene file in this piece`);
+  const recSettings = prov && prov.rec && prov.rec.render && prov.rec.fps;
+  const needPage = runSource || (file && want('file_spec') && !recSettings);
+  if (!needPage) { /* nothing here needs the scene */ } else if (sceneProblem(settings.scene)) sceneFail(sceneProblem(settings.scene));
   else {
     browser = await launch();
     try {
@@ -586,8 +630,8 @@ async function check() {
           else skipIds(['board_sfx_missing'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
           push(C.audioSpike(wav));
         } catch (e) {
-          push({ id: 'audio_spike', scope: 'source', level: 'FAIL', detail: `the effects did not render: ${e.message.split('\n')[0]}` });
-          skipIds(['board_sfx_missing'], 'source', 'the effects did not render');
+          // under every effects check asked for, so --only cannot hide it
+          for (const id of ['board_sfx_missing', 'audio_spike']) push({ id, scope: 'source', level: 'FAIL', detail: `the effects did not render: ${e.message.split('\n')[0]}` });
         } finally { fs.rmSync(audioOut, { force: true }); }
       }
     }
@@ -603,7 +647,7 @@ async function check() {
       const k = +opt('scale', 1);
       push(C.fileSpec(C.probeFile(file), { w: Math.round(INFOc.W * k), h: Math.round(INFOc.H * k), fps, dur, alpha: alphaKind, silent: INFOc.SILENT },
         `the piece's current settings at scale ${k}${alphaKind ? ', alpha ' + alphaKind : ''}`));
-    } else skipIds(['file_spec'], 'file', 'no render record and the scene did not load, so there is nothing to compare it with');
+    } else skipIds(['file_spec'], 'file', `no render record${sceneWhy ? `, and the scene did not load (${sceneWhy})` : ' and no scene'}, so there is nothing to compare it with`);
     if (want('faststart')) push(C.faststartResult(file, C.atomOrderFile(file)));
     const lufs = lufsOpt != null ? lufsOpt : !plain && mj && mj.target ? mj.target.lufs : null;
     if (lufs == null) skipIds(['loudness'], 'file', plain ? '--plain needs --lufs for a loudness target' : 'no loudness target: no master.json, and no --lufs');
@@ -700,10 +744,14 @@ try {
       const frames = await renderVideo(page, out, from, to);
       console.log('wrote', out);
       writeRenderJson(out, src, { from, to, frames });
+      partials.clear();
     } else if (mode === 'audio') {
       const out = resolveOut(opt('out', `out/${sceneBase}.wav`));
+      fs.rmSync(recordOf(out), { force: true });
+      const src = sourceHash(new Set([out]));
       await renderAudioTo(page, out);
       console.log('wrote', out);
+      writeAudioRecord(out, src);
     } else if (mode === 'full') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
       const base = out.slice(0, -path.extname(out).length);
@@ -713,11 +761,13 @@ try {
       await renderAudioTo(page, atmp);          // audio first: it takes 0.1 s, so a broken audio.js fails fast
       const frames = await renderVideo(page, vtmp, 0, DUR);
       const acodec = alphaKind === 'prores' ? ['-c:a', 'pcm_s16le'] : alphaKind === 'webm' ? ['-c:a', 'libopus', '-b:a', '192k'] : ['-c:a', 'aac', '-b:a', '256k'];
+      partials.add(out);                         // the mux writes it; a failed mux leaves neither it nor the temp
       await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', vtmp, '-i', atmp, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', ...acodec,
         '-t', String(DUR), ...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), out]);
       fs.rmSync(vtmp, { force: true });
       console.log('wrote', out, '(audio kept at', atmp + ')');
-      writeRenderJson(out, src, { from: 0, to: DUR, frames, audio: path.relative(root, atmp) });
+      writeRenderJson(out, src, { from: 0, to: DUR, frames, audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)) });
+      partials.clear();
     }
     console.log(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   }
@@ -725,6 +775,7 @@ try {
   console.error(`error: ${e.message}`);
   process.exitCode = 1;
   await abortVideo();
+  removePartials();
 } finally {
   if (browser) await browser.close().catch(() => {});
   server.close();

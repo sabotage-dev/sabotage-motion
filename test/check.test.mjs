@@ -163,7 +163,9 @@ test('--dump writes the raw measurements without on-screen text: changed probe p
 });
 test('usage errors exit 2 and say why', () => {
   for (const [args, re] of [[['--only', 'nope'], /--only nope: no such check/], [['--file', 'out/missing.mp4'], /no such file/],
-    [['--plain'], /--plain needs --file/], [['--lufs', 'x'], /need numbers/]]) {
+    [['--plain'], /--plain needs --file/], [['--lufs', 'x'], /need numbers/],
+    // round 1, F7: file checks with no file would print nothing and pass
+    [['--only', 'loudness'], /--only loudness: those are checks of a file: give it with --file/], [['--only', 'provenance,file_spec'], /give it with --file/]]) {
     const r = runCheck(dir, args, { json: false });
     assert.equal(r.status, 2, r.out); assert.match(r.out, re);
   }
@@ -207,6 +209,20 @@ test('hook_long: a cues.js whose hook ends after hookMax is a FAIL', () => {
   assert.equal(r.status, 1, r.out);
   assert.deepEqual(r.results.map((x) => [x.id, x.level]), [['hook_long', 'FAIL']]);
   assert.match(r.results[0].detail, /ends at 4\.100 s, 0\.100 s after hookMax 4/);
+});
+test('an effects stem that fails to render is a FAIL under --only board_sfx_missing too (round 1, F5)', () => {
+  const f = P('audio.js'), orig = fs.readFileSync(f, 'utf8');
+  try {
+    fs.writeFileSync(f, "export async function renderAudio() { throw new Error('planted: audio.js throws'); }\n");
+    for (const only of ['board_sfx_missing', 'audio_spike']) {
+      const r = runCheck(dir, ['--only', only]);
+      assert.equal(r.status, 1, r.out);
+      assert.deepEqual(r.results.map((x) => [x.id, x.level]), [[only, 'FAIL']]);
+      assert.match(r.results[0].detail, /the effects did not render: .*planted: audio\.js throws/);
+    }
+  } finally { fs.writeFileSync(f, orig); }
+  // and --only text_safe neither renders the effects nor reports them
+  assert.ok(!runCheck(dir, ['--target', 'fixture', '--only', 'text_safe']).results.some((x) => /effects/.test(x.detail)));
 });
 test('a scene that throws while it is checked is a FAIL that names the error; nothing hangs', () => {
   fs.copyFileSync(path.join(fixturesDir, 'fixture-clean', 'throws.js'), P('throws.js'));

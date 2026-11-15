@@ -465,6 +465,9 @@ A master is only as good as the source it came from, so the artifact checks firs
   subframes and alpha mode, and a hash of the rendered file's decoded video (`ffmpeg -map 0:v -f hash -hash sha256`).
 - `mix.mjs` writes `out/<name>.master.json` (section 9), including the SHA-256 of the whole master file. Any change
   to the file after the mix (another audio track, a re-encode) breaks the match.
+- The effects stem is bound too (P3 round 1): `full` records its WAV's SHA-256, `audio` writes `<wav>.render.json`
+  with the source hash and the WAV's SHA-256, and `provenance` requires the stem `master.json` names to match a record's
+  WAV hash, made from the current source (a `--no-sfx` master has no stem to bind).
 
 | Check | Level | How it is measured |
 |---|---|---|
