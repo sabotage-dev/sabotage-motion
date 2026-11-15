@@ -27,6 +27,10 @@ mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,s,-s,c); }
 //   1 gradient : drifting two-colour fbm gradient.  uP.rgb = colour A, uQ.rgb = colour B, uP.w = drift speed
 //   2 paper    : warm paper with fibres + soft vignette (folksy / print looks).  uP.rgb = paper colour
 //   3 grid     : fine tech grid with a travelling glow line.  uP.rgb = base, uQ.rgb = line colour, uQ.w = glow
+//   4 crt      : a phosphor screen: centre glow, a slow rolling bar, scanlines, a faint flicker.  uP.rgb = base,
+//                uQ.rgb = glow colour, uQ.w = scanlines per screen height, uP.w = flicker amount
+//   5 mesh     : a soft mesh gradient of three colours drifting.  uP.rgb, uQ.rgb, uR.rgb = the colours, uP.w = drift
+// looks.js bgConfig(style) fills uP/uQ/uR from a look's or a kit's colour tokens for each of these ids.
 export const SCENE = COMMON + `
 uniform vec2 uRes; uniform float uT; uniform int uScene;
 uniform vec4 uP; uniform vec4 uQ; uniform vec4 uR; uniform vec2 uJit;
@@ -56,10 +60,30 @@ vec3 bgGrid(vec2 fc){
   vec3 c=uP.rgb+uQ.rgb*line*(0.10+0.5*sweep*uQ.w);
   return c+uQ.rgb*0.05*fbm(fc/uRes.y*3.+uT*0.1);
 }
+vec3 bgCrt(vec2 fc){
+  vec2 uv=fc/uRes, d=(uv-0.5)*vec2(1.1,0.9);
+  float glow=exp(-dot(d,d)*5.);
+  float roll=exp(-pow((fract(uv.y*0.6-uT*0.11)-0.5)*6.,2.));
+  float lines=0.5+0.5*cos(uv.y*uQ.w*TAU);
+  float flick=1.+uP.w*0.025*(vnoise(vec2(uT*37.,3.))-0.5);
+  vec3 c=mix(uP.rgb,uQ.rgb,clamp(0.7*glow+0.2*roll,0.,1.));
+  return c*(0.86+0.14*lines)*flick;
+}
+vec3 bgMesh(vec2 fc){
+  vec2 p=fc/uRes.y; float s=uT*0.07*uP.w; float asp=uRes.x/uRes.y;
+  p+=0.06*vec2(fbm(p*2.+s),fbm(p*2.+7.-s))-0.03;
+  vec2 c1=vec2(asp*(0.20+0.10*sin(s*1.3)), 0.82+0.06*cos(s*1.1));
+  vec2 c2=vec2(asp*(0.85+0.08*cos(s*0.9)), 0.30+0.08*sin(s*1.7));
+  vec2 c3=vec2(asp*(0.30+0.10*sin(s*1.9+1.)), 0.20+0.06*cos(s*1.2+2.));
+  float w1=exp(-dot(p-c1,p-c1)*5.), w2=exp(-dot(p-c2,p-c2)*5.), w3=exp(-dot(p-c3,p-c3)*9.)*0.8;
+  return (uP.rgb*w1+uQ.rgb*w2+uR.rgb*w3+uP.rgb*0.02)/(w1+w2+w3+0.02);
+}
 vec3 sceneColor(int id, vec2 fc){
   if(id==1) return bgGradient(fc);
   if(id==2) return bgPaper(fc);
   if(id==3) return bgGrid(fc);
+  if(id==4) return bgCrt(fc);
+  if(id==5) return bgMesh(fc);
   return vec3(0.);
 }
 void main(){
@@ -109,12 +133,13 @@ void main(){
   o=vec4(c,1.);
 }`;
 
-// Final post: glitch, chromatic aberration, bloom, vignette, HUD (difference), flash, grain, fade.
+// Final post: glitch, chromatic aberration, bloom, vignette, scanlines (uScan, the CRT look's), HUD (difference),
+// flash, grain, fade.
 // In alpha mode (uAlpha=1) bloom extends coverage so glows survive over video, and the output
 // is un-premultiplied because ProRes 4444 / VP9 alpha expect straight alpha.
 export const FINAL = COMMON + `
 uniform sampler2D uSrc, uB1, uB2, uHud; uniform vec2 uRes; uniform int uAlpha;
-uniform float uT, uBloom, uCA, uGlitch, uGrain, uVig, uFlash, uFade, uHudA;
+uniform float uT, uBloom, uCA, uGlitch, uGrain, uVig, uFlash, uFade, uHudA, uScan;
 void main(){
   vec2 uv=vUv;
   float fr=floor(uT*60.);
@@ -137,6 +162,7 @@ void main(){
   col+=bl*uBloom;
   if(uAlpha==1) a=clamp(a+max(bl.r,max(bl.g,bl.b))*uBloom,0.,1.);
   col*=1.-uVig*dot(d,d)*1.6;
+  if(uScan>0.) col*=1.-uScan*(0.5-0.5*cos(vUv.y*320.*TAU));
   vec4 hud=texture(uHud,vUv);
   if(hud.a>0.){ vec3 s=hud.rgb/max(hud.a,1e-4); col=mix(col, abs(col-s), hud.a*uHudA); if(uAlpha==1) a=max(a,hud.a*uHudA); }
   col=mix(col,vec3(1.),uFlash);

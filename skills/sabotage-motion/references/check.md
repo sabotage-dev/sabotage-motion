@@ -15,6 +15,9 @@ usage error.
 A FAIL is a fact about the file: the wrong master, the wrong loudness, a late hook, text outside a measured safe
 area. A WARN is craft, or anything measured against an estimate: read it, then fix it or keep it on purpose.
 
+The colour match against a brand kit is its own mode, `node render.mjs palette`, on the same probe frames (in colour):
+`references/looks.md` section 7. A look's or a kit's font that is not in the piece is a `fonts` FAIL here.
+
 ## Contents
 1. Source checks
 2. Artifact checks (`--file`)

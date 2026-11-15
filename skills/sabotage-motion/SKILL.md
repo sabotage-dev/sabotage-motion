@@ -30,8 +30,10 @@ node render.mjs check                         # measured checks on the source
 node render.mjs full --out out/<piece>.mp4    # the video with its synthesized sound
 ```
 
-Out of the box it is a 3 s, 1080x1920 kinetic title card that passes `check`. `--param bg=paper|grid|gradient|none`,
-`ink=#hex`, `accent=#hex`, `title=...` and `sub=...` show how far parameters go before you write code. `--alpha`
+Out of the box it is a 3 s, 1080x1920 kinetic title card that passes `check`. `--param look=<name>` (one of eight
+looks: `product`, `neon`, `paper`, `editorial`, `retro-crt`, `brutalist`, `gradient`, `mono`), the colour tokens
+`bgA`, `bgB`, `ink`, `muted`, `accent`, `accent2` (`=#hex`), `bg=<shader id>` (`none`, `gradient`, `paper`, `grid`,
+`crt`, `mesh`; never a colour), `title=...` and `sub=...` show how far parameters go before you write code. `--alpha`
 renders a transparent ProRes 4444 `.mov` (or `--alpha webm`) to lay over other footage. `--target <name>` sets the
 size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a frame takes about 0.25 s at
 1080x1920 with 8 subframes; on Linux (software WebGL) 3 to 6 s, so draft at `--scale 0.5` there.
@@ -42,9 +44,11 @@ size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a 
 |---|---|---|
 | `scene.js` | `CFG` (size, fps, duration, fonts), `TL` timeline, `init`, `frame(t)`, `post(t)`, optional `subBoost(t)`, `drawHud(t)`, `boxes(t)`, `HOLDS` | Yes: this is the piece |
 | `board.js` | The storyboard: beats with voice lines, on-screen copy, visual and sound notes | Yes, first |
-| `audio.js` | Synthesized sound effects scheduled from the scene's `TL` | Yes |
+| `audio.js` | Synthesized sound effects scheduled from the scene's `TL`, in the style's timbre | Yes |
+| `brand.json` | The project's brand kit, copied in with every file it names: colour tokens, fonts, logo, a base look | Copy, don't invent |
+| `looks.js` | The eight looks, the kit's fields, and how a style resolves (`fontStr`, `bgConfig`, `lookFiles`) | To add a look |
 | `index.html` | `@font-face` declarations; the bundled faces are in `fonts/` | Fonts only |
-| `shaders.js` | Background looks (`SCENE`) and the composite, bloom and post chain | To add a look |
+| `shaders.js` | Background shaders (`SCENE`: gradient, paper, grid, crt, mesh) and the composite, bloom and post chain | To add a shader |
 | `lib.js` | Easing (`snap`, `swift`, `whip`, `anticip`), `spring`, noise, `env`, colours, the board helpers (`beatWindow`, `beatAt`, `boardDur`), `captions`, `loadSeq`/`seqAt`, `sceneTarget`, `freeSpan` | Rarely |
 | `slate.js` | A placeholder card per beat, for the board sheet and the animatic | No |
 | `grid.js` | A labelled measuring grid at a target's size (optional, for reading safe-zone edges off screenshots) | No |
@@ -72,11 +76,24 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
 1. **Pin the brief.** The destination (it sets the size, fps and safe area: pick a target in `safezones.json`),
    the duration, the exact copy, and where the asset lives (a standalone clip, an overlay on footage, a website
    loop). Write the copy down before animating: retiming around changed words is the expensive part.
-2. **Read the brand.** Find the project's brand notes, colours, logo files and fonts. Keep brand notes in the
-   project's own CLAUDE.md (colours, fonts, logo files, what the live site ships); this skill reads them here. When
-   a guide disagrees with what the live product ships, the shipped code wins: say so to the person. Use the real
-   logo and reveal it; never redraw a brand mark. Copy brand fonts into `fonts/` and declare them in `index.html`; a
-   font that is not in the project needs an open licence that allows video use.
+2. **Read the brand, then pick the style.** `references/looks.md` has the details.
+   - **With a brand kit, use it.** A `brand.json` in the project root holds the colour tokens, fonts (family and
+     file per role), logo files and an optional base look. Copy it and every file it names into the piece, keeping
+     their paths; `node render.mjs doctor` checks every file and colour, and `node render.mjs brand` writes the
+     brand sheet (swatches, a type specimen, the logo on a dark and a light ground): show it to the person before
+     anything is animated. The kit's colours and fonts win over any look; `--param` wins over the kit.
+   - **Without one, pick a look on purpose, say which and why**, and do not fall back to the same palette from
+     piece to piece (the template's own dark palette is a fallback, not a house style). Set `CFG.LOOK` in the scene
+     (or try `--param look=<name>` first), and copy the look's font files from `${CLAUDE_SKILL_DIR}/looks/fonts/`
+     into the piece's `fonts/` (only the ones it uses: `lookFiles(name)` in `looks.js` lists them; `doctor` names any
+     that are missing). Then make the look the piece's own.
+   - Brand notes in prose (tone, do and don't, what the live site ships) stay in the project's own CLAUDE.md;
+     tokens and files belong in `brand.json`. If the project has brand colours and fonts but no kit, offer to write
+     one. When a guide disagrees with what the live product ships, the shipped code wins: say so to the person.
+     Use the real logo and reveal it; never redraw a brand mark. A font that is not in the project needs an open
+     licence that allows video use.
+   - Write the scene against the style (`init({ style })`: `style.tokens`, `fontStr(style, role, px)`,
+     `...bgConfig(style)`), not hard-coded colours and faces, as the template's `scene.js` does.
 3. **Write the board** (`board.js`): one beat per idea, each with a voice line (`vo`) or a length (`dur`), the
    on-screen copy (`on`), a visual note (`look`) and a sound note (`sfx`). `references/storyboard.md` has the format.
 4. **Board sheet:** `node render.mjs board --slates` writes `board.png` and `board.md`, a placeholder panel per beat
@@ -91,7 +108,9 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
    frames, timed by the take), `contact` and `stills`, and Read the PNGs: one image shows the whole arc in seconds,
    where a full render takes minutes.
 9. **Get sign-off on a rendered sample** (a contact sheet or a short preview) before polishing. Taste is theirs.
-10. **Check, render, mix, check the master.** First `node render.mjs check` (fix every FAIL; read every WARN). Every
+10. **Check, render, mix, check the master.** First `node render.mjs check` (fix every FAIL; read every WARN), and
+    with a brand kit `node render.mjs palette` (the piece's pixels against the kit's colours; exit 1 means a look's
+    or the template's colours took over somewhere). Every
     source file in the piece counts, `board.js` notes included (only `out/`, `stills/`, the review sheets and render
     records do not), so finish them before the final render: a later edit makes a mixed master stale, and
     `check --file` fails it until you render and mix again. Then, for:
@@ -123,7 +142,8 @@ Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, ov
 - Post effects stay subtle: bloom 0.15 to 0.5, grain 0.02 to 0.035, chromatic aberration under 0.0015. Glitch and
   flash are accents at cut points.
 - Match the effect vocabulary to the brand. Neon, glitch and scramble-decode suit tech and sci-fi; warm, human
-  brands get paper texture, gentle springs, hand-feel type and no glitch at all.
+  brands get paper texture, gentle springs, hand-feel type and no glitch at all. Each look carries its vocabulary
+  (`style.motion`: entrance, stagger, whether a sweep or a glitch is allowed, hard cuts or whips); keep to it.
 - Keep text inside the target's safe area, and out of its `exclude` rectangles (TikTok's button column on
   `tiktok-ad`). `sceneTarget(target)` gives a scene its target's safe area even without `--target`, `freeSpan()` the
   width an exclude rectangle leaves free at a given height, and `captions(..., { safe, exclude })` keeps captions
@@ -149,7 +169,9 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
 ## Gotchas (each one cost time before)
 
 - **A missing font renders as Times, silently.** List every family in `CFG.FONTS`; the harness then throws. Don't
-  name a family after a CSS generic (`serif`, `monospace`): a font string resolves to the generic instead.
+  name a family after a CSS generic (`serif`, `monospace`): a font string resolves to the generic instead. A look's
+  or a kit's faces are added for you, and fail the render when their file is not in the piece: copy it, don't
+  remove the look.
 - **zsh mangles `$VAR[x]` and `=====`** inside commands. Put long ffmpeg filter graphs in a script, or single-quote them.
 - **Use `N` (the frame counter), not `T`, in ffmpeg `blend` expressions** when the inputs have different timebases.
 - **WebM alpha needs `-c:v libvpx-vp9` before `-i`** when ffmpeg reads it, or the alpha is silently dropped and the
@@ -177,6 +199,8 @@ measured checks, and rendering it exactly on one machine.
 
 ## References
 
+- `references/looks.md`: the style a piece draws with, the eight looks, picking one, the look fonts, `brand.json`,
+  the brand sheet (`render.mjs brand`), the colour match (`render.mjs palette`) and what the render records.
 - `references/storyboard.md`: the board format, the board sheet, slates and the animatic, beat timing.
 - `references/voice.md`: timing sources and the `take.json` format, delivery tags, cues, gaps, the hook gate, the
   ElevenLabs tool, captions, and the mixer (with its known limits).

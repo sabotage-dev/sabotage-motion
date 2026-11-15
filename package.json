@@ -15,6 +15,7 @@
     "test:footage": "node --test --test-concurrency=1 test/footage.test.mjs",
     "test:check": "node --test --test-concurrency=1 test/check-units.test.mjs test/check.test.mjs test/check-file.test.mjs test/safezones.test.mjs",
     "test:examples": "node --test --test-concurrency=1 test/examples.test.mjs test/examples-check.test.mjs",
+    "test:looks": "node --test --test-concurrency=1 test/looks-units.test.mjs test/looks.test.mjs",
     "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs test/docs.test.mjs",
     "hooks": "node scripts/leak.mjs install"
   },

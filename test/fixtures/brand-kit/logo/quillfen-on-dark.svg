@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Quillfen, a made-up brand for sabotage-motion's tests: a quill nib in a ring, for dark grounds. Drawn for this repo (MIT). -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#10A8F8" stroke-width="32"/>
+  <g transform="rotate(-35 256 256)">
+    <path d="M256 84 C 334 166, 344 262, 256 404 C 168 262, 178 166, 256 84 Z" fill="#FBEFE4"/>
+    <path d="M256 214 L256 366" stroke="#7A1030" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="256" cy="206" r="22" fill="#7A1030"/>
+  </g>
+</svg>

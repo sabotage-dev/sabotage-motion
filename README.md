@@ -112,10 +112,44 @@ node tools/mix.mjs my-piece --master-only     # out/my-piece-final.mp4, mastered
 node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master: 0 FAIL, 0 WARN
 ```
 
-The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`, `bg`, `ink`,
-`accent`) changes it without code; `check` then warns that the board's copy is not on screen until `board.js` says
-the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
+The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`; `look`, one of the
+eight looks below; the colour tokens `bgA`, `bgB`, `ink`, `muted`, `accent` and `accent2` as `#hex`; and `bg`, the
+background shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour) changes it without code
+(new in 0.2: the `paper` shader takes its colour from `bgA`, and 0.1's `paper` colour param is gone; `look=paper` gives
+the warm paper with its fonts);
+`check` then warns that the board's copy is not on screen until `board.js` says the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
 [SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its `references/` go deeper.
+
+## Looks and brand kits
+
+![The template's title card in each of the eight looks](docs/media/looks.png)
+
+A piece starts from a look on purpose, not from the same palette every time. Eight looks ship in `looks.js`:
+`product`, `neon`, `paper`, `editorial`, `retro-crt`, `brutalist`, `gradient` and `mono`. Each sets the colour tokens,
+the display, body and mono faces, the background shader, the post settings, the motion vocabulary (entrance, stagger,
+whether a light sweep or a glitch is allowed, hard cuts or whips) and the timbre of the synthesized sound.
+`--param look=paper` tries one; `CFG.LOOK = 'paper'` in the scene keeps it. The serif, condensed, rounded and hand
+faces some looks use live once in `skills/sabotage-motion/looks/fonts/` (SIL OFL, 104 KB together) and are copied
+into a piece only when its look uses them. The sheet above is made by `scripts/looks-sheet.mjs`, and each card in it
+passes `check` with no FAIL and no WARN.
+
+A brand kit is a `brand.json` in your project root: the colour tokens, a family and file per font role, the logo for
+dark and light grounds, and an optional base look. Each piece keeps a copy with the files it names.
+
+```json
+{ "name": "Fernway", "look": "paper",
+  "colors": { "bgA": "#0F2A2E", "bgB": "#173A3F", "ink": "#F4EFE3", "accent": "#F2A93B" },
+  "fonts": { "display": { "family": "Fernway Display", "file": "fonts/fernway-display.woff2" } },
+  "logo": { "onDark": "logo/fernway-on-dark.svg", "onLight": "logo/fernway-on-light.svg" } }
+```
+
+`--param` wins over the kit, the kit over the look, the look over the template. `node render.mjs doctor` checks that
+every file the kit names exists and every colour parses; `node render.mjs brand` renders a brand sheet (swatches, a
+type specimen, the logo on each ground) to approve before anything is animated; `node render.mjs palette` measures
+whether a piece is in the kit's colours (each pixel of the check probe goes to its nearest colour by CIEDE2000 among
+the kit's and every look's; the kit's background must take 15% and its accent 0.5%, and no look more). The render
+record lists the resolved tokens and `fonts_used`, the families the scene actually drew with.
+[references/looks.md](skills/sabotage-motion/references/looks.md) has the details.
 
 ## Storyboard and voice
 
@@ -318,6 +352,7 @@ npm run test:voice                         # cues, board timing, the ElevenLabs 
 npm run test:mix                           # the mixer, control by control, and the parity script
 npm run test:footage                       # frame sequences: the cut, the manifest, seqAt in a render
 npm run test:check                         # check's detectors, fixture-check and its masters, the safe zones
+npm run test:looks                         # looks and brand kits: precedence, fonts, fonts_used, palette, brand sheet, look cards
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
 npm run test:examples                      # the three examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text

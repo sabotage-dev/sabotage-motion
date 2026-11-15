@@ -3,7 +3,8 @@
 Every binary file in this repository, with where it came from and its licence. The asset inventory
 test (`test/assets.test.mjs`) fails on a binary file that is not listed here and on a listed file that
 is missing. A path in the licence column is relative to the piece the file belongs to (the template, or an
-example), except `LICENSE`, which is this repository's own licence at its root.
+example), except `LICENSE`, which is this repository's own licence at its root, and the look fonts' and the fixture
+kit's licence texts, which sit beside their files (named in full below).
 
 | File | Source | Licence |
 |---|---|---|
@@ -34,3 +35,12 @@ example), except `LICENSE`, which is this repository's own licence at its root.
 | `docs/media/plumtrail-1.gif` | A GIF of the master a fresh Claude Code session made with this skill (0.1.0) from the README's "One prompt, three results" request, cut by `node scripts/readme-media.mjs tile`; its type is the template's bundled fonts, the only ones the session's piece declared and drew with (SIL OFL 1.1) | MIT (made for this repo), `LICENSE` |
 | `docs/media/plumtrail-2.gif` | As `plumtrail-1.gif`, from the second session | MIT (made for this repo), `LICENSE` |
 | `docs/media/plumtrail-3.gif` | As `plumtrail-1.gif`, from the third session | MIT (made for this repo), `LICENSE` |
+| `skills/sabotage-motion/looks/fonts/fraunces-latin-800-normal.woff2` | Fraunces 800 (ExtraBold), Latin subset, from the `@fontsource/fraunces` 5.3.0 npm package (upstream: github.com/undercasetype/Fraunces); the SERIF look face | SIL OFL 1.1, `skills/sabotage-motion/looks/fonts/OFL-Fraunces.txt` |
+| `skills/sabotage-motion/looks/fonts/anton-latin-400-normal.woff2` | Anton 400, Latin subset, from the `@fontsource/anton` 5.3.0 npm package (upstream: github.com/googlefonts/AntonFont); the CONDENSED look face, the same file as the showreel's | SIL OFL 1.1, `skills/sabotage-motion/looks/fonts/OFL-Anton.txt` |
+| `skills/sabotage-motion/looks/fonts/fredoka-latin-600-normal.woff2` | Fredoka 600 (SemiBold), Latin subset, from the `@fontsource/fredoka` 5.3.0 npm package (upstream: github.com/hafontia/Fredoka-One); the ROUNDED look face | SIL OFL 1.1, `skills/sabotage-motion/looks/fonts/OFL-Fredoka.txt` |
+| `skills/sabotage-motion/looks/fonts/caveat-latin-700-normal.woff2` | Caveat 700 (Bold), Latin subset, from the `@fontsource/caveat` 5.3.0 npm package (upstream: github.com/googlefonts/caveat); the HAND look face | SIL OFL 1.1, `skills/sabotage-motion/looks/fonts/OFL-Caveat.txt` |
+| `test/fixtures/brand-kit/fonts/quillfen-display.woff2` | The fixture kit's display face: an unchanged copy of `looks/fonts/fraunces-latin-800-normal.woff2` (same source), under the made-up kit's file name | SIL OFL 1.1, `test/fixtures/brand-kit/fonts/OFL-Fraunces.txt` |
+| `test/fixtures/brand-kit/fonts/quillfen-text.woff2` | The fixture kit's body face: an unchanged copy of `looks/fonts/fredoka-latin-600-normal.woff2` (same source), under the made-up kit's file name | SIL OFL 1.1, `test/fixtures/brand-kit/fonts/OFL-Fredoka.txt` |
+| `test/fixtures/brand-kit/logo/quillfen-on-dark.svg` | The made-up fixture kit's mark (a quill nib in a ring) for dark grounds, drawn as SVG for this repo | MIT (this repo's own work), `LICENSE` |
+| `test/fixtures/brand-kit/logo/quillfen-on-light.svg` | The same mark for light grounds, drawn as SVG for this repo | MIT (this repo's own work), `LICENSE` |
+| `docs/media/looks.png` | Rendered by this repo with `scripts/looks-sheet.mjs`: the template's title card in each of the eight looks, one frame each (2.6 s, quarter size), tiled and reduced to a 96-colour palette | MIT (this repo's own work), `LICENSE` |

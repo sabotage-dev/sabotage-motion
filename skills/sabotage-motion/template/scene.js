@@ -7,9 +7,15 @@
 //                            DUR comes from the storyboard: CFG.DUR = boardDur() (board.js, lib.js)
 //   TL                       the timeline: event times shared with audio.js (it receives this TL),
 //                            built from beatWindow(id) so the board stays the one source of timing
-//   init({ctx, hud, scale, params, alpha, target})   one-time setup (layout, images); params come
+//   init({ctx, hud, scale, params, alpha, target, style})   one-time setup (layout, images); params come
 //                            from --param k=v; target is the safezones.json entry or null. CFG.DUR
-//                            may be set here (the harness reads it after init)
+//                            may be set here (the harness reads it after init). style is the piece's
+//                            resolved look and brand kit (looks.js): colour tokens (bgA, bgB, ink, muted,
+//                            accent, accent2), font roles (fontStr(style, 'display', px)), the background
+//                            shader id and its colours (spread bgConfig(style, { alpha }) into frame's
+//                            return), post settings, motion vocabulary and sound timbre. CFG.LOOK = '<name>'
+//                            picks a look in code; --param look=<name> wins over it, brand.json over both
+//                            for colours and fonts, --param bgA=#hex (any token) or bg=<id> over all
 //   frame(t, jit) -> cfg     draw the 2D layer for time t; return compositing config (see bottom of frame)
 //   post(t) -> {...}         post-processing amounts for time t
 //   subBoost(t) (optional)   motion-blur subframe multiplier: raise it where motion is fast
@@ -34,8 +40,11 @@
 // canvases you create are NOT prepped: size them from ctx.canvas and apply the scale yourself
 // (see LAYER below). shadowBlur, shadowOffsetX/Y and ctx.filter blur radii ignore the transform:
 // multiply them by `scale` (from init) or they look too big at --scale < 1.
-import { clamp, lerp, prog, snap, whip, spring, env, rgba, rgb01, beatWindow, boardDur, sceneTarget, freeSpan } from './lib.js';
+import { clamp, lerp, prog, snap, whip, anticip, spring, env, rgba, beatWindow, boardDur, sceneTarget, freeSpan } from './lib.js';
+import { bgConfig, fontStr } from './looks.js';
 
+// LOOK is unset here, so the card keeps the template's own style unless --param look=<name> or brand.json says
+// otherwise; set CFG.LOOK = 'paper' (any name in looks.js) to pick one in code.
 export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };
 
 // One timeline shared with audio.js, so every sound lands on the visual event it belongs to. Its times
@@ -50,21 +59,18 @@ export const TL = {
   words: 0, hits: [],                  // filled by init(): word count + landing times
 };
 
-let ctx, S = 1, ALPHA = false, P, LAYER, lctx, SAFE, EXCL;
+let ctx, S = 1, ALPHA = false, P, ST, LAYER, lctx, SAFE, EXCL;
 const L = {};
 
-export async function init({ ctx: c, scale, params, alpha, target }) {
-  ctx = c; S = scale; ALPHA = alpha;
+export async function init({ ctx: c, scale, params, alpha, target, style }) {
+  ctx = c; S = scale; ALPHA = alpha; ST = style;
+  // the copy comes from params; colours, fonts, the background, post and motion from the style (looks.js)
   P = {
     title: params.title || 'Make it move',
     sub: params.sub || 'rendered from code, frame by frame',
-    ink: params.ink || '#F4F1EA',
-    accent: params.accent || '#FF4A1C',
-    bg: params.bg || 'gradient',          // none | gradient | paper | grid
-    bgA: params.bgA || '#101018',
-    bgB: params.bgB || '#2A1630',
-    paper: params.paper || '#EFE6D2',     // paper colour for bg=paper (pass a dark ink with it)
+    ink: ST.tokens.ink, accent: ST.tokens.accent,
   };
+  TL.stagger = ST.motion.stagger;
   // Lay out inside the safe area of the --target, else of the board's target (safezones.json), else 8% in.
   const T = await sceneTarget(target);
   SAFE = T && T.safe ? T.safe : { x: CFG.W * 0.08, y: CFG.H * 0.08, w: CFG.W * 0.84, h: CFG.H * 0.84 };
@@ -83,7 +89,7 @@ function layout(span) {
   const maxW = SW * 0.9, words = P.title.split(/\s+/).filter(Boolean);
   let fs = 170, lines;
   for (;;) {
-    ctx.font = `${fs}px DISPLAY`;
+    ctx.font = fontStr(ST, 'display', fs);
     lines = [[]];
     for (const w of words) {
       const cur = lines[lines.length - 1], test = [...cur, w].join(' ');
@@ -100,14 +106,14 @@ function layout(span) {
   // subtitle: shrink until it fits on one line (measured with its final letter-spacing)
   let subFs = Math.max(28, fs * 0.3), subW;
   for (;;) {
-    ctx.font = `${subFs}px BODY`; ctx.letterSpacing = `${(subFs * 0.04).toFixed(2)}px`;
+    ctx.font = fontStr(ST, 'body', subFs); ctx.letterSpacing = `${(subFs * 0.04).toFixed(2)}px`;
     subW = ctx.measureText(P.sub).width; ctx.letterSpacing = '0px';
     if (subW <= maxW || subFs <= 20) break;
     subFs -= 2;
   }
-  ctx.font = `${subFs}px BODY`;
+  ctx.font = fontStr(ST, 'body', subFs);
   L.subAsc = ctx.measureText(P.sub).fontBoundingBoxAscent; L.subDesc = ctx.measureText(P.sub).fontBoundingBoxDescent;
-  ctx.font = `${fs}px DISPLAY`;
+  ctx.font = fontStr(ST, 'display', fs);
   // left-aligned block (title, bar, subtitle share one left edge), centred as a whole in the safe area
   const blockX = span.left + (SW - Math.max(widest, subW)) / 2;
   // the subtitle tracks in from the widest letter-spacing that still ends inside the span (at most 0.45 em);
@@ -130,16 +136,31 @@ function layout(span) {
   TL.hits = L.words.map((_, i) => +(TL.wordsIn + i * TL.stagger + 0.18).toFixed(3)); // spring first reaches 1
 }
 
+// The style's motion vocabulary (looks.js): how an element enters (dt seconds after its start; 0 -> 1, a spring or
+// anticip may overshoot) and how it leaves (whip: a fast smear out; cut: gone at once, a hard cut).
+function enterK(dt) {
+  switch (ST.motion.enter) {
+    case 'snap': return snap(prog(dt, 0, 0.5));
+    case 'anticip': return anticip(prog(dt, 0, 0.6));
+    case 'step': return Math.floor(prog(dt, 0, 0.36) * 4 + 1e-9) / 4;   // four hard steps, like a terminal redraw
+    default: return spring(dt, 2.2, 0.55);
+  }
+}
+const exitK = (t, at, dur) => (ST.motion.exit === 'cut' ? (t >= at ? 1 : 0) : whip(prog(t, at, at + dur)));
+
 // Where each title word is at t: its offset below (rising in) or above (whipping out) its baseline, and the line's
 // clip mask it is drawn through. frame() draws from it and boxes() reports it, so the two always agree.
 function wordAt(i, t) {
   const w = L.words[i], ln = L.lines[w.li];
-  const k = spring(t - (TL.wordsIn + i * TL.stagger), 2.2, 0.55);
-  const o = whip(prog(t, TL.out + i * TL.outStagger, TL.out + i * TL.outStagger + 0.35));
+  const k = enterK(t - (TL.wordsIn + i * TL.stagger));
+  const o = exitK(t, TL.out + i * TL.outStagger, 0.35);
   return { w, dy: (1 - k) * L.fs * 1.1 - o * L.fs * 1.25, clip: { x: ln.x0 - 40, y: ln.base - L.fs * 1.0, w: ln.w + 80, h: L.fs * 1.28 } };
 }
 const subTrack = (si) => lerp(L.subTrack0, L.subFs * 0.04, si);
-const subFade = (t) => { const si = snap(prog(t, TL.subIn, TL.subIn + 0.7)), so = prog(t, TL.out, TL.out + 0.25); return { si, a: 0.82 * si * (1 - so) }; };
+const subFade = (t) => {
+  const si = snap(prog(t, TL.subIn, TL.subIn + 0.7)), so = ST.motion.exit === 'cut' ? (t >= TL.out ? 1 : 0) : prog(t, TL.out, TL.out + 0.25);
+  return { si, a: 0.82 * si * (1 - so) };
+};
 
 export function frame(t, jit) {
   const c = ctx, l = lctx;   // c arrives cleared and pre-scaled; the offscreen layer we prep ourselves
@@ -147,7 +168,7 @@ export function frame(t, jit) {
   l.setTransform(S, 0, 0, S, 0, 0);
 
   // --- title words: rise from behind each line's baseline (a clip mask), spring-settled; whip out upward
-  l.font = `${L.fs}px DISPLAY`; l.fillStyle = P.ink; l.textBaseline = 'alphabetic';
+  l.font = fontStr(ST, 'display', L.fs); l.fillStyle = P.ink; l.textBaseline = 'alphabetic';
   L.words.forEach((_, i) => {
     const { w, dy, clip } = wordAt(i, t);
     l.save();
@@ -155,9 +176,9 @@ export function frame(t, jit) {
     l.fillText(w.text, w.x, w.base + dy);
     l.restore();
   });
-  // --- light sweep: a skewed gradient painted only where the title already is (source-atop)
+  // --- light sweep: a skewed gradient painted only where the title already is (source-atop), when the look allows one
   const sp = prog(t, TL.sweep, TL.sweep + 0.55);
-  if (sp > 0 && sp < 1) {
+  if (ST.motion.sweep && sp > 0 && sp < 1) {
     const x = lerp(-200, CFG.W + 200, snap(sp)), cy = CFG.H * 0.44;
     const g = l.createLinearGradient(x - 90, 0, x + 90, 0);
     g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.75)'); g.addColorStop(1, 'rgba(255,255,255,0)');
@@ -170,7 +191,7 @@ export function frame(t, jit) {
 
   // --- frame marks: a corner bracket at each corner of the safe area, there from the first frame (so the
   // thumbnail is never a flat colour) until everything whips out; they also show where the safe area is
-  const fo = whip(prog(t, TL.out, TL.out + 0.3)), arm = 54, inset = 14;
+  const fo = exitK(t, TL.out, 0.3), arm = 54, inset = 14;
   if (fo < 1) {
     c.strokeStyle = rgba(P.ink, 0.55 * (1 - fo)); c.lineWidth = 5;
     const x0 = SAFE.x + inset, y0 = SAFE.y + inset, x1 = SAFE.x + SAFE.w - inset, y1 = SAFE.y + SAFE.h - inset;
@@ -179,7 +200,7 @@ export function frame(t, jit) {
     }
   }
   // --- accent bar: snaps in from the left, pulses on each word landing, wipes out to the right
-  const bi = snap(prog(t, TL.barIn, TL.barIn + 0.45)), bo = whip(prog(t, TL.out + 0.08, TL.out + 0.42));
+  const bi = snap(prog(t, TL.barIn, TL.barIn + 0.45)), bo = exitK(t, TL.out + 0.08, 0.34);
   if (bi > 0 && bo < 1) {
     const pulse = 1 + 0.5 * env(t, TL.hits, 16);
     const x0 = L.barX + bo * L.barW, x1 = L.barX + bi * L.barW, h = L.barH * pulse;
@@ -188,7 +209,7 @@ export function frame(t, jit) {
   // --- subtitle: tracks in from wide letter-spacing while fading up; fades on exit
   const { si, a } = subFade(t);
   if (a > 0) {
-    c.font = `${L.subFs}px BODY`; c.textAlign = 'left';
+    c.font = fontStr(ST, 'body', L.subFs); c.textAlign = 'left';
     c.letterSpacing = `${subTrack(si).toFixed(2)}px`;
     c.fillStyle = rgba(P.ink, a);
     c.fillText(P.sub, L.barX, L.subY);
@@ -198,13 +219,10 @@ export function frame(t, jit) {
   // Compositing config for this subframe:
   //   use2D: composite the 2D canvas   scene: background shader id (0 = flat clear colour)
   //   P/Q/R: vec4 params for the shader   cam: [zoom, rotation, panX, panY]   clear: flat bg rgb 0..1
-  const bgId = ALPHA ? 0 : { none: 0, gradient: 1, paper: 2, grid: 3 }[P.bg] ?? 1;
+  // bgConfig(style) gives scene, P, Q, R and clear from the style's shader id (bg) and its colour tokens.
   return {
-    t, jit, use2D: true, scene: bgId,
-    P: P.bg === 'paper' ? [...rgb01(P.paper), 0] : [...rgb01(P.bgA), 1],
-    Q: P.bg === 'grid' ? [...rgb01(P.accent), 1] : [...rgb01(P.bgB), 0],
+    t, jit, use2D: true, ...bgConfig(ST, { alpha: ALPHA }),
     cam: [1 + 0.03 * clamp(t / CFG.DUR), 0, 0, 0],   // slow push-in for life during holds
-    clear: rgb01(P.bgA),
   };
 }
 
@@ -221,7 +239,7 @@ export function boxes(t) {
   const { si, a } = subFade(t);
   if (a > 0.05) {
     ctx.save();
-    ctx.font = `${L.subFs}px BODY`; ctx.letterSpacing = `${subTrack(si).toFixed(2)}px`;
+    ctx.font = fontStr(ST, 'body', L.subFs); ctx.letterSpacing = `${subTrack(si).toFixed(2)}px`;
     const w = ctx.measureText(P.sub).width;
     ctx.restore();
     out.push({ id: 'sub', text: P.sub, x: L.barX, y: L.subY - L.subAsc, w, h: L.subAsc + L.subDesc, group: 'sub' });
@@ -229,8 +247,10 @@ export function boxes(t) {
   return out;
 }
 
+// Post from the style; a look that allows a glitch gets one at the cut out.
 export function post(t) {
-  return { t, bloom: 0.18, thr: 0.78, ca: 0.0008, glitch: 0, grain: 0.025, vig: 0.12, flash: 0, fade: 1, hud: 0 };
+  const p = ST.post, g = ST.motion.glitch ? 0.6 * Math.exp(-Math.pow((t - TL.out) / 0.06, 2)) : 0;
+  return { t, bloom: p.bloom, thr: p.thr, ca: p.ca, glitch: g, grain: p.grain, vig: p.vig, scan: p.scan, flash: 0, fade: 1, hud: 0 };
 }
 
 // Fast segments get 2x subframes so motion blur stays smooth instead of stepping.
