@@ -1,0 +1,28 @@
+{
+  "name": "sabotage-motion",
+  "owner": {
+    "name": "Sabotage Development LLC",
+    "url": "https://github.com/sabotage-dev"
+  },
+  "metadata": {
+    "description": "One plugin: sabotage-motion, motion graphics for short-form video written in code."
+  },
+  "plugins": [
+    {
+      "name": "sabotage-motion",
+      "source": "./",
+      "description": "Motion graphics for short-form video, written in code: scenes as a pure function of time, rendered frame-exact with synthesized sound effects on the same timeline.",
+      "license": "MIT",
+      "homepage": "https://github.com/sabotage-dev/sabotage-motion",
+      "repository": "https://github.com/sabotage-dev/sabotage-motion",
+      "keywords": [
+        "motion-graphics",
+        "video",
+        "animation",
+        "kinetic-typography",
+        "webgl",
+        "canvas"
+      ]
+    }
+  ]
+}

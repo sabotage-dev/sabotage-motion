@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-Planned for v1 (the storyboard, voice-driven timing, captions, mix and master, footage, `check` and the safe zones are built; the skill text and three examples are built and in review):
+![The showreel example's contact sheet: twelve frames of a 20 s reel made with this skill](skills/sabotage-motion/examples/showreel/contact.png)
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -22,18 +22,82 @@ Planned for v1 (the storyboard, voice-driven timing, captions, mix and master, f
   nothing moves, an empty first frame, and text outside the platform's safe zones.
 - **Transparent output.** ProRes 4444 or WebM with alpha, for overlays on other footage.
 
-## Status
+Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Google Chrome and ffmpeg
+([Requirements](#requirements)). The design and its decisions are in [docs/PLAN.md](docs/PLAN.md).
 
-Early build, not released yet. The v1 build plan is [docs/PLAN.md](docs/PLAN.md). Phase P0 is in place: the
-engine template with bundled open-licence fonts, `--scene` and `--target`, a `render.json` record after every
-video render, `doctor`, and CI on macOS and Linux. Phase P1 is merged (PR #2): the storyboard (`board.js`, the board
-sheet, the slate scene), voice-driven timing (`tools/cues.mjs`, with the hook gate), the optional ElevenLabs voice
-tool, and captions. Phase P2 is merged (PR #3): mix and master (`tools/mix.mjs`) and footage (`tools/frames.mjs`,
-`loadSeq` and `seqAt`). Phase P3 is merged (PR #4): `node render.mjs check` and the safe zones. Phase P4 is in
-review: the skill text ([SKILL.md](skills/sabotage-motion/SKILL.md) and five references), three runnable examples,
-and `ASSETS.md`. Release 0.1.0 (P5) comes next.
+## Install
 
-## Storyboard and voice (P1)
+Pick one route. Each was tested from GitHub on a fresh, empty home folder before this release.
+
+**As a Claude Code plugin** (from this repo, which is also its marketplace):
+
+```sh
+claude plugin install sabotage-motion --marketplace sabotage-dev/sabotage-motion
+```
+
+That one-step form needs Claude Code 2.1.292 or later; inside a session, `/plugin install sabotage-motion
+--marketplace sabotage-dev/sabotage-motion` works from 2.1.275. On older versions, add the marketplace first:
+
+```sh
+claude plugin marketplace add sabotage-dev/sabotage-motion
+claude plugin install sabotage-motion@sabotage-motion
+```
+
+Third-party marketplaces do not update on their own: `claude plugin marketplace update sabotage-motion`, then
+`claude plugin update sabotage-motion@sabotage-motion`.
+
+**As a personal skill** (a plain copy, for every project on this machine):
+
+```sh
+git clone --depth 1 https://github.com/sabotage-dev/sabotage-motion
+mkdir -p ~/.claude/skills
+cp -R sabotage-motion/skills/sabotage-motion ~/.claude/skills/
+```
+
+For one project only, copy it into that project's `.claude/skills/` instead. To update, pull and copy again.
+
+**With the skills CLI** ([skills.sh](https://skills.sh)):
+
+```sh
+npx skills add sabotage-dev/sabotage-motion -g -a claude-code
+```
+
+`-g` installs it for your user (`~/.claude/skills`); without it, into the current project. The CLI reports each
+install to skills.sh anonymously; `DISABLE_TELEMETRY=1` turns that off.
+
+Start a new Claude Code session after installing, so it loads the skill.
+
+## Your first piece
+
+**With Claude Code.** In an empty folder, ask for a piece in plain words, for example:
+
+> Make a 6 second 9:16 end card for a made-up app called Fernway: a mark drawn in code, the name, the tagline
+> "Maps that walk with you", a "Get the app" button, a whoosh and a chime, mastered for TikTok.
+
+The skill copies its template into a piece folder, checks the machine with `doctor`, shows you a contact sheet
+before the full render, then renders, masters and checks the file it hands you. For anything with a voice or more
+than one beat it writes a storyboard first and shows you the board sheet.
+
+**By hand.** From a clone of this repo:
+
+```sh
+cp -R sabotage-motion/skills/sabotage-motion/template my-piece
+chmod -R u+w my-piece                         # cp keeps the source's modes
+cd my-piece
+npm install                                   # playwright-core; it drives your installed Chrome
+node render.mjs doctor                        # Chrome, WebGL2, ffmpeg, fonts: says what to install if anything is missing
+node render.mjs contact                       # contact.png: 12 frames of the whole timeline
+node render.mjs full --out out/my-piece.mp4   # the video, and its effects as out/my-piece.wav
+node tools/mix.mjs my-piece --master-only     # out/my-piece-final.mp4, mastered to -14 LUFS
+node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master: 0 FAIL, 0 WARN
+```
+
+The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`, `bg`, `ink`,
+`accent`) changes it without code; `check` then warns that the board's copy is not on screen until `board.js` says
+the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
+[SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its `references/` go deeper.
+
+## Storyboard and voice
 
 Each piece has a `board.js`: its beats in order, each with a voice line (`vo`) or a length (`dur`), the
 on-screen copy, a visual note and a sound note. The scene builds its timeline from it (`beatWindow(id)`,
@@ -74,7 +138,7 @@ node render.mjs board                       # the board sheet again, with the re
   default model: the current one that reads delivery tags is `eleven_v4` (ElevenLabs' docs, checked
   2026-11-13).
 
-## Mix, master and footage (P2)
+## Mix, master and footage
 
 `tools/mix.mjs` puts the sound under a rendered picture and masters it for social. Run it in the piece's
 folder after `node render.mjs full --out out/<name>.mp4` (which also writes the effects as `out/<name>.wav`):
@@ -88,7 +152,7 @@ node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, f
 
 - **What it writes.** `out/<name>-final.mp4`: the picture copied untouched, the mix as AAC 256 kb/s, 48 kHz,
   `+faststart`. `out/<name>.master.json`: the mode, the loudness target, the voice delay it applied, a hash of
-  every input and of the render record it read, and the master's own hashes, so `check --file` (P3) can tie the
+  every input and of the render record it read, and the master's own hashes, so `check --file` can tie the
   master to the render it came from. A refusal writes nothing and leaves the last master as it was.
 - **Voice.** Measured (EBU R128) and levelled to -24 LUFS, then `--vo-gain` (3.2), and delayed by `VO_OFFSET`
   from `cues.json`. A take quieter than -50 LUFS stops the mix.
@@ -126,7 +190,7 @@ scene draws; `frames.mjs` prints the total and warns over 1 GB. Measured on an A
 in 1.2 s. Both rendered. The limit is the machine's free memory, so keep a sequence well under it, and smaller on
 CI runners. The clip's sound goes in through `mix.mjs --stem` (the tool's header shows the ffmpeg line).
 
-## Check and safe zones (P3)
+## Check and safe zones
 
 `node render.mjs check` measures the piece before you post it, and `--file` measures the master too. Run it in
 the piece's folder:
@@ -178,14 +242,9 @@ checks.
   the file: `text_safe` only warns on them, and the overlays and `check` say "estimate".
 - **Tuning.** `--dump out/check.json` writes the raw measurements (changed pixels per frame pair, the first frame,
   the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
-  on real pieces.
+  on real pieces. With `--plain` it holds each result's level and numbers alone.
 
-## Skill text and examples (P4, in review)
-
-[SKILL.md](skills/sabotage-motion/SKILL.md) is what Claude Code reads: the quick start, the files in a piece, the
-workflow (brief, board, board sheet, voice, cues, animatic, animate, sign-off, check, render, mix, check the master,
-deliver), craft defaults, gotchas and when to use something else. Five references go deeper:
-`references/storyboard.md`, `voice.md`, `check.md`, `techniques.md` and `delivery.md`.
+## Examples
 
 Three examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
 contact sheet and board sheet committed:
@@ -196,13 +255,7 @@ contact sheet and board sheet committed:
 | `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
 
-P4 also changed the engine in four places: a render writes to `out/<name>.partial.<ext>` and renames it only when
-it is complete, so a failed render never touches an earlier good one; `captions(..., { exclude })` keeps captions
-beside a platform's covered areas (TikTok's button column on `tiktok-ad`), leaves room between words for the popped
-word, and scales a word wider than the line to fit it, and `sceneTarget()` and `freeSpan()` in `lib.js` let any
-layout keep out of covered areas too; `check`'s `file_spec` accepts ProRes 4444 read back as 12-bit (ffmpeg 9 reports
-it that way); and the template's example scene now fits its target's safe area, reports its text through `boxes(t)`
-and opens on a frame that is not flat, so `check` on a fresh copy is clean.
+Each example's README has its commands. `ASSETS.md` lists every binary file in the repo with its source and licence.
 
 ## Requirements
 

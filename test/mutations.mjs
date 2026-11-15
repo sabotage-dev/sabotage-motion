@@ -151,6 +151,7 @@ const M = [
   ['P4 examples: the board moves a voiced beat its cues were made from', 'skills/sabotage-motion/examples/explainer-beat/board.js', [["gapBefore: 0.35,", "gapBefore: 0.5,"]], ['test/examples.test.mjs']],
   ['P4 delivery.md: a safe-zone edge drifts from safezones.json', 'skills/sabotage-motion/references/delivery.md', [['| `tiktok` | 1080x1920 | 30 | x 44-940, y 130-1436 |', '| `tiktok` | 1080x1920 | 30 | x 44-950, y 130-1436 |']], ['test/docs.test.mjs']],
   ['P4 render.mjs: a finished video is never renamed onto its output', T + 'render.mjs', [["      promote(part, out);\n      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });", "      console.log('wrote', out);\n      writeRenderJson(out, src, { from, to, frames });"]], ['test/render-error.test.mjs']],
+  ['P5 render.mjs: --dump under --plain writes nothing again', T + 'render.mjs', [["  if (!dump && opt('dump')) dump = { format: 'sabotage-motion/check-dump@1' };\n", '']], ['test/check-file.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);

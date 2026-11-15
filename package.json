@@ -1,6 +1,6 @@
 {
   "name": "sabotage-motion",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Motion graphics for short-form video, written in code by your coding agent",
