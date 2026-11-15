@@ -16,16 +16,20 @@ const OWN = {
   'explainer-beat': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
   'lower-third': ['scene.js', 'board.js', '.gitignore'],
 };
-const walk = (dir, rel = '') => fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((d) => {
-  const r = rel ? `${rel}/${d.name}` : d.name;
-  return d.isDirectory() ? (d.name === 'node_modules' ? [] : walk(dir, r)) : [r];
-});
+// The template's files as the repo publishes them (tracked, or new and not ignored), so render outputs and other
+// ignored files in the template folder (CI renders a benchmark there) are not part of the comparison.
+const templateFiles = () => {
+  const prefix = path.relative(repoRoot, templateDir).split(path.sep).join('/') + '/';
+  return repoFiles().filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length));
+};
 
 for (const ex of EXAMPLES) {
   const dir = path.join(examplesDir, ex);
   test(`${ex}: every template file is the template's, byte for byte, except the ones the example owns`, () => {
     const drift = [];
-    for (const f of walk(templateDir)) {
+    const files = templateFiles();
+    assert.ok(files.includes('render.mjs') && files.includes('scene.js'), 'the template\'s files are listed');
+    for (const f of files) {
       if (OWN[ex].includes(f)) continue;
       const p = path.join(dir, f);
       if (!fs.existsSync(p)) drift.push(`${f}: missing`);
