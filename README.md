@@ -242,7 +242,7 @@ checks.
   the file: `text_safe` only warns on them, and the overlays and `check` say "estimate".
 - **Tuning.** `--dump out/check.json` writes the raw measurements (changed pixels per frame pair, the first frame,
   the audio windows, each result's level and numbers) with no on-screen text or params, for tuning the thresholds
-  on real pieces.
+  on real pieces. With `--plain` it holds each result's level and numbers alone.
 
 ## Examples
 
