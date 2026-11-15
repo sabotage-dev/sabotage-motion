@@ -114,7 +114,9 @@ node render.mjs check --file out/my-piece-final.mp4   # measured checks on the s
 
 The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`; `look`, one of the
 eight looks below; the colour tokens `bgA`, `bgB`, `ink`, `muted`, `accent` and `accent2` as `#hex`; and `bg`, the
-background shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour) changes it without code;
+background shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour) changes it without code
+(new in 0.2: the `paper` shader takes its colour from `bgA`, and 0.1's `paper` colour param is gone; `look=paper` gives
+the warm paper with its fonts);
 `check` then warns that the board's copy is not on screen until `board.js` says the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
 [SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its `references/` go deeper.
 

@@ -135,6 +135,20 @@ test('fonts_used: the families drawn by fillText and strokeText, and not the one
   assert.deepEqual(record(dir, 'out/full.mp4').fonts_used, ['MONO']);
 });
 
+test('a brand.json that parses but is not an object is a broken kit; palette keeps check\'s probe scale', () => {
+  const dir = kitPiece('looks-kit-not-object');
+  for (const v of ['null', 'false', '[]']) {
+    fs.writeFileSync(path.join(dir, 'brand.json'), v);
+    const d = render(dir, ['doctor'], { allowFail: true });
+    assert.equal(d.status, 1, `${v}: ${d.out}`);
+    assert.match(d.out, /FAIL {2}brand kit: brand\.json must hold an object/, v);
+    assert.match(d.out, /FAIL {2}look and kit: the piece did not open/, `${v}: the render refuses it too`);
+  }
+  fs.writeFileSync(path.join(dir, 'brand.json'), JSON.stringify(KIT));
+  const sc = render(dir, ['palette', '--scale', '0.25'], { allowFail: true });
+  assert.equal(sc.status, 2, sc.out); assert.match(sc.out, /--scale is fixed for the colour match/);
+});
+
 test('palette: a piece in the kit\'s colours passes; the same piece in a look\'s or the template\'s colours fails', () => {
   const dir = kitPiece('looks-palette', { palette: true });
   const pass = render(dir, ['palette', '--json']);

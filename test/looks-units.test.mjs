@@ -100,6 +100,24 @@ test('the match: a tie goes to the earlier palette (the kit before the looks), s
   assert.equal(m2.palettes[0].total, 4);
 });
 
+test('the match: two kit tokens with one colour both get its pixels, and a role counts each pixel once', () => {
+  // an accent that is also the ink: the accent is not starved by a tie with the ink
+  const shared = C.paletteMatch(hist([['#7A1030', 9000], [KIT.ink, 1000]]), [{ id: 'kit', tokens: { ...KIT, accent: KIT.ink } }, ...pals().slice(1)]);
+  const k = shared.palettes[0];
+  assert.equal(k.tokens.ink, 1000); assert.equal(k.tokens.accent, 1000);
+  assert.equal(k.total, 10000, 'the palette total counts each pixel once');
+  assert.deepEqual(k.roles, { bg: 9000, accent: 1000 });
+  assert.equal(C.paletteMatch(hist([['#680E34', 50]]), pals()).palettes[0].roles.bg, 50, 'bgB pixels are background too');
+  assert.equal(C.paletteResult(shared).ok, true, JSON.stringify(C.paletteResult(shared).rules));
+  // bgA and bgB the same colour: the background share is its pixels, not twice them
+  const same = C.paletteMatch(hist([['#7A1030', 1000], [KIT.accent, 100], ['#4A7A2C', 8900]]), [{ id: 'kit', tokens: { ...KIT, bgB: KIT.bgA } }, ...pals().slice(1)]);
+  assert.equal(same.palettes[0].roles.bg, 1000);
+  assert.equal(C.paletteResult(same).rules[0].ok, false, '10% of background fails; counted twice it would pass');
+  // every other palette keeps the earlier-token rule
+  const look = C.paletteMatch(hist([['#123456', 5]]), [{ id: 'kit', tokens: { bgA: '#000000' } }, { id: 'look y', tokens: { ink: '#123456', accent: '#123456' } }]);
+  assert.equal(look.palettes[1].tokens.ink, 5); assert.equal(look.palettes[1].tokens.accent, 0); assert.equal(look.palettes[1].roles.accent, 0);
+});
+
 // paletteResult on hand-made matches: { total, none, palettes: [kit, ...others] }
 const mk = (kit, other = {}) => ({ total: 10000, none: 0, palettes: [{ id: 'kit', total: 0, tokens: { bgA: 0, bgB: 0, accent: 0, ...kit } },
   { id: 'look x', total: 0, tokens: { bgA: 0, bgB: 0, accent: 0, ...other } }] });

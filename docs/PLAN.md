@@ -890,8 +890,11 @@ template), for a missing look or kit font failing the render, for `doctor` on a 
 renders. Colour match, used in the fresh-session rows: every pixel of the RGB probe frames is given to the nearest
 colour (CIEDE2000) among the kit's tokens and every look's default tokens, and a pixel more than 10 from all of
 them is given to none; the kit's `bgA` and `bgB` together must take at least 15% of the pixels and its `accent` at
-least 0.5%, and no look's defaults may take more than either. No clustering, so the result does not change from run
-to run. The fixture kit's `bgA`, `bgB` and `accent` are each more than 15 from every look's tokens, so the template's
+least 0.5%, and no look's defaults (nor the template's) may take more than either, role by role: no other `bgA` and
+`bgB` more than the kit's, no other `accent` more than the kit's (P7 council round 1: comparing a look's whole
+palette with the kit's accent failed a piece drawn only in the kit's colours, since near-white inks sit within a
+few units of each other). Two kit tokens of one colour each get its pixels. No clustering, so the result does not
+change from run to run. The fixture kit's `bgA`, `bgB` and `accent` are each more than 15 from every look's tokens, so the template's
 or a look's palette cannot pass for it. The fresh-session row: one session P5's way, given that `brand.json` (with
 its fonts and logo) and a brief that does not mention it, makes a piece that passes the colour match, whose
 `fonts_used` holds the kit's display and body families, and whose master passes `check --file`.

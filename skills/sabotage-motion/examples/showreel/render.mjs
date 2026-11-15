@@ -453,9 +453,9 @@ async function doctor() {
     const kitPath = path.join(root, 'brand.json');
     if (!fs.existsSync(kitPath)) line(true, 'brand kit', 'no brand.json (optional: the project\'s colour tokens, fonts and logo files)');
     else {
-      let kit = null;
-      try { kit = JSON.parse(fs.readFileSync(kitPath, 'utf8')); } catch (e) { line(false, 'brand kit', `brand.json does not parse: ${e.message}`, 'fix the JSON'); }
-      if (kit) {
+      let kit = null, parsed = false;
+      try { kit = JSON.parse(fs.readFileSync(kitPath, 'utf8')); parsed = true; } catch (e) { line(false, 'brand kit', `brand.json does not parse: ${e.message}`, 'fix the JSON'); }
+      if (parsed) {   // null or false parse too, and brandProblems reports them
         const probs = LK.brandProblems(kit, (f) => { const a = path.join(root, f); return fs.existsSync(a) && fs.statSync(a).isFile(); });
         if (!probs.length) line(true, 'brand kit', `brand.json "${kit.name}": ${Object.keys(kit.colors || {}).length} colours parse, every file it names exists`);
         for (const pr of probs) line(false, 'brand kit', pr, 'the fields are in looks.js\'s header; copy brand.json and every file it names into the piece');
@@ -737,6 +737,7 @@ async function palette() {
   const usage = (m) => { console.error(`palette: ${m}`); return 2; };
   const kitArg = opt('brand', 'brand.json'), kitFile = path.resolve(root, kitArg);
   if (flag('brand') && !opt('brand')) return usage('--brand needs a file (e.g. --brand ../brand.json)');
+  if (flag('scale') && +opt('scale') !== C.T.probeScale) return usage(`--scale is fixed for the colour match: it measures check's probe frames at ${C.T.probeScale} of full size`);
   if (!fs.existsSync(kitFile)) return usage(`no kit: ${kitArg} does not exist (write brand.json, or name one with --brand <file>)`);
   let kit;
   try { kit = JSON.parse(fs.readFileSync(kitFile, 'utf8')); } catch (e) { return usage(`${kitArg} does not parse: ${e.message}`); }

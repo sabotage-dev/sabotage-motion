@@ -126,13 +126,16 @@ review sheet: it is ignored by git and left out of the source hash.
   exact colour;
 - each colour goes to the nearest colour (CIEDE2000) among the kit's tokens, the template's and every look's
   default tokens, the earlier on a tie (the kit first); a colour more than 10 from all of them is no one's. No
-  clustering, no sampling: the same piece gives the same numbers every run;
+  clustering, no sampling: the same piece gives the same numbers every run. Two of the kit's tokens with the same
+  colour (an accent that is also the ink) both get its pixels, and a pixel counts once for the background role
+  even when `bgA` and `bgB` are the same colour;
 - the kit's `bgA` and `bgB` together must take at least 15% of the pixels and its `accent` at least 0.5%, and no
   look's defaults (nor the template's) may take more than either, role by role: no other `bgA` and `bgB` more than
   the kit's, no other `accent` more than the kit's.
 
 It prints the coverage of each token, each look's share, the font families the scene drew, and the four rules, and
-exits 1 when one fails (2 when there is no kit, or the kit gives no `bgA`, `bgB` or `accent`). `--brand` reads
+exits 1 when one fails (2 when there is no kit, the kit gives no `bgA`, `bgB` or `accent`, or `--scale` asks for another
+probe size). `--brand` reads
 another kit file without rendering with it. Run it after the board is animated and before the final render, and fix
 a failure in the scene (a hard-coded colour, a look's accent left in), not in the kit.
 
@@ -142,3 +145,12 @@ a failure in the scene (a hard-coded colour, a look's accent left in), not in th
 `strokeText` the scene made (in `init`, `frame` and `drawHud`, on any canvas), parsed from `ctx.font`. Setting
 `ctx.font` only to measure or lay out text (as `captions(..., { draw: false })` does) is not a draw and is not
 recorded, so `fonts_used` says which faces are actually on screen.
+
+## Changed from 0.1
+
+- The template's `paper` colour param is gone. `bg=paper` takes its colour from `bgA`, like every shader; for the
+  warm cream of 0.1, use `--param look=paper` (with its fonts copied into the piece) or `--param bgA=#EFE6D2` with a
+  dark `ink`. A piece made from the 0.1 template keeps its own copy of the engine and is not affected.
+- `bg` must be a shader id. A colour there (`--param bg=#hex`) is an error instead of a silent fallback.
+- A `brand.json` that parses but is not an object (`null`, `false`, a list) is a broken kit: the render and `doctor`
+  fail on it instead of treating the piece as having no kit.

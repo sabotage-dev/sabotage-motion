@@ -661,9 +661,20 @@ export function ciede2000([L1, a1, b1], [L2, a2, b2]) {
 // clustering and no sampling, so the same frames always give the same result. Returns pixel counts:
 // { total, none, palettes: [{ id, total, tokens: { name: n } }] }.
 export function paletteMatch(hist, palettes, limit = T.palette.limit) {
+  // The first palette is the kit. Two of its tokens with the same colour (an accent that is also the ink) are one
+  // entry crediting both, so neither role can be starved by a tie with itself; every other palette keeps the
+  // earlier-token rule. `roles` counts each pixel once per role: bg (bgA or bgB) and accent.
   const entries = [];
-  palettes.forEach((p, pi) => { for (const [k, hex] of Object.entries(p.tokens)) entries.push({ pi, k, lab: hexToLab(hex) }); });
-  const out = palettes.map((p) => ({ id: p.id, total: 0, tokens: Object.fromEntries(Object.keys(p.tokens).map((k) => [k, 0])) }));
+  palettes.forEach((p, pi) => {
+    const seen = new Map();
+    for (const [k, hex] of Object.entries(p.tokens)) {
+      const key = String(hex).toUpperCase();
+      if (pi === 0 && seen.has(key)) { seen.get(key).keys.push(k); continue; }
+      const e = { pi, k, keys: [k], lab: hexToLab(hex) };
+      seen.set(key, e); entries.push(e);
+    }
+  });
+  const out = palettes.map((p) => ({ id: p.id, total: 0, tokens: Object.fromEntries(Object.keys(p.tokens).map((k) => [k, 0])), roles: { bg: 0, accent: 0 } }));
   let total = 0, none = 0;
   for (let i = 0; i < hist.colors.length; i++) {
     const c = hist.colors[i], n = hist.counts[i];
@@ -672,8 +683,11 @@ export function paletteMatch(hist, palettes, limit = T.palette.limit) {
     let best = -1, bd = Infinity;
     for (let e = 0; e < entries.length; e++) { const d = ciede2000(lab, entries[e].lab); if (d < bd) { bd = d; best = e; } }
     if (!(bd <= limit)) { none += n; continue; }
-    const E = entries[best];
-    out[E.pi].tokens[E.k] += n; out[E.pi].total += n;
+    const E = entries[best], o = out[E.pi];
+    for (const k of E.keys) o.tokens[k] += n;
+    o.total += n;
+    if (E.keys.includes('bgA') || E.keys.includes('bgB')) o.roles.bg += n;
+    if (E.keys.includes('accent')) o.roles.accent += n;
   }
   return { total, none, palettes: out };
 }
@@ -685,7 +699,8 @@ export function paletteMatch(hist, palettes, limit = T.palette.limit) {
 // Returns { ok, bg, accent, rules: [{ ok, rule, measured, threshold }] }.
 export function paletteResult(match) {
   const share = (n) => (match.total ? n / match.total : 0);
-  const bgOf = (p) => share((p.tokens.bgA || 0) + (p.tokens.bgB || 0)), accentOf = (p) => share(p.tokens.accent || 0);
+  const bgOf = (p) => share(p.roles ? p.roles.bg : (p.tokens.bgA || 0) + (p.tokens.bgB || 0));
+  const accentOf = (p) => share(p.roles ? p.roles.accent : p.tokens.accent || 0);
   const kit = match.palettes[0], others = match.palettes.slice(1);
   const bg = bgOf(kit), accent = accentOf(kit);
   const most = (f) => others.map((p) => ({ id: p.id, v: f(p) })).sort((a, b) => b.v - a.v)[0] || { id: '(none)', v: 0 };

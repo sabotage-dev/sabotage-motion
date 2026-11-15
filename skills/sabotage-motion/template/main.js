@@ -59,7 +59,11 @@ async function loadBrand() {
   const r = await fetch('./brand.json', { cache: 'no-store' });
   if (!r.ok) return null;
   const text = await r.text();
-  try { return JSON.parse(text); } catch (e) { throw new Error(`brand.json does not parse: ${e.message}`); }
+  let kit;
+  try { kit = JSON.parse(text); } catch (e) { throw new Error(`brand.json does not parse: ${e.message}`); }
+  // null, false, 0, "" or a list parse, but they are a broken kit, not "no kit"
+  if (!kit || typeof kit !== 'object' || Array.isArray(kit)) throw new Error('brand.json must hold an object: { name, colors, fonts, logo, look? }');
+  return kit;
 }
 
 // A target (--target tiktok) supplies size, fps and the safe area from safezones.json. Values the

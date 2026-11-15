@@ -170,7 +170,8 @@ const M = [
   ['P7 palette: a tie goes to the later palette', T + 'check.mjs', [['const d = ciede2000(lab, entries[e].lab); if (d < bd) {', 'const d = ciede2000(lab, entries[e].lab); if (d <= bd) {']], LU],
   ['P7 palette: the kit\'s background at exactly 15% fails', T + 'check.mjs', [['{ ok: bg >= T.palette.bg,', '{ ok: bg > T.palette.bg,']], LU],
   ['P7 palette: the kit\'s accent at exactly 0.5% fails', T + 'check.mjs', [['{ ok: accent >= T.palette.accent,', '{ ok: accent > T.palette.accent,']], LU],
-  ['P7 palette: bgB not counted with bgA', T + 'check.mjs', [['const bgOf = (p) => share((p.tokens.bgA || 0) + (p.tokens.bgB || 0))', 'const bgOf = (p) => share(p.tokens.bgA || 0)']], LU],
+  ['P7 palette: bgB not counted with bgA (hand-made matches)', T + 'check.mjs', [['share(p.roles ? p.roles.bg : (p.tokens.bgA || 0) + (p.tokens.bgB || 0))', 'share(p.roles ? p.roles.bg : (p.tokens.bgA || 0))']], LU],
+  ['P7 palette: bgB not counted in the background role', T + 'check.mjs', [["    if (E.keys.includes('bgA') || E.keys.includes('bgB')) o.roles.bg += n;", "    if (E.keys.includes('bgA')) o.roles.bg += n;"]], LU],
   ['P7 palette: a look\'s background not compared', T + 'check.mjs', [['{ ok: obg.v <= bg,', '{ ok: true,']], LU],
   ['P7 palette: a look\'s accent not compared', T + 'check.mjs', [['{ ok: oac.v <= accent,', '{ ok: true,']], LU],
   ['P7 ciede2000: the rotation term dropped', T + 'check.mjs', [['Rt = -Math.sin(2 * dTh * DEG) * Rc;', 'Rt = 0 * Rc;']], LU],
@@ -214,6 +215,11 @@ const M = [
   ['P7 docs: the README --param line names bg as a colour again', 'README.md', [['and `bg`, the\nbackground shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour)', 'and `bg`, `ink`)']], ['test/docs.test.mjs']],
   ['P7 docs: the looks table drifts from looks.js', 'skills/sabotage-motion/references/looks.md', [['| `brutalist` | condensed type, primaries, snaps | `none` |', '| `brutalist` | condensed type, primaries, snaps | `grid` |']], ['test/docs.test.mjs']],
   ['P7 ASSETS.md: a look font not listed', 'ASSETS.md', [['| `skills/sabotage-motion/looks/fonts/caveat-latin-700-normal.woff2` |', '| `skills/sabotage-motion/looks/fonts/caveat-gone.woff2` |']], ['test/assets.test.mjs']],
+  ['P7 palette: a kit colour shared by two tokens credits only the first', T + 'check.mjs', [['      if (pi === 0 && seen.has(key)) {', '      if (false && seen.has(key)) {']], ['test/looks-units.test.mjs']],
+  ['P7 palette: a pixel of bgA = bgB counts twice for the background', T + 'check.mjs', [["    if (E.keys.includes('bgA') || E.keys.includes('bgB')) o.roles.bg += n;", "    for (const k of E.keys) if (k === 'bgA' || k === 'bgB') o.roles.bg += n;"]], ['test/looks-units.test.mjs']],
+  ['P7 palette: another --scale is accepted', T + 'render.mjs', [["  if (flag('scale') && +opt('scale') !== C.T.probeScale) return usage(", "  if (false) return usage("]], ['test/looks.test.mjs']],
+  ['P7 brand.json: a kit that parses to null renders as no kit', T + 'main.js', [["  if (!kit || typeof kit !== 'object' || Array.isArray(kit)) throw new Error('brand.json must hold an object", "  if (false) throw new Error('brand.json must hold an object"]], ['test/looks.test.mjs']],
+  ['P7 doctor: a kit that parses to null is not checked', T + 'render.mjs', [['      if (parsed) {   // null or false parse too', '      if (kit) {   // null or false parse too']], ['test/looks.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);
