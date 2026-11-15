@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Revision | 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
-| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and in review (section 17). |
-| Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13 |
-| Open questions | Q1-Q10 in section 20, each with the default the build takes if nobody overrules it |
+| Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
+| Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 in section 23.7 (2026-11-15) |
+| Open questions | Q1-Q10 in section 20 and Q11-Q17 in section 23.7, each with the default the build takes if nobody overrules it |
 
 ## 1. What this is
 
@@ -814,3 +814,134 @@ Round 2 fold map:
 | Copy matching per sample missed words that appear one at a time | grok F4 | 6.5, 16 |
 | Shutter-centre sampling missed text visible at other subframes | codex F5 | 11.1, 16 |
 | The motion threshold called the clean fixture's small mover frozen | codex F6 | 11.1 (changed-pixel count at 1/2 scale), 16 |
+
+## 23. Version 0.2: worth installing
+
+0.1.0 shipped the engine, the workflow and the checks. 0.2 makes the skill easier to want and quicker to use for the
+jobs people already bring to it (owner, 2026-11-15, D11). Five additions, each a phase with its own PR and council
+round, in this order: P6 is docs only and goes first; P7 (looks and brand kit) and P8 (code and terminal motion)
+are what P9's launch video is built from; P10 (caption a clip) stands alone and closes the release. The README
+items for Linux speed and other coding agents stay out of 0.2.
+
+### 23.1 P6: the README shows motion
+
+- **Hero.** A looping cut of the showreel at the top of the README, in place of its contact sheet: 6 to 8 s, at
+  most 640 px wide, at most 5 MB. GitHub plays a video in a README only when it is uploaded through the web editor,
+  so the hero is a committed GIF (Q11), made by a committed script (`scripts/readme-media.mjs`, ffmpeg palette
+  pass) from the showreel example's own render, so it can be remade after any change to the reel.
+- **One prompt, three results.** The exact prompt from the P5 session tests, then the three pieces those sessions
+  made, side by side, each a GIF of at most 2 MB. One line under them says the agent designs each piece; the skill
+  supplies the engine, the craft defaults and the checks. Only the media are committed, not the three pieces;
+  PLAN 21 already records how they were made. The app in the prompt is made up.
+- `ASSETS.md` lists every new file with its source and licence; the inventory test covers them.
+
+Acceptance: each GIF's size and dimensions measured; the README rendered on GitHub from the PR branch with every
+GIF playing; the asset inventory test passes; no version bump (nothing installed changes).
+
+### 23.2 P7: looks and a brand kit
+
+- **Looks.** `looks.js` in the template: eight named looks, each a starting point the agent then makes its own.
+  A look sets palette tokens (`bg`, `bg2`, `ink`, `muted`, `accent`, `accent2`), font roles (display, body, mono),
+  the background shader look and its parameters, the post settings (bloom, grain, chromatic aberration), the motion
+  vocabulary (entrance easing, stagger, whether a light sweep or glitch is allowed) and the synthesized sound's
+  timbre. The first cut: `product` (clean light UI), `neon` (dark, glow, glitch at cuts), `paper` (warm texture,
+  serif, gentle springs, no glitch), `editorial` (bold serif, black and white plus one accent, hard cuts),
+  `retro-crt` (scanlines, phosphor), `brutalist` (condensed type, primaries, snaps), `gradient` (soft mesh,
+  rounded sans), `mono` (high-contrast black and white). `--param look=<name>` or `CFG.LOOK` picks one.
+- **Fonts.** Up to four more open-licence families so the looks differ in type, not only colour: a serif display,
+  a condensed display, a rounded sans and a hand face, Latin subsets, at most 400 KB added (Q14). Licence texts in
+  `fonts/`; `ASSETS.md` updated.
+- **Brand kit.** `brand.json` in the project root (Q17): `name`, `colors` (the same token names as a look),
+  `fonts` (family and file per role), `logo` (files for dark and light grounds), an optional base `look`. When a
+  piece is created the agent copies `brand.json` and every file it names into the piece, so the piece still
+  re-renders on its own. Brand tokens override the look's. A missing brand font fails the render the way a missing
+  font already does; `doctor` checks that every brand file exists and every colour parses. `node render.mjs brand`
+  renders a brand sheet (swatches, type specimen, logo on each ground) to approve before anything is animated.
+- **Skill text.** With a brand kit, use it. Without one, pick a look on purpose, say which and why, and do not fall
+  back to the same palette from piece to piece. Section 14's "brand notes live in the project's CLAUDE.md" stays
+  true for prose notes; tokens and files move to `brand.json`.
+
+Acceptance: a looks sheet (one 5 s card in every look) committed as `docs/media/looks.png` and shown in the README;
+every look's card passes `check` with 0 FAIL and 0 WARN; tests for token precedence (brand over look over
+template), for a missing brand font failing the render, and for `doctor` on a broken kit; the brand sheet renders;
+a fresh session given a `brand.json` and a brief makes a piece whose sampled background and accent colours match
+the kit within a delta E of 3 and whose render record names the kit's fonts.
+
+### 23.3 P8: code and terminal motion
+
+- **Highlighting.** A built-in tokenizer for JavaScript and TypeScript, Python, shell, JSON and unified diff, with
+  theme tokens taken from the look or brand. No dependency (D6, Q13).
+- **Drawing.** `drawCode` (typed out by time with a seeded cadence, a cursor, line highlight, focus dimming,
+  scrolling), `drawDiff` (added and removed lines revealed line by line), `terminal` (a session of commands and
+  output with typed commands, output timing, a spinner and a progress bar), and frames for a window, a browser and
+  a phone, all generic shapes with no product's marks.
+- Every line drawn registers its box through `boxes(t)`, so `text_safe` and `text_overlap` see code and terminal
+  text like any other text.
+- Synthesized key ticks follow the typed characters, thinned to a ceiling per second so fast typing does not
+  become noise.
+- **Example** `examples/terminal-demo/` (8 s, 9:16): a made-up CLI installs and runs, then a short diff lands.
+
+Acceptance: golden token streams per language; the same `t` gives the same frame hash for typed code; a fixture
+with code outside the safe area fails `text_safe`; the example passes `check` and `check --file` with 0 FAIL and
+0 WARN.
+
+### 23.4 P9: a launch video for a repo
+
+- **`tools/repo-scan.mjs`** reads a project and prints JSON: name, one-line pitch (README, package metadata),
+  install command, features (README headings and lists), colours with the file and line each came from (CSS custom
+  properties, a Tailwind theme, a web manifest's `theme_color`), fonts (`@font-face`, font links), logo candidates
+  ranked, and screenshots. It skips dependency and build folders and never touches the network.
+- **`tools/shots.mjs`** takes screenshots of a running local app with `playwright-core` (already a dependency) at
+  a stated viewport, and a scroll capture as a frame sequence that `loadSeq` reads: the scroll position is set per
+  frame, so the capture is frame-exact. No live screen recording with real-time timing.
+- **Recipe** `references/launch.md` and a SKILL.md workflow branch: scan, write `brand.json` from what the scan
+  found and show it, write the board (hook, install in a terminal, two or three feature beats with code or
+  screenshots in a frame, an end card with the logo and the install command), show the board before rendering,
+  then the usual render, mix and `check`.
+- **Example** `examples/repo-launch/` (15 s, 9:16) built from a made-up fixture repo kept inside the example (a
+  README, package metadata, a logo, a stylesheet with its colours, and screenshots the engine renders).
+
+Acceptance: `repo-scan` tests on fixtures (colours from each source with file and line, logo ranking, dependency
+folders skipped); the same scroll capture twice gives identical frames on a static page; the example passes
+`check` and `check --file` with 0 FAIL and 0 WARN; a fresh session asked for a launch video in a copy of the
+fixture repo shows a board first, and makes a piece whose kit colours match the fixture's and whose master passes
+`check --file`.
+
+### 23.5 P10: caption a clip
+
+- **The job.** A clip with speech (a talking head, a screen recording with narration) comes back with word-by-word
+  captions inside the platform's safe area, its sound levelled and mastered, checked like any other piece.
+- **Path** (Q15): the captions render with alpha and ffmpeg composites them onto the original clip, so the clip is
+  never re-encoded through the browser and keeps its quality. `tools/clip.mjs` probes the clip (size, frame rate,
+  rotation, duration, audio), extracts its audio as the voice stem for `mix.mjs`, and writes the composite with the
+  mixed audio and a render record that `check --file` accepts.
+- **Timings.** The existing adapters plus whisper.cpp's JSON output and SRT or WebVTT. SRT and WebVTT carry
+  phrase times only: words inside a phrase are spread by length and marked as estimated, and the recipe says so.
+- **Caption styles.** A few named styles (`pop`, `karaoke`, `boxed`, `minimal`) with emphasis words, over the
+  existing `captions` helper and its safe-zone and exclude handling.
+- **Example** `examples/caption-clip/`: the clip is made in code, with no person in it (Q12): a made-up product
+  screen recording rendered by the engine, with the example voice from P4 as its own audio, committed small. Its
+  transcript is a committed whisper output, and the example README says how it was made.
+
+Acceptance: adapter tests for whisper.cpp, SRT and WebVTT (word spread, estimate flag); a sync fixture (a tone at a
+known frame) comes through `clip.mjs` and the composite within one frame; caption word times match the transcript
+within one frame; the example passes `check --file` with 0 FAIL and 0 WARN; a fresh session given a clip and "add
+captions" returns a master that passes `check --file`.
+
+### 23.6 Release 0.2.0
+
+After P10: version 0.2.0 in `plugin.json`, `package.json` and the lockfile; the README's examples table and
+feature list updated; every install route re-run from `main` on a fresh home folder; tag `v0.2.0` (Q16).
+
+### 23.7 Decision and defaults
+
+| # | Decision or question | Ruling or default |
+|---|---|---|
+| D11 | Scope of 0.2 (owner, 2026-11-15: "1-5") | README motion, looks and a brand kit, code and terminal motion, a repo launch recipe, caption a clip. |
+| Q11 | README media format | A committed GIF: GitHub plays README video only when uploaded through its web editor, and a GIF plays everywhere the README is shown. |
+| Q12 | Where the caption example's clip comes from | Made in code with no person in it (D7, and no third-party footage licence to carry). The recipe works on any clip the user brings. |
+| Q13 | Code highlighting | Built in, for the five languages in 23.3; no dependency (D6). |
+| Q14 | Fonts for the looks | Up to four more open-licence families, Latin subsets, at most 400 KB added. |
+| Q15 | How captions meet the clip | Alpha render composited by ffmpeg onto the original clip, not the clip redrawn as a frame sequence. |
+| Q16 | Versions | P6 changes docs only and is not a release; 0.2.0 and its tag come after P10. |
+| Q17 | Where `brand.json` lives | The project root; each piece keeps its own copy and the files it names. |
