@@ -238,14 +238,19 @@ test('the template\'s card draws in the style: on brutalist, its background, ink
   assert.deepEqual([...p.fonts_used].sort(), ['CONDENSED', 'MONO'], 'brutalist\'s display and body faces');
 });
 
-test('the template\'s sound follows the style: neon\'s effects are not the template\'s, and each repeats', () => {
+test('the template\'s sound follows the style: on one fixed timeline, mono\'s effects are not the template\'s, and each repeats', () => {
+  // template and mono share their motion flags (a sweep, no glitch), and sound.js keeps one timeline whatever the
+  // look's stagger, so the two differ only if the style's sound (wave, pitch, bright, verb) reaches audio.js
+  assert.deepEqual([LK.LOOKS.mono.motion.sweep, LK.LOOKS.mono.motion.glitch], [LK.TEMPLATE.motion.sweep, LK.TEMPLATE.motion.glitch]);
+  assert.notDeepEqual(LK.LOOKS.mono.sound, LK.TEMPLATE.sound);
   const dir = templatePiece('looks-template-sound');
-  const wav = (args, out) => { render(dir, ['audio', ...args, '--out', out]); return readWav(path.join(dir, out)); };
-  const a = wav([], 'out/a1.wav'), a2 = wav([], 'out/a2.wav'), n = wav(['--param', 'look=neon'], 'out/n.wav');
+  fs.copyFileSync(path.join(fixturesDir, 'fixture-palette', 'sound.js'), path.join(dir, 'sound.js'));
+  const wav = (args, out) => { render(dir, ['audio', '--scene', 'sound.js', ...args, '--out', out]); return readWav(path.join(dir, out)); };
+  const a = wav([], 'out/a1.wav'), a2 = wav([], 'out/a2.wav'), m = wav(['--param', 'look=mono'], 'out/m.wav');
   const diff = (x, y) => { let s = 0; for (let i = 0; i < x.samples.length; i++) s += (x.samples[i] - y.samples[i]) ** 2; return Math.sqrt(s / x.samples.length); };
-  assert.equal(a.samples.length, n.samples.length);
-  const same = diff(a, a2), other = diff(a, n);
-  assert.ok(other > 0.005, `neon's effects differ from the template's (RMS difference ${other})`);
+  assert.equal(a.samples.length, m.samples.length);
+  const same = diff(a, a2), other = diff(a, m);
+  assert.ok(other > 0.001, `mono's effects differ from the template's (RMS difference ${other})`);
   assert.ok(other > 20 * same, `by far more than two renders of the template differ (${other} against ${same})`);
 });
 
