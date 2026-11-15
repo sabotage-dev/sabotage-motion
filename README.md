@@ -86,15 +86,16 @@ chmod -R u+w my-piece                         # cp keeps the source's modes
 cd my-piece
 npm install                                   # playwright-core; it drives your installed Chrome
 node render.mjs doctor                        # Chrome, WebGL2, ffmpeg, fonts: says what to install if anything is missing
-node render.mjs contact --param "title=Hello there"   # contact.png: 12 frames of the whole timeline
-node render.mjs full --param "title=Hello there" --out out/my-piece.mp4   # the video, and its effects as out/my-piece.wav
+node render.mjs contact                       # contact.png: 12 frames of the whole timeline
+node render.mjs full --out out/my-piece.mp4   # the video, and its effects as out/my-piece.wav
 node tools/mix.mjs my-piece --master-only     # out/my-piece-final.mp4, mastered to -14 LUFS
-node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master
+node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master: 0 FAIL, 0 WARN
 ```
 
-The template is a 3 s, 1080x1920 kinetic title card. Change it in `scene.js` (the picture), `board.js` (the beats)
-and `audio.js` (the effects); [SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its
-`references/` go deeper.
+The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`, `bg`, `ink`,
+`accent`) changes it without code; `check` then warns that the board's copy is not on screen until `board.js` says
+the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
+[SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its `references/` go deeper.
 
 ## Storyboard and voice
 
