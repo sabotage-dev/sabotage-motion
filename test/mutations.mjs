@@ -156,6 +156,9 @@ const M = [
   ['P6 readme-media: GIFs never measured', 'scripts/readme-media.mjs', [["    if (!r.endsWith('.gif')) continue;", '    continue;']], ['test/docs.test.mjs']],
   ['P6 readme-media: the hero width allows 1280 px', 'scripts/readme-media.mjs', [['hero: { bytes: 5 * 1024 * 1024, width: 640 }', 'hero: { bytes: 5 * 1024 * 1024, width: 1280 }']], ['test/docs.test.mjs']],
   ['P6 readme-media: the tile budget allows 20 MB', 'scripts/readme-media.mjs', [['tile: { bytes: 2 * 1024 * 1024, width: 360 }', 'tile: { bytes: 20 * 1024 * 1024, width: 360 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: the tile width allows 3600 px', 'scripts/readme-media.mjs', [['tile: { bytes: 2 * 1024 * 1024, width: 360 }', 'tile: { bytes: 2 * 1024 * 1024, width: 3600 }']], ['test/docs.test.mjs']],
+  ['P6 readme-media: <img> tags never read', 'scripts/readme-media.mjs', [['refs.push(m[1] ?? m[2] ?? m[3]);', 'void m;']], ['test/docs.test.mjs']],
+  ['P6 readme-media: reference images never resolved', 'scripts/readme-media.mjs', [['    const d = defs.get((m[2] || m[1]).trim().toLowerCase());\n    if (d) refs.push(d);', '    void m;']], ['test/docs.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);

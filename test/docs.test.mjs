@@ -72,10 +72,39 @@ test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are
   const ok = mediaProblems('![h](hero.gif) <img src="tile-ok.gif" width="270">', dir);
   assert.deepEqual(ok.problems, []);
   const bad = mediaProblems('<img src="tile-heavy.gif"> ![m](gone.png)', dir);
-  assert.deepEqual(bad.problems.map((p) => p.split(':')[0]), ['tile-heavy.gif', 'gone.png']);
+  assert.deepEqual(bad.problems.map((p) => p.split(':')[0]).sort(), ['gone.png', 'tile-heavy.gif']);
   gif('hero.gif', 640, 5 * MB + 1);
   assert.equal(mediaProblems('![h](hero.gif)', dir).problems.length, 1, 'a hero over 5 MB');
   gif('hero.gif', 641, 1000);
   assert.equal(mediaProblems('![h](hero.gif)', dir).problems.length, 1, 'a hero over 640 px');
+  gif('tile-wide.gif', 361, 1000);
+  gif('tile-360.gif', 360, 1000);
+  assert.deepEqual(mediaProblems('![t](tile-360.gif)', dir).problems, [], 'a tile at 360 px');
+  assert.equal(mediaProblems('![t](tile-wide.gif)', dir).problems.length, 1, 'a tile over 360 px');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('readme-media: every form GitHub renders a picture in is found, and code and links are not', async () => {
+  const { pictureRefs } = await import('../scripts/readme-media.mjs');
+  const md = [
+    '![plain](a.gif)',
+    '![titled](b.gif "a title")',
+    "![titled](c.gif 'single')",
+    '![angled](<d.gif>)',
+    '![full][e-ref] ![collapsed][] ![shortcut]',
+    '<img src="f.gif"> <img alt="x" src=\'g.gif\'> <img src=h.gif>',
+    '<img',
+    '  width="270"',
+    '  src="i.gif">',
+    '![query](j.gif?raw=true) ![fragment](k.gif#top)',
+    '```html',
+    '<img src="in-code.gif"> ![in code](in-code.gif)',
+    '```',
+    '![web](https://example.com/w.gif) ![proto](//example.com/p.gif) ![data](data:image/gif;base64,R0lG)',
+    '',
+    '[e-ref]: e.gif',
+    '[collapsed]: <l.gif> "t"',
+    '[Shortcut]: m.gif',
+  ].join('\n');
+  assert.deepEqual(pictureRefs(md).sort(), ['a.gif', 'b.gif', 'c.gif', 'd.gif', 'e.gif', 'f.gif', 'g.gif', 'h.gif', 'i.gif', 'j.gif', 'k.gif', 'l.gif', 'm.gif']);
 });

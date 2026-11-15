@@ -3,8 +3,8 @@
 // change to a piece. GitHub plays video in a README only when it is uploaded through its web editor, so these are
 // GIFs (Q11): they play everywhere the README is shown.
 //
-//   node scripts/readme-media.mjs hero <reel.mp4> [--from <s>] [--dur <s>] [--fps 12] [--colors 128] [--no-denoise] [--out docs/media/hero.gif]
-//       a looping cut of the showreel: at most 640 px wide and 5 MB
+//   node scripts/readme-media.mjs hero <reel.mp4> [--from 2] [--dur 8] [--fps 12] [--colors 128] [--no-denoise] [--out docs/media/hero.gif]
+//       a looping cut of the showreel (by default 2 s to 10 s, the cut the README shows): at most 640 px wide and 5 MB
 //   node scripts/readme-media.mjs tile <piece.mp4> --out docs/media/<name>.gif [--width 270] [--dur <s>] [--fps 12] [--colors 64] [--denoise]
 //       one 9:16 piece for the "one prompt, three results" row: at most 2 MB
 //
@@ -30,14 +30,36 @@ export function gifSize(file) {
   return { width: b.readUInt16LE(6), height: b.readUInt16LE(8), bytes: b.length };
 }
 
-// Every local picture a README shows (Markdown images and <img> tags), and what is wrong with each: missing, or a
-// GIF over its budget (`hero.gif` the hero's, any other GIF a tile's). The docs test runs it on the README.
+// Every local picture a README shows, in every form GitHub renders: inline Markdown images (with or without a title,
+// with or without <angle brackets>), reference images (full, collapsed and shortcut, against their definitions),
+// and <img> tags (double, single or no quotes, across lines). Fenced code is skipped, since GitHub shows it as
+// text. Links (http, https, protocol-relative, data:) are not files in the repo and are left alone; a query or
+// fragment is dropped from a path.
+export function pictureRefs(md) {
+  const text = md.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, '');
+  const defs = new Map();
+  for (const m of text.matchAll(/^ {0,3}\[([^\]]+)\]:[ \t]*<?([^\s>]+)>?/gm)) defs.set(m[1].trim().toLowerCase(), m[2]);
+  const refs = [];
+  for (const m of text.matchAll(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g)) refs.push(m[2]);
+  for (const m of text.matchAll(/!\[([^\]]*)\]\[([^\]]*)\]/g)) {
+    const d = defs.get((m[2] || m[1]).trim().toLowerCase());
+    if (d) refs.push(d);
+  }
+  for (const m of text.matchAll(/!\[([^\]]+)\](?![[(:])/g)) {
+    const d = defs.get(m[1].trim().toLowerCase());
+    if (d) refs.push(d);
+  }
+  for (const m of text.matchAll(/<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/gi)) refs.push(m[1] ?? m[2] ?? m[3]);
+  return refs.filter((r) => r && !/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(r)).map((r) => r.replace(/[?#].*$/, ''));
+}
+
+// What is wrong with each local picture a README shows: missing, or a GIF over its budget (`hero.gif` the hero's,
+// any other GIF a tile's). The docs test runs it on the README.
 export function mediaProblems(md, root) {
-  const refs = [...md.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)|<img [^>]*src="([^"]+)"/g)].map((m) => m[1] || m[2])
-    .filter((r) => !/^https?:/.test(r));
+  const refs = pictureRefs(md);
   const problems = [];
   for (const r of refs) {
-    const f = path.join(root, r);
+    const f = path.join(root, decodeURI(r));
     if (!fs.existsSync(f)) { problems.push(`${r}: missing`); continue; }
     if (!r.endsWith('.gif')) continue;
     const s = gifSize(f);
@@ -84,14 +106,14 @@ function report(out, budget) {
 export function main(argv) {
   const [mode, src] = argv;
   if (!['hero', 'tile'].includes(mode) || !src || src.startsWith('--')) {
-    console.log('usage: node scripts/readme-media.mjs hero <reel.mp4> [--from <s>] [--dur <s>] [--fps 12] [--colors 128] [--no-denoise] [--out <gif>]\n' +
+    console.log('usage: node scripts/readme-media.mjs hero <reel.mp4> [--from 2] [--dur 8] [--fps 12] [--colors 128] [--no-denoise] [--out <gif>]\n' +
       '       node scripts/readme-media.mjs tile <piece.mp4> --out <gif> [--width 270] [--dur <s>] [--fps 12] [--colors 64] [--denoise]');
     return 2;
   }
   if (!fs.existsSync(src)) { console.error(`no such file: ${src}`); return 2; }
   if (mode === 'hero') {
     const out = opt(argv, 'out', 'docs/media/hero.gif');
-    gif(src, out, { from: Number(opt(argv, 'from', 0)), dur: Number(opt(argv, 'dur', 7)), width: 640,
+    gif(src, out, { from: Number(opt(argv, 'from', 2)), dur: Number(opt(argv, 'dur', 8)), width: 640,
       colors: Number(opt(argv, 'colors', 128)), fps: Number(opt(argv, 'fps', 12)), denoise: !argv.includes('--no-denoise') });
     return report(out, BUDGET.hero);
   }
