@@ -25,6 +25,9 @@ export const T = {
   sfx: { win: 0.050, db: -40, hitWin: 0.010, hitPre: 0.100, hitDb: 12, hop: 0.001 },
   spike: { win: 0.050, db: 18, pct: 0.9, floor: -60 },   // the loudest 50 ms window vs the 90th percentile of the non-silent ones
   loudness: { lu: 1.0, tp: -1.0 },
+  // render.mjs palette (plan 23.2): a probe pixel more than `limit` (CIEDE2000) from every colour is no one's; the kit's
+  // bgA and bgB together must take at least `bg` of the pixels and its accent at least `accent`
+  palette: { limit: 10, bg: 0.15, accent: 0.005 },
 };
 const EPS = 1e-9;
 
@@ -607,6 +610,94 @@ export function voDelayResult(mj, voOffset) {
     ? ok('vo_delay', 'file', `the voice starts at VO_OFFSET ${voOffset} s`, { measured: mj.voiceDelay, threshold: voOffset })
     : r('vo_delay', 'file', 'FAIL', `the master's voice starts at ${mj.voiceDelay} s (master.json), but cues.js puts VO_OFFSET at ${voOffset} s: cues.json and cues.js disagree, or the mix is older than the cues`,
       { measured: mj.voiceDelay, threshold: voOffset });
+}
+
+// ---------------------------------------------------------------- colour match (render.mjs palette, plan 23.2)
+// sRGB 0-255 to CIE L*a*b* under D65 (the sRGB white), the space CIEDE2000 is defined in.
+const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+const labF = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+export function rgbToLab(r, g, b) {
+  const R = lin(r), G = lin(g), B = lin(b);
+  const x = (0.4124564 * R + 0.3575761 * G + 0.1804375 * B) / 0.95047;
+  const y = 0.2126729 * R + 0.7151522 * G + 0.0721750 * B;
+  const z = (0.0193339 * R + 0.1191920 * G + 0.9503041 * B) / 1.08883;
+  const fx = labF(x), fy = labF(y), fz = labF(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+export function hexToLab(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) throw new Error(`not a #RRGGBB colour: ${hex}`);
+  const n = parseInt(m[1], 16);
+  return rgbToLab((n >> 16) & 255, (n >> 8) & 255, n & 255);
+}
+// CIEDE2000 colour difference between two L*a*b* colours (kL = kC = kH = 1), following the formula's published
+// implementation notes; test/looks-units.test.mjs checks it against their 34 reference pairs.
+const DEG = Math.PI / 180, P25 = Math.pow(25, 7);
+export function ciede2000([L1, a1, b1], [L2, a2, b2]) {
+  const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cb7 = Math.pow((C1 + C2) / 2, 7);
+  const G = 0.5 * (1 - Math.sqrt(Cb7 / (Cb7 + P25)));
+  const a1p = (1 + G) * a1, a2p = (1 + G) * a2;
+  const C1p = Math.hypot(a1p, b1), C2p = Math.hypot(a2p, b2);
+  const hue = (b, a) => { if (a === 0 && b === 0) return 0; const h = Math.atan2(b, a) / DEG; return h < 0 ? h + 360 : h; };
+  const h1p = hue(b1, a1p), h2p = hue(b2, a2p);
+  const dLp = L2 - L1, dCp = C2p - C1p, CC = C1p * C2p;
+  let dhp = 0;
+  if (CC !== 0) { dhp = h2p - h1p; if (dhp > 180) dhp -= 360; else if (dhp < -180) dhp += 360; }
+  const dHp = 2 * Math.sqrt(CC) * Math.sin((dhp / 2) * DEG);
+  const Lbp = (L1 + L2) / 2, Cbp = (C1p + C2p) / 2;
+  let hbp = h1p + h2p;
+  if (CC !== 0) hbp = Math.abs(h1p - h2p) <= 180 ? hbp / 2 : hbp < 360 ? (hbp + 360) / 2 : (hbp - 360) / 2;
+  const Tt = 1 - 0.17 * Math.cos((hbp - 30) * DEG) + 0.24 * Math.cos(2 * hbp * DEG) + 0.32 * Math.cos((3 * hbp + 6) * DEG) - 0.20 * Math.cos((4 * hbp - 63) * DEG);
+  const dTh = 30 * Math.exp(-Math.pow((hbp - 275) / 25, 2));
+  const Cbp7 = Math.pow(Cbp, 7), Rc = 2 * Math.sqrt(Cbp7 / (Cbp7 + P25));
+  const Sl = 1 + (0.015 * Math.pow(Lbp - 50, 2)) / Math.sqrt(20 + Math.pow(Lbp - 50, 2));
+  const Sc = 1 + 0.045 * Cbp, Sh = 1 + 0.015 * Cbp * Tt, Rt = -Math.sin(2 * dTh * DEG) * Rc;
+  const l = dLp / Sl, c = dCp / Sc, h = dHp / Sh;
+  return Math.sqrt(l * l + c * c + h * h + Rt * c * h);
+}
+// The colour match. hist: { colors: [0xRRGGBB, ...], counts: [n, ...] } (every probe pixel of every frame, counted by
+// exact colour); palettes: [{ id, tokens: { name: '#RRGGBB' } }], the kit's first. Each colour goes to the nearest token
+// (CIEDE2000) of any palette, the earlier one on a tie, or to none when it is more than `limit` from all of them. No
+// clustering and no sampling, so the same frames always give the same result. Returns pixel counts:
+// { total, none, palettes: [{ id, total, tokens: { name: n } }] }.
+export function paletteMatch(hist, palettes, limit = T.palette.limit) {
+  const entries = [];
+  palettes.forEach((p, pi) => { for (const [k, hex] of Object.entries(p.tokens)) entries.push({ pi, k, lab: hexToLab(hex) }); });
+  const out = palettes.map((p) => ({ id: p.id, total: 0, tokens: Object.fromEntries(Object.keys(p.tokens).map((k) => [k, 0])) }));
+  let total = 0, none = 0;
+  for (let i = 0; i < hist.colors.length; i++) {
+    const c = hist.colors[i], n = hist.counts[i];
+    total += n;
+    const lab = rgbToLab((c >> 16) & 255, (c >> 8) & 255, c & 255);
+    let best = -1, bd = Infinity;
+    for (let e = 0; e < entries.length; e++) { const d = ciede2000(lab, entries[e].lab); if (d < bd) { bd = d; best = e; } }
+    if (!(bd <= limit)) { none += n; continue; }
+    const E = entries[best];
+    out[E.pi].tokens[E.k] += n; out[E.pi].total += n;
+  }
+  return { total, none, palettes: out };
+}
+// The rules on a match whose first palette is the kit's: its bgA and bgB together take at least T.palette.bg of the
+// pixels and its accent at least T.palette.accent, and no other palette (a look's defaults, or the template's) takes
+// more than either, role by role: no other bgA and bgB together more than the kit's, no other accent more than the
+// kit's. (Whole palettes are not compared: white and near-black ink tokens sit within a few units of each other
+// across palettes, so a piece drawn only in the kit's colours can give a look's ink more pixels than the kit's accent.)
+// Returns { ok, bg, accent, rules: [{ ok, rule, measured, threshold }] }.
+export function paletteResult(match) {
+  const share = (n) => (match.total ? n / match.total : 0);
+  const bgOf = (p) => share((p.tokens.bgA || 0) + (p.tokens.bgB || 0)), accentOf = (p) => share(p.tokens.accent || 0);
+  const kit = match.palettes[0], others = match.palettes.slice(1);
+  const bg = bgOf(kit), accent = accentOf(kit);
+  const most = (f) => others.map((p) => ({ id: p.id, v: f(p) })).sort((a, b) => b.v - a.v)[0] || { id: '(none)', v: 0 };
+  const obg = most(bgOf), oac = most(accentOf);
+  const pc = (x) => `${(x * 100).toFixed(2)}%`;
+  const rules = [
+    { ok: bg >= T.palette.bg, rule: `the kit's bgA and bgB take at least ${T.palette.bg * 100}% of the pixels`, measured: bg, threshold: T.palette.bg },
+    { ok: accent >= T.palette.accent, rule: `the kit's accent takes at least ${T.palette.accent * 100}% of the pixels`, measured: accent, threshold: T.palette.accent },
+    { ok: obg.v <= bg, rule: `no look's bgA and bgB take more than the kit's (${pc(bg)}); the most is ${obg.id}`, measured: obg.v, threshold: bg },
+    { ok: oac.v <= accent, rule: `no look's accent takes more than the kit's (${pc(accent)}); the most is ${oac.id}`, measured: oac.v, threshold: accent },
+  ];
+  return { ok: rules.every((x) => x.ok), bg, accent, rules };
 }
 
 // ---------------------------------------------------------------- output

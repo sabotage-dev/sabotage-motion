@@ -7,7 +7,9 @@
 //   node render.mjs full  [--out out/<scene>.mp4]                      video + audio, muxed (+ <out>.render.json)
 //   node render.mjs board [--slates] [--safe] [--cols N] [--out board.png]   storyboard sheet (+ board.md)
 //   node render.mjs hash 0.5,1.2 [--scale 0.25]                        SHA-256 of each frame's raw pixels
-//   node render.mjs doctor                                             check Chrome, WebGL2, ffmpeg, fonts
+//   node render.mjs doctor                                             check Chrome, WebGL2, ffmpeg, fonts, the look and brand.json
+//   node render.mjs brand [--out brand.png]                            brand sheet: swatches, type specimen, logo on each ground
+//   node render.mjs palette [--brand brand.json] [--json]              colour match of the piece against its brand kit
 //   node render.mjs check [--file out/<name>-final.mp4] [--target tiktok] [--lufs -14 --tp -1.0]
 //                         [--json] [--strict] [--plain] [--only id,id]  measured checks (check.mjs)
 //
@@ -31,6 +33,17 @@
 //         the first frame's luma; the audio windows; each result's level and numbers), with no on-screen
 //         text or params, for tuning the thresholds on real pieces (with --plain, each result's level and
 //         numbers alone). Exit 2 on a usage error.
+// brand: the colour tokens, the font roles and the logo of the piece's style (brand.json, else the look, else the
+//         template's own) on one sheet, to approve before anything is animated. Swatch and ground positions print below it.
+// palette: every pixel of check's probe frames (1/2 size, 1 subframe, grain off), every frame, goes to the nearest colour
+//         (CIEDE2000) among the kit's tokens, the template's and every look's default tokens, or to none when it is more
+//         than 10 from all of them. The kit's bgA and bgB must take at least 15% of the pixels and its accent at least
+//         0.5%, and no look's defaults (or the template's) more than either. Prints the coverage per token, the fonts the
+//         scene drew with, and the rules; exit 1 when a rule fails, 2 on a usage error (no kit, a kit without bgA, bgB
+//         or accent). --brand names another kit file than the piece's brand.json (it is only read, not rendered with).
+// Looks and kits (looks.js): --param look=<name> (or CFG.LOOK in the scene, or brand.json's look) picks a look;
+//         brand.json in the piece overrides it; --param bgA=#hex (any token) and --param bg=<shader id> override both.
+//         video and full record the resolved tokens, the look and the font families drawn (fonts_used).
 // Common: --scene file.js (default scene.js)  --target name (size, fps and safe area from safezones.json)
 //         --fps N  --sub N (motion-blur subframes, default 8)  --scale S  --crf 17  --preset slow
 //         --param key=value (repeatable; arrives in scene.init as params.key)
@@ -46,12 +59,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import * as C from './check.mjs';
+import * as LK from './looks.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));   // not URL.pathname: that keeps %20 for spaces
 const argv = process.argv.slice(2);
 const mode = argv[0];
-if (!['stills', 'contact', 'board', 'video', 'audio', 'full', 'hash', 'doctor', 'check'].includes(mode)) {
-  console.error('usage: node render.mjs <stills t1,t2,..|contact|board|video|audio|full|hash t1,..|doctor|check> [options]  (see header)');
+if (!['stills', 'contact', 'board', 'video', 'audio', 'full', 'hash', 'doctor', 'check', 'brand', 'palette'].includes(mode)) {
+  console.error('usage: node render.mjs <stills t1,t2,..|contact|board|video|audio|full|hash t1,..|doctor|check|brand|palette> [options]  (see header)');
   process.exit(2);
 }
 const opt = (k, d) => { const i = argv.indexOf('--' + k); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : d; };
@@ -59,11 +73,11 @@ const flag = (k) => argv.includes('--' + k);
 const params = []; argv.forEach((a, i) => { if (a === '--param' && argv[i + 1]) params.push(argv[i + 1]); });
 const paramObj = (list) => Object.fromEntries(list.map((kv) => { const i = kv.indexOf('='); return [kv.slice(0, i), kv.slice(i + 1)]; }));
 // check --json keeps stdout for the JSON; everything else goes to stderr
-const jsonOut = mode === 'check' && flag('json');
+const jsonOut = (mode === 'check' || mode === 'palette') && flag('json');
 const say = (...a) => (jsonOut ? console.error : console.log)(...a);
 const alphaKind = flag('alpha') ? opt('alpha', 'prores') : null;
 if (alphaKind && !['prores', 'webm'].includes(alphaKind)) { console.error('--alpha must be prores or webm'); process.exit(2); }
-const defScale = mode === 'stills' ? 0.5 : mode === 'contact' || mode === 'doctor' ? 0.25 : mode === 'board' ? 1 / 3 : 1;
+const defScale = mode === 'stills' ? 0.5 : mode === 'contact' || mode === 'doctor' || mode === 'brand' ? 0.25 : mode === 'board' ? 1 / 3 : mode === 'palette' ? C.T.probeScale : 1;
 const scale = +opt('scale', defScale), sub = +opt('sub', mode === 'contact' || mode === 'doctor' || mode === 'board' ? 4 : 8);
 const resolveOut = (p) => path.resolve(root, p);
 const run = (cmd, args) => new Promise((res, rej) => {
@@ -193,7 +207,7 @@ function sourceHash(skip) {
         walk(abs, r);
       } else {
         if (skip.has(abs) || name === '.DS_Store' || name.endsWith('.render.json')) continue;
-        if (!rel && ['board.png', 'contact.png', 'board.md'].includes(name)) continue;
+        if (!rel && ['board.png', 'contact.png', 'board.md', 'brand.png'].includes(name)) continue;
         files.push(`${r}\0${sha256(fs.readFileSync(abs))}\n`);
       }
     }
@@ -222,7 +236,7 @@ function writeRenderJson(file, src, extra) {
     scene: sceneFile, target, silent: INFO.SILENT,
     params: paramObj(params),
     size: [INFO.W, INFO.H], render: [INFO.RW, INFO.RH], scale, fps: INFO.FPS, dur: INFO.DUR, sub,
-    alpha: alphaKind, ...extra,
+    alpha: alphaKind, look: INFO.STYLE.look, brand: INFO.STYLE.brand, tokens: INFO.STYLE.tokens, ...extra,
     source: src,
     video: { hash: decodedVideoHash(file) },
     sha256: sha256(fs.readFileSync(file)),
@@ -434,6 +448,30 @@ async function doctor() {
       line(r.ok, 'font', `${fam}${r.ok ? ' loads' : ' did not load' + (r.err ? ` (${r.err})` : '')}`, 'check the @font-face url() in index.html and the file in fonts/');
     }
     await page.close();
+    // the brand kit and the look (plan 23.2): brand.json's fields, that every file it names exists and every colour
+    // parses; then the piece opened as check opens it, for the look in effect and each face the look and the kit name
+    const kitPath = path.join(root, 'brand.json');
+    if (!fs.existsSync(kitPath)) line(true, 'brand kit', 'no brand.json (optional: the project\'s colour tokens, fonts and logo files)');
+    else {
+      let kit = null;
+      try { kit = JSON.parse(fs.readFileSync(kitPath, 'utf8')); } catch (e) { line(false, 'brand kit', `brand.json does not parse: ${e.message}`, 'fix the JSON'); }
+      if (kit) {
+        const probs = LK.brandProblems(kit, (f) => { const a = path.join(root, f); return fs.existsSync(a) && fs.statSync(a).isFile(); });
+        if (!probs.length) line(true, 'brand kit', `brand.json "${kit.name}": ${Object.keys(kit.colors || {}).length} colours parse, every file it names exists`);
+        for (const pr of probs) line(false, 'brand kit', pr, 'the fields are in looks.js\'s header; copy brand.json and every file it names into the piece');
+      }
+    }
+    try {
+      const p = await openPiece(browser, { check: true }, () => {});
+      const I = await p.evaluate(() => window.INFO);
+      await p.close();
+      const st = I.STYLE;
+      line(true, 'look', st.look ? `${st.look} (${LK.LOOKS[st.look].about}), from ${st.lookFrom}` : 'none: the template\'s own style');
+      for (const f of I.FACES) line(f.ok, 'font', `${f.family} (${f.from === 'brand' ? 'brand.json' : `look ${st.look}`}, ${f.roles.join(' and ')}) ${f.ok ? 'loads' : 'did not load'} from ${f.url}`,
+        f.from === 'brand' ? 'copy the font file brand.json names into the piece' : `copy ${path.basename(f.url)} from the skill's looks/fonts/ into fonts/ (with its OFL text)`);
+    } catch (e) {
+      line(false, 'look and kit', `the piece did not open: ${e.message.split('\n')[0]}`, 'an unknown look, a brand.json with bad fields, or a scene error; fix it and run doctor again');
+    }
     // probe: one frame of the piece's scene, rendered twice with another frame between
     if (gl) {
       try {
@@ -693,6 +731,51 @@ async function check() {
   return exit;
 }
 
+// ---------------------------------------------------------------- palette (plan 23.2)
+// The colour match of the piece against a brand kit: check's probe frames, every pixel to its nearest colour.
+async function palette() {
+  const usage = (m) => { console.error(`palette: ${m}`); return 2; };
+  const kitArg = opt('brand', 'brand.json'), kitFile = path.resolve(root, kitArg);
+  if (flag('brand') && !opt('brand')) return usage('--brand needs a file (e.g. --brand ../brand.json)');
+  if (!fs.existsSync(kitFile)) return usage(`no kit: ${kitArg} does not exist (write brand.json, or name one with --brand <file>)`);
+  let kit;
+  try { kit = JSON.parse(fs.readFileSync(kitFile, 'utf8')); } catch (e) { return usage(`${kitArg} does not parse: ${e.message}`); }
+  const probs = LK.brandProblems(kit);
+  if (probs.length) return usage(probs.join('; '));
+  const missing = ['bgA', 'bgB', 'accent'].filter((k) => !(kit.colors && kit.colors[k]));
+  if (missing.length) return usage(`${kitArg} gives no ${missing.join(', ')}: the match needs the kit's bgA, bgB and accent`);
+  const kitTokens = Object.fromEntries(LK.TOKENS.filter((k) => kit.colors[k]).map((k) => [k, LK.normHex(kit.colors[k])]));
+  const palettes = [{ id: 'kit', tokens: kitTokens }, { id: 'template', tokens: LK.TEMPLATE.tokens },
+    ...LK.LOOK_NAMES.map((n) => ({ id: `look ${n}`, tokens: LK.LOOKS[n].tokens }))];
+  browser = await launch();
+  const page = await openPiece(browser);
+  INFO = await page.evaluate(() => window.INFO);
+  const t1 = Date.now();
+  const scan = await page.evaluate(() => window.colorScan());
+  const fontsUsed = await page.evaluate(() => window.fontsUsed());
+  const match = C.paletteMatch(scan, palettes), res = C.paletteResult(match);
+  const pct = (n) => `${((100 * n) / match.total).toFixed(2)}%`;
+  say(`palette: ${sceneFile}${Object.keys(paramObj(params)).length ? ' ' + JSON.stringify(paramObj(params)) : ''}, ${scan.frames} frames at ${scan.w}x${scan.h} (check's probe: 1/2 size, 1 subframe, grain off), measured in ${((Date.now() - t1) / 1000).toFixed(1)} s`);
+  say(`palette: ${kitArg} "${kit.name}" against the template's and ${LK.LOOK_NAMES.length} looks' default tokens; a pixel more than ${C.T.palette.limit} (CIEDE2000) from every colour is no one's`);
+  if (jsonOut) {
+    console.log(JSON.stringify({ kit: { file: kitArg, name: kit.name, tokens: kitTokens }, scene: sceneFile, params: paramObj(params), frames: scan.frames, w: scan.w, h: scan.h,
+      total: match.total, none: match.none / match.total, fonts_used: fontsUsed,
+      palettes: match.palettes.map((p) => ({ id: p.id, share: p.total / match.total, tokens: Object.fromEntries(Object.entries(p.tokens).map(([k, n]) => [k, n / match.total])) })),
+      rules: res.rules, ok: res.ok }, null, 2));
+  } else {
+    for (const [k, n] of Object.entries(match.palettes[0].tokens)) console.log(`  kit       ${k.padEnd(8)} ${kitTokens[k]}  ${pct(n).padStart(7)}`);
+    console.log(`  none (more than ${C.T.palette.limit} from every colour)  ${pct(match.none)}`);
+    for (const p of match.palettes.slice(1)) {
+      const parts = Object.entries(p.tokens).filter(([, n]) => n).map(([k, n]) => `${k} ${pct(n)}`);
+      console.log(`  ${p.id.padEnd(16)} ${pct(p.total).padStart(7)}${parts.length ? `  (${parts.join(', ')})` : ''}`);
+    }
+    console.log(`  fonts drawn: ${fontsUsed.length ? fontsUsed.join(', ') : 'none'}`);
+    for (const x of res.rules) console.log(`${x.ok ? 'ok  ' : 'FAIL'}  ${x.rule}: ${(100 * x.measured).toFixed(2)}%`);
+  }
+  say(`palette: ${res.ok ? 'pass' : 'FAIL'}`);
+  return res.ok ? 0 : 1;
+}
+
 // ---------------------------------------------------------------- modes
 const t0 = Date.now();
 let browser = null;
@@ -701,6 +784,8 @@ try {
     process.exitCode = await doctor();
   } else if (mode === 'check') {
     process.exitCode = await check();
+  } else if (mode === 'palette') {
+    process.exitCode = await palette();
   } else {
     browser = await launch();
     const page = await openPiece(browser);
@@ -755,6 +840,15 @@ try {
       console.log('wrote', md);
       console.log(r.estimated ? 'timing: estimated (no cues.js yet)' : r.take ? `timing: from cues.js (VO_OFFSET ${r.voOffset} s)` : 'timing: the beats\' durations (no voice)');
       for (const p of r.order) console.log(`note: board_order would fail: ${p}`);
+    } else if (mode === 'brand') {
+      const out = resolveOut(opt('out', 'brand.png'));
+      const r = await page.evaluate(() => window.renderBrandSheet());
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, Buffer.from(r.png.split(',')[1], 'base64'));
+      console.log('wrote', out, `(${r.width}x${r.height}): ${r.brand ? `brand.json "${r.brand}"` : 'no brand.json'}${r.look ? `, look ${r.look}` : ''}`);
+      const box = (b) => `${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.w)}x${Math.round(b.h)}`;
+      for (const x of r.swatches) console.log(`swatch ${x.name} ${x.hex} at ${box(x)}`);
+      for (const g of r.grounds) console.log(`ground ${g.logo} ${g.hex} at ${box(g)}${r.logos.includes(g.logo) ? '' : ' (no logo)'}`);
     } else if (mode === 'video') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt)), part = partialOf(out);
       fs.rmSync(recordOf(out), { force: true });
@@ -763,7 +857,7 @@ try {
       const frames = await renderVideo(page, part, from, to);   // encodes to the .partial file
       promote(part, out);
       console.log('wrote', out);
-      writeRenderJson(out, src, { from, to, frames });
+      writeRenderJson(out, src, { from, to, frames, fonts_used: await page.evaluate(() => window.fontsUsed()) });
       partials.clear();
     } else if (mode === 'audio') {
       const out = resolveOut(opt('out', `out/${sceneBase}.wav`)), part = partialOf(out);
@@ -793,7 +887,7 @@ try {
       promote(apart, atmp);
       promote(part, out);
       console.log('wrote', out, '(audio kept at', atmp + ')');
-      writeRenderJson(out, src, { from: 0, to: DUR, frames, audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)) });
+      writeRenderJson(out, src, { from: 0, to: DUR, frames, fonts_used: await page.evaluate(() => window.fontsUsed()), audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)) });
       partials.clear();
     }
     console.log(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

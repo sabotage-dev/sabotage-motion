@@ -4,6 +4,7 @@ stills/
 board.png
 board.md
 contact.png
+brand.png
 node_modules/
 
 # Secrets: an --env-file kept in the piece (API keys) must never be committed.

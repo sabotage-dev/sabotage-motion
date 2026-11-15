@@ -126,7 +126,13 @@ implementation is: `T:` is `template/scene.js`, `R:` `examples/showreel/scene.js
 
 ## 9. Shader backgrounds and looks
 - The template's `SCENE` ids: 1 gradient (drifting fbm between two colours), 2 paper (fibres and a vignette, for
-  warm print looks), 3 grid (a tech grid with a travelling glow line).
+  warm print looks), 3 grid (a tech grid with a travelling glow line), 4 crt (a phosphor screen: centre glow, a
+  rolling bar, scanlines, a faint flicker), 5 mesh (a soft mesh of three colours drifting). A style names one by
+  its id (`bg`: `none`, `gradient`, `paper`, `grid`, `crt`, `mesh`) and `bgConfig(style)` in `looks.js` fills its
+  colours from the tokens, so `bg` never holds a colour. The post chain's `scan` lays scanlines over the whole
+  frame (the `retro-crt` look).
+- A look (`references/looks.md`) is a whole vocabulary, not only a shader: tokens, faces, post, motion and sound.
+  Start a piece from one on purpose (or from the project's `brand.json`), then make it the piece's own.
 - The showreel's `shaders.js` holds more looks, by id: 1 a raymarched SDF blob with an environment map and
   iridescence, 2 liquid metaballs that refract the 2D layer, 3 op-art rings, 4 an ASCII render, 5 halftone, 6
   duotone, 7 stripes, 8 climax rays and rings. To port one, copy its function and helpers into your `SCENE`, add a

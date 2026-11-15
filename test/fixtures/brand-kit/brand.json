@@ -1,0 +1,9 @@
+{
+  "name": "Quillfen",
+  "colors": { "bgA": "#7A1030", "bgB": "#680E34", "ink": "#FBEFE4", "muted": "#D9A9B5", "accent": "#10A8F8", "accent2": "#F87088" },
+  "fonts": {
+    "display": { "family": "Quillfen Display", "file": "fonts/quillfen-display.woff2" },
+    "body": { "family": "Quillfen Text", "file": "fonts/quillfen-text.woff2" }
+  },
+  "logo": { "onDark": "logo/quillfen-on-dark.svg", "onLight": "logo/quillfen-on-light.svg" }
+}

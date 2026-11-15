@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { repoRoot, templateDir, examplesDir, EXAMPLES } from './helpers.mjs';
 
 const skillDir = path.join(repoRoot, 'skills', 'sabotage-motion');
@@ -45,4 +46,53 @@ test('references/delivery.md: its safe-zone table is safezones.json, target by t
   }
   for (const name of rows.keys()) if (!zones[name]) problems.push(`${name}: in the table, not in safezones.json`);
   assert.deepEqual(problems, []);
+});
+
+// ---------------------------------------------------------------- looks and brand kits (plan 23.2)
+const LK = await import(pathToFileURL(path.join(templateDir, 'looks.js')).href);
+test('SKILL.md: looks, the brand kit, brand, palette and the look fonts, and "pick a look on purpose"', () => {
+  const md = read('SKILL.md');
+  for (const x of ['looks.js', 'brand.json', 'node render.mjs brand', 'node render.mjs palette', '${CLAUDE_SKILL_DIR}/looks/fonts/', '`references/looks.md`', 'lookFiles(name)']) {
+    assert.ok(md.includes(x), `SKILL.md names ${x}`);
+  }
+  assert.match(md, /With a brand kit, use it\./);
+  assert.match(md, /pick a look on purpose, say which and why/);
+  assert.match(md, /do not fall back to the same palette from\s+piece to piece/);
+  for (const n of LK.LOOK_NAMES) assert.ok(md.includes(`\`${n}\``), `SKILL.md names the ${n} look`);
+  for (const id of Object.keys(LK.BG_IDS)) assert.ok(md.includes(`\`${id}\``), `SKILL.md names the ${id} shader id`);
+});
+test('references/looks.md: its table of looks is looks.js, look by look (shader, faces, the font files to copy)', () => {
+  const md = read('references/looks.md');
+  const rows = new Map([...md.matchAll(/^\| `([\w-]+)` \| [^|]+\| `([\w-]+)` \| (\w+) \/ (\w+) \| [^|]+\| ([^|]+)\|$/gm)].map((m) => [m[1], m.slice(2).map((x) => x.trim())]));
+  const problems = [];
+  for (const n of LK.LOOK_NAMES) {
+    const L = LK.LOOKS[n], row = rows.get(n);
+    if (!row) { problems.push(`${n}: no row`); continue; }
+    const files = LK.lookFiles(n).filter((f) => f.endsWith('.woff2'));
+    const want = [L.bg, L.fonts.display.family, L.fonts.body.family, files.length ? files.map((f) => `\`${f}\``).join(', ') : 'none'];
+    if (JSON.stringify(row) !== JSON.stringify(want)) problems.push(`${n}: the table says ${JSON.stringify(row)}, looks.js ${JSON.stringify(want)}`);
+  }
+  for (const n of rows.keys()) if (!LK.LOOKS[n]) problems.push(`${n}: in the table, not in looks.js`);
+  assert.deepEqual(problems, []);
+  for (const x of ['--param` over `brand.json` over the look over the template', 'CIEDE2000', 'fonts_used', 'onDark', 'node render.mjs palette']) assert.ok(md.includes(x), `looks.md: ${x}`);
+});
+test('README: the --param line names the colour tokens and the shader id; "Looks and brand kits" follows "Your first piece" and shows docs/media/looks.png', () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const at = md.indexOf('The template is a 3 s, 1080x1920 kinetic title card.');
+  assert.ok(at > 0, 'the line is there');
+  const para = md.slice(at, md.indexOf('\n\n', at));
+  for (const k of LK.TOKENS) assert.ok(para.includes(`\`${k}\``), `the --param line names the ${k} token`);
+  for (const id of Object.keys(LK.BG_IDS)) assert.ok(para.includes(`\`${id}\``), `the --param line names the ${id} shader id`);
+  assert.match(para, /`bg`, the\s+background shader id/);
+  assert.match(para, /never a colour/);
+  const i1 = md.indexOf('\n## Your first piece'), i2 = md.indexOf('\n## Looks and brand kits'), i3 = md.indexOf('\n## Storyboard and voice');
+  assert.ok(i1 > 0 && i1 < i2 && i2 < i3, 'Looks and brand kits sits after Your first piece, before Storyboard and voice');
+  const section = md.slice(i2, i3);
+  assert.match(section, /!\[[^\]]+\]\(docs\/media\/looks\.png\)/);
+  const png = path.join(repoRoot, 'docs', 'media', 'looks.png'), buf = fs.readFileSync(png);
+  assert.equal(buf.toString('ascii', 1, 4), 'PNG');
+  const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+  assert.ok(w >= 800 && w <= 1600 && h >= 600 && h <= 1600, `looks.png is ${w}x${h}`);
+  assert.ok(buf.length <= 600 * 1024, `looks.png is ${buf.length} bytes (budget 600 KB)`);
+  for (const n of LK.LOOK_NAMES) assert.ok(section.includes(`\`${n}\``), `the section names ${n}`);
 });

@@ -153,7 +153,7 @@ export function createPipeline(canvas, RW, RH, opts = {}) {
       use(P.final, {
         uSrc: accT.t, uB1: b1a.t, uB2: b2a.t, uHud: texHud, uRes: [RW, RH], uT: post.t, uAlpha: ALPHA ? 1 : 0,
         uBloom: post.bloom ?? 0, uCA: post.ca ?? 0, uGlitch: post.glitch ?? 0, uGrain: post.grain ?? 0,
-        uVig: post.vig ?? 0, uFlash: post.flash ?? 0, uFade: post.fade ?? 1, uHudA: post.hud ?? 0,
+        uVig: post.vig ?? 0, uFlash: post.flash ?? 0, uFade: post.fade ?? 1, uHudA: post.hud ?? 0, uScan: post.scan ?? 0,
       });
       draw();
     },

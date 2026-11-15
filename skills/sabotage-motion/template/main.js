@@ -4,8 +4,16 @@
 // render.mjs sets the URL query: scene=<file> (default scene.js), target=<name> (an entry in
 // safezones.json), scale, fps, sub, alpha=1, check=1 (render.mjs check: a missing font is reported, not
 // thrown), and p.<key>=<value> for each --param key=value.
+//
+// The style (looks.js, plan 23.2): before the scene's init, the harness resolves the look (--param look, else
+// CFG.LOOK, else brand.json's look) and the brand kit (brand.json beside index.html) into one style, registers
+// the look's and the kit's font files with FontFace and adds their families to CFG.FONTS, and hands the style to
+// init({ style }) and to audio.js. It also records, at every fillText and strokeText the scene makes, the font
+// families in effect (fonts_used in the render record); setting ctx.font only to measure or lay out text is not
+// recorded.
 import { createPipeline } from './gl.js';
 import { encodeWav } from './wav.js';
+import * as LK from './looks.js';
 
 const q = new URLSearchParams(location.search);
 const params = {};                                    // --param k=v from render.mjs arrive as p.k
@@ -19,8 +27,40 @@ const ALPHA = q.get('alpha') === '1';
 const CHECK = q.get('check') === '1';
 const halton = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
 
-let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx;
-const FONT_PROBLEMS = [];
+let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx, STYLE = null, BRAND = null;
+const FONT_PROBLEMS = [], FACES = [];
+
+// fonts_used: the families of ctx.font at every fillText and strokeText while the scene draws (its init, frame and
+// drawHud), on any 2D context, offscreen ones included. Parsed once per font string.
+const FONTS_USED = new Set(), famCache = new Map();
+let RECORD = 0;
+for (const K of [globalThis.CanvasRenderingContext2D, globalThis.OffscreenCanvasRenderingContext2D]) {
+  if (!K) continue;
+  for (const m of ['fillText', 'strokeText']) {
+    const orig = K.prototype[m];
+    K.prototype[m] = function (...a) {
+      if (RECORD) {
+        const f = this.font;
+        let fams = famCache.get(f);
+        if (!fams) famCache.set(f, (fams = LK.fontFamilies(f)));
+        for (const x of fams) FONTS_USED.add(x);
+      }
+      return orig.apply(this, a);
+    };
+  }
+}
+const recording = (fn) => { RECORD++; try { return fn(); } finally { RECORD--; } };
+const recordingAsync = async (fn) => { RECORD++; try { return await fn(); } finally { RECORD--; } };
+
+// brand.json beside index.html, parsed, or null when the piece has none. render.mjs answers /__exists, so a piece
+// without a kit logs no 404.
+async function loadBrand() {
+  try { const r = await fetch('./__exists?path=brand.json'); if (r.ok && !(await r.json()).exists) return null; } catch { /* other server: just try it */ }
+  const r = await fetch('./brand.json', { cache: 'no-store' });
+  if (!r.ok) return null;
+  const text = await r.text();
+  try { return JSON.parse(text); } catch (e) { throw new Error(`brand.json does not parse: ${e.message}`); }
+}
 
 // A target (--target tiktok) supplies size, fps and the safe area from safezones.json. Values the
 // scene sets in CFG win; the target fills in what CFG leaves out.
@@ -59,21 +99,46 @@ async function boot() {
   hud = document.createElement('canvas'); hud.width = RW; hud.height = RH; // difference-blended HUD
   c2ctx = c2.getContext('2d'); hudctx = hud.getContext('2d');
 
+  // The style: the look and the kit, resolved with --param (looks.js). Their font files are registered here, before
+  // init, and their families join CFG.FONTS, so the check below fails on a missing one like any other.
+  BRAND = await loadBrand();
+  STYLE = LK.resolveStyle({ look: params.look || CFG.LOOK || (BRAND && BRAND.look) || null, brand: BRAND, params });
+  const failed = new Set();
+  for (const f of LK.styleFaces(STYLE)) {
+    let problem = null;
+    try {
+      const ff = new FontFace(f.family, `url("${encodeURI(f.url)}")`);
+      document.fonts.add(await ff.load());
+    } catch (e) {
+      problem = `font missing: ${f.family} (${f.from === 'brand' ? 'brand.json' : `look ${STYLE.look}`}, ${f.roles.join(' and ')}) did not load from ${f.url}` +
+        (f.from === 'brand' ? ': copy the kit\'s file into the piece' : ': copy it from the skill\'s looks/fonts/ into the piece\'s fonts/');
+    }
+    FACES.push({ family: f.family, url: f.url, from: f.from, roles: f.roles, ok: !problem, problem });
+    if (problem) {
+      if (!CHECK) throw new Error(problem);   // a render stops here; check reports it under fonts and runs the rest
+      FONT_PROBLEMS.push(problem); failed.add(f.family);
+    }
+  }
+  const fams = LK.styleFamilies(STYLE);
+  if (fams.length) { CFG.FONTS = CFG.FONTS || []; for (const f of fams) if (!CFG.FONTS.includes(f)) CFG.FONTS.push(f); }
   // Fail loudly on missing fonts: Canvas2D silently falls back to Times otherwise. load() resolves
   // to the faces it found, so an undeclared family (an empty list) fails too. Under render.mjs check the
   // problem is collected instead, so the check reports it (fonts) and still runs the others.
   for (const f of CFG.FONTS || []) {
+    if (failed.has(f)) continue;
     let faces = [], problem = null;
     try { faces = await document.fonts.load(`64px "${f}"`); } catch (e) { problem = `font failed to load: ${f} (${e.message})`; }
     if (!problem && (!faces.length || !document.fonts.check(`64px "${f}"`))) problem = `font missing: ${f} (declare it in index.html @font-face, file in fonts/)`;
     if (problem && !CHECK) throw new Error(problem);
     if (problem) FONT_PROBLEMS.push(problem);
   }
-  if (scene.init) await scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T });
+  if (scene.init) await recordingAsync(() => scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T, style: STYLE }));
   pipe = createPipeline(canvas, RW, RH, { alpha: ALPHA });
   // DUR is read after init, so a scene may set CFG.DUR there (from a param or a board).
   window.INFO = { RW, RH, W: CFG.W, H: CFG.H, FPS, DUR: CFG.DUR, ALPHA, SCALE, SUB, SCENE: SCENE_FILE,
-    TARGET, SILENT: !!scene.silent, FONTS: CFG.FONTS || [], FONT_PROBLEMS,
+    TARGET, SILENT: !!scene.silent, FONTS: CFG.FONTS || [], FONT_PROBLEMS, FACES,
+    STYLE: { look: STYLE.look, lookFrom: params.look ? '--param look' : CFG.LOOK ? 'CFG.LOOK' : BRAND && BRAND.look ? 'brand.json' : null, brand: STYLE.brand, tokens: STYLE.tokens, bg: STYLE.bg, sources: STYLE.sources,
+      fonts: Object.fromEntries(LK.ROLES.map((r) => [r, { family: STYLE.fonts[r].family, file: STYLE.fonts[r].file || null, from: STYLE.fonts[r].from }])) },
     HOLDS: scene.HOLDS === undefined ? null : JSON.parse(JSON.stringify(scene.HOLDS)), BOXES: typeof scene.boxes === 'function' };
   return true;
 }
@@ -97,10 +162,10 @@ function renderAt(t, opts = {}) {
   const n = opts.n || subCount(t);
   for (let s = 0; s < n; s++) {
     prep(c2ctx);
-    pipe.subframe(scene.frame(subTime(t, s, n), subJit(s)), c2, 1 / n);
+    pipe.subframe(recording(() => scene.frame(subTime(t, s, n), subJit(s))), c2, 1 / n);
   }
   prep(hudctx);
-  if (scene.drawHud) scene.drawHud(t, FPS);
+  if (scene.drawHud) recording(() => scene.drawHud(t, FPS));
   pipe.endFrame(opts.post ? { ...scene.post(t), ...opts.post } : scene.post(t), hud);
 }
 function readFrame() {
@@ -162,30 +227,56 @@ window.renderRange = async (from, to) => {
 };
 // renderProbe (plan 5): one frame, rendered with opts.sub subframes (default 1) and post(t) overridden by
 // opts.post (default { grain: 0 }), returned as luma bytes (Rec. 709, 0-255, over black in alpha mode), top
-// row first: { w, h, luma }. opts.scale may ask for a smaller probe than the page's own scale, by a whole
-// factor (each probe pixel is the mean of a k x k block). With grain off and one subframe, a frame that does
-// not change repeats exactly, so render.mjs check can count changed pixels between frames.
+// row first: { w, h, luma }. opts.rgb adds the colour of the same pixels (plan 23.2: the colour probe), r, g, b
+// bytes per pixel, over black in alpha mode: { w, h, luma, rgb }. opts.scale may ask for a smaller probe than the
+// page's own scale, by a whole factor (each probe pixel is the mean of a k x k block). With grain off and one
+// subframe, a frame that does not change repeats exactly, so render.mjs check can count changed pixels between frames.
 window.renderProbe = (t, opts = {}) => {
   renderAt(t, { n: Math.max(1, Math.round(opts.sub || 1)), post: opts.post || { grain: 0 } });
-  const px = readFrame(), luma = new Uint8Array(RW * RH);
+  const px = readFrame(), luma = new Uint8Array(RW * RH), rgb = opts.rgb ? new Uint8Array(RW * RH * 3) : null;
   for (let y = 0; y < RH; y++) {
     const src = (RH - 1 - y) * RW * 4, dst = y * RW;      // readPixels starts at the bottom row
     for (let x = 0; x < RW; x++) {
       const i = src + x * 4, a = ALPHA ? px[i + 3] / 255 : 1;
       luma[dst + x] = Math.round((0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) * a);
+      if (rgb) { const o = (dst + x) * 3; rgb[o] = Math.round(px[i] * a); rgb[o + 1] = Math.round(px[i + 1] * a); rgb[o + 2] = Math.round(px[i + 2] * a); }
     }
   }
   const k = opts.scale ? SCALE / opts.scale : 1;
   if (Math.abs(k - Math.round(k)) > 1e-6 || k < 1) throw new Error(`renderProbe: scale ${opts.scale} is not the page's scale ${SCALE} divided by a whole number`);
-  if (Math.round(k) === 1) return { w: RW, h: RH, luma };
-  const K = Math.round(k), w = Math.floor(RW / K), h = Math.floor(RH / K), out = new Uint8Array(w * h);
+  if (Math.round(k) === 1) return rgb ? { w: RW, h: RH, luma, rgb } : { w: RW, h: RH, luma };
+  const K = Math.round(k), w = Math.floor(RW / K), h = Math.floor(RH / K), out = new Uint8Array(w * h), orgb = rgb ? new Uint8Array(w * h * 3) : null;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     let sum = 0;
     for (let j = 0; j < K; j++) for (let i = 0; i < K; i++) sum += luma[(y * K + j) * RW + x * K + i];
     out[y * w + x] = Math.round(sum / (K * K));
+    if (orgb) for (let c = 0; c < 3; c++) {
+      let s3 = 0;
+      for (let j = 0; j < K; j++) for (let i = 0; i < K; i++) s3 += rgb[((y * K + j) * RW + x * K + i) * 3 + c];
+      orgb[(y * w + x) * 3 + c] = Math.round(s3 / (K * K));
+    }
   }
-  return { w, h, luma: out };
+  return orgb ? { w, h, luma: out, rgb: orgb } : { w, h, luma: out };
 };
+// The colour probe (render.mjs palette, plan 23.2): renderProbe of every frame with its colour, every pixel counted
+// by its exact colour across the whole piece: { frames, w, h, total, colors: [0xRRGGBB], counts }. Render.mjs opens
+// the page at check's probe scale (1/2), so these are check's probe frames, grain off, one subframe.
+window.colorScan = async () => {
+  const N = Math.round(CFG.DUR * FPS), hist = new Uint32Array(1 << 24);
+  let total = 0, w = RW, h = RH;
+  for (let f = 0; f < N; f++) {
+    const p = window.renderProbe(f / FPS, { rgb: true });
+    w = p.w; h = p.h;
+    const c = p.rgb;
+    for (let i = 0; i < c.length; i += 3) hist[(c[i] << 16) | (c[i + 1] << 8) | c[i + 2]]++;
+    total += p.w * p.h;
+  }
+  const colors = [], counts = [];
+  for (let i = 0; i < hist.length; i++) if (hist[i]) { colors.push(i); counts.push(hist[i]); }
+  return { frames: N, w, h, total, colors, counts };
+};
+// The font families the scene has drawn text with so far (fillText and strokeText), for the render record.
+window.fontsUsed = () => [...FONTS_USED];
 // What render.mjs check measures in the page (plan 11.1), for every frame of the piece:
 //   probe:   renderProbe(t) of each frame; the histogram of luma differences between consecutive frames
 //            ({ delta: count } for delta >= 1) and the first frame's luma mean and standard deviation
@@ -251,7 +342,7 @@ window.renderSound = async () => {
     buf = new AudioBuffer({ numberOfChannels: 2, length: Math.ceil(sr * dur), sampleRate: sr });
   } else {
     const { renderAudio } = await import('./audio.js');
-    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr });
+    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE });
   }
   const wav = encodeWav(buf);
   await fetch('/audio', { method: 'POST', body: wav });
@@ -354,4 +445,87 @@ window.renderBoard = async ({ cols, safe }) => {
   return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, rows: rowsOut, title: B.title || null,
     estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null,
     cfgDur: CFG.DUR, order: lib.boardOrder(info, CFG.DUR, FPS), scene: SCENE_FILE, safe: zone ? { target: zone.name, estimate: zone.estimate } : null };
+};
+
+// The brand sheet (render.mjs brand, plan 23.2): the colour tokens as swatches, a type specimen in each font role,
+// and the kit's logo on a dark and on a light ground, to approve before anything is animated. Without brand.json
+// it shows the style in effect (the look's, or the template's own). Drawn with the piece's own fonts; returns the
+// PNG and where each swatch and ground sits, so a test can read the colours back.
+window.renderBrandSheet = async () => {
+  const S = STYLE, B = BRAND, W = 1600, pad = 56;
+  const sheet = document.createElement('canvas'), sc = sheet.getContext('2d');
+  const label = (await document.fonts.load('24px MONO')).length ? 'MONO' : 'monospace';
+  for (const r of LK.ROLES) {
+    const fam = S.fonts[r].family, faces = await document.fonts.load(`48px "${fam}"`);
+    if (!faces.length || !document.fonts.check(`48px "${fam}"`)) throw new Error(`brand sheet: font missing: ${fam} (${r}); run node render.mjs doctor`);
+  }
+  const lum = (h) => { const [r, g, b] = LK.hexRgb01(h).map((v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const onColor = (h) => (lum(h) > 0.4 ? '#111111' : '#F5F5F5');
+  const grounds = ['bgA', 'bgB', 'ink'].map((k) => S.tokens[k]).sort((a, b) => lum(a) - lum(b));
+  const dark = grounds[0], light = grounds[grounds.length - 1];
+  const logos = {};
+  for (const k of ['onDark', 'onLight']) {
+    const f = B && B.logo && B.logo[k];
+    if (!f) continue;
+    const img = new Image();
+    img.src = f;
+    try { await img.decode(); } catch { throw new Error(`brand sheet: logo.${k} (${f}) did not load`); }
+    logos[k] = img;
+  }
+  const sw = (W - 2 * pad - 5 * 24) / 6, swH = 200, logoH = 380, specs = [
+    { role: 'display', px: 110, text: B ? B.name : (S.look ? LK.LOOKS[S.look].label : 'Make it move') },
+    { role: 'body', px: 52, text: 'The quick brown fox jumps over the lazy dog. 0123456789' },
+    { role: 'mono', px: 40, text: 'const t = 0.25; // 0O 1lI {}[]' },
+  ];
+  const H = pad + 90 + 50 + swH + 110 + specs.reduce((s, x) => s + x.px * 1.25 + 56, 0) + 40 + logoH + pad;
+  sheet.width = W; sheet.height = Math.round(H);
+  const bgSheet = '#ECEAE4', inkSheet = '#18181C', mutedSheet = '#6A6872';
+  sc.fillStyle = bgSheet; sc.fillRect(0, 0, W, sheet.height);
+  sc.textBaseline = 'alphabetic'; sc.textAlign = 'left';
+  let y = pad + 64;
+  sc.fillStyle = inkSheet; sc.font = `64px "${S.fonts.display.family}"`;
+  sc.fillText(B ? B.name : S.look ? `Look: ${LK.LOOKS[S.look].label}` : 'The template\'s style', pad, y);
+  y += 44;
+  sc.font = `22px ${label}`; sc.fillStyle = mutedSheet;
+  sc.fillText(`${B ? 'brand.json' : 'no brand.json'}${S.look ? `, look ${S.look}` : ', no look'}, background shader ${S.bg}`, pad, y);
+  y += 46;
+  const swatches = [];
+  LK.TOKENS.forEach((k, i) => {
+    const x = pad + i * (sw + 24), hex = S.tokens[k];
+    sc.fillStyle = hex; sc.fillRect(x, y, sw, swH);
+    sc.strokeStyle = 'rgba(0,0,0,0.25)'; sc.lineWidth = 2; sc.strokeRect(x + 1, y + 1, sw - 2, swH - 2);
+    sc.fillStyle = onColor(hex); sc.font = `26px ${label}`; sc.fillText(k, x + 16, y + swH - 20);
+    sc.fillStyle = inkSheet; sc.font = `22px ${label}`; sc.fillText(hex, x, y + swH + 34);
+    sc.fillStyle = mutedSheet; sc.fillText(S.sources[k], x, y + swH + 62);
+    swatches.push({ name: k, hex, x, y, w: sw, h: swH });
+  });
+  y += swH + 110;
+  for (const sp of specs) {
+    const f = S.fonts[sp.role];
+    sc.fillStyle = mutedSheet; sc.font = `22px ${label}`;
+    sc.fillText(`${sp.role}: ${f.family}${f.file ? ` (${f.file})` : ''}, from ${f.from}`, pad, y);
+    let px = sp.px;
+    sc.font = `${px}px "${f.family}"`;
+    while (px > 16 && sc.measureText(sp.text).width > W - 2 * pad) { px -= 2; sc.font = `${px}px "${f.family}"`; }
+    y += px * 1.05 + 14;
+    sc.fillStyle = inkSheet; sc.fillText(sp.text, pad, y);
+    y += px * 0.2 + 42;
+  }
+  y += 10;
+  const gw = (W - 2 * pad - 24) / 2, out = [];
+  [['onDark', dark], ['onLight', light]].forEach(([k, g], i) => {
+    const x = pad + i * (gw + 24);
+    sc.fillStyle = g; sc.fillRect(x, y, gw, logoH);
+    out.push({ logo: k, hex: g, x, y, w: gw, h: logoH });
+    const img = logos[k];
+    if (img) {
+      const s = Math.min((gw * 0.7) / img.naturalWidth, (logoH * 0.7) / img.naturalHeight);
+      const iw = img.naturalWidth * s, ih = img.naturalHeight * s;
+      sc.drawImage(img, x + (gw - iw) / 2, y + (logoH - ih) / 2 - 12, iw, ih);
+    }
+    sc.fillStyle = onColor(g); sc.font = `20px ${label}`;
+    sc.fillText(img ? `logo.${k} (${B.logo[k]}) on ${g}` : `no logo.${k} in ${B ? 'brand.json' : 'a piece without brand.json'}`, x + 16, y + logoH - 18);
+  });
+  return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, swatches, grounds: out,
+    brand: B ? B.name : null, look: S.look, logos: Object.keys(logos) };
 };
