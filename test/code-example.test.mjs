@@ -63,3 +63,14 @@ test('terminal-demo: its code is drawn in its look\'s colours (neon\'s accent2 i
     assert.equal(count(tpl.accent2, r) + count(tpl.accent, r), 0, `${name}: the template's accents`);
   }
 });
+test('terminal-demo: the line its terminal names is the diff\'s removed line, and the hunk header counts the lines it has', () => {
+  const src = fs.readFileSync(path.join(examplesDir, 'terminal-demo', 'scene.js'), 'utf8');
+  const diff = src.match(/const DIFF = `([\s\S]*?)`;/)[1], named = +src.match(/src\/clock\.ts:(\d+)/)[1];
+  const h = diff.match(/^@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
+  assert.ok(h, 'a hunk header with both counts');
+  const rows = K.diffBlock({ src: diff, x: 0, y: 0, w: 900, h: 900 }).rows.filter((r) => r.kind !== 'hunk');
+  const old = rows.filter((r) => r.kind !== 'add'), neu = rows.filter((r) => r.kind !== 'del');
+  assert.deepEqual([+h[2], +h[4]], [old.length, neu.length], 'the header counts the old and the new lines');
+  assert.equal(named, +h[1] + old.findIndex((r) => r.kind === 'del'), 'the line the terminal reports');
+  assert.equal(K.tokenize(diff, 'diff').filter((t) => t.k === 'meta').length, 0);
+});

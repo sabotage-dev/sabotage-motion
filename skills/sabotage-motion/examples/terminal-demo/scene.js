@@ -22,7 +22,7 @@ export const TL = {
   keys: [], bar: [0, 0], installed: 0, spin: [], found: 0, lands: [], end: F1,
 };
 
-const DIFF = `@@ -14,6 +14,6 @@ function lap(clock) {
+const DIFF = `@@ -14,5 +14,5 @@ function lap(clock) {
    const now = clock.read();
 -  const ms = now - clock.start + 1;
 +  const ms = now - clock.start;
@@ -50,7 +50,7 @@ export async function init({ ctx: c, scale, alpha, target, style }) {
       { bar: 'fetching darnly 0.4.2', dur: 0.9, width: 14, done: '+ installed darnly 0.4.2', doneKind: 'add' },
       { cmd: 'darnly fix src/clock.ts', at: R0 + 0.12 },
       { spin: 'reading 6 files', dur: 0.6, done: '+ read 6 files', doneKind: 'add' },
-      { out: 'found 1 off-by-one in src/clock.ts:16', kind: 'del', after: 0.05 },
+      { out: 'found 1 off-by-one in src/clock.ts:15', kind: 'del', after: 0.05 },
       { out: '+ patched src/clock.ts (+1 -1)', kind: 'add', at: F0 + 0.95 },
     ] });
   DIFFB = diffBlock({ src: DIFF, lang: 'ts', ...DWIN.content, theme: TH, size: 32, lineH: 1.5, id: 'diff', start: F0 + 0.55, step: 0.35 });

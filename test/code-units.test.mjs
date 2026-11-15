@@ -20,6 +20,41 @@ const { swift } = await import(pathToFileURL(path.join(templateDir, 'lib.js')).h
 const ADV = 20;
 const fake = () => ({ font: '', save() {}, restore() {}, measureText: (s) => ({ width: [...String(s)].length * ADV }) });
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${a} vs ${b}`);
+// A 2D context that records every fillText with the fill colour, alpha and clip in effect (save and restore kept), and
+// ignores a fill colour that is not a string, as a canvas ignores one it cannot parse.
+function recorder() {
+  const calls = [], stack = [];
+  let st = { fillStyle: '#000000', globalAlpha: 1, font: '', clip: null, path: null };
+  const meet = (a, b) => { const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y); return { x, y, w: Math.max(0, Math.min(a.x + a.w, b.x + b.w) - x), h: Math.max(0, Math.min(a.y + a.h, b.y + b.h) - y) }; };
+  const ctx = {
+    save() { stack.push({ ...st }); }, restore() { if (stack.length) st = stack.pop(); },
+    measureText: (x) => ({ width: [...String(x)].length * ADV }),
+    beginPath() { st.path = null; }, rect(x, y, w, h) { st.path = { x, y, w, h }; },
+    clip() { if (st.path) st.clip = st.clip ? meet(st.clip, st.path) : { ...st.path }; },
+    fillText(text, x, y) { calls.push({ text: String(text), x, y, fillStyle: st.fillStyle, alpha: st.globalAlpha, clip: st.clip }); },
+    fillRect() {}, strokeRect() {}, fill() {}, stroke() {}, moveTo() {}, lineTo() {}, arc() {}, arcTo() {}, closePath() {},
+    getTransform: () => ({ a: 1, b: 0 }),
+  };
+  for (const k of ['fillStyle', 'globalAlpha', 'font', 'textAlign', 'textBaseline', 'strokeStyle', 'lineWidth', 'lineCap', 'shadowColor', 'shadowBlur', 'shadowOffsetY']) {
+    Object.defineProperty(ctx, k, { get: () => st[k], set: (v) => { if (k === 'fillStyle' && typeof v !== 'string') return; st[k] = v; } });
+  }
+  return { ctx, calls };
+}
+// Every glyph a helper draws where it can be seen (alpha over 0.05, inside its clip) lies in one of the boxes the same
+// call reports, not deco: the middle of each non-space character's cell, at the height of the text.
+function glyphsBoxed(draw, size, label) {
+  const { ctx, calls } = recorder(), boxes = draw(ctx).filter((b) => !b.deco), missed = [];
+  for (const c of calls) {
+    if (c.alpha <= 0.05) continue;
+    [...c.text].forEach((ch, i) => {
+      if (!ch.trim()) return;
+      const px = c.x + (i + 0.5) * ADV, py = c.y - size * 0.3;
+      if (c.clip && !(px > c.clip.x && px < c.clip.x + c.clip.w && py > c.clip.y && py < c.clip.y + c.clip.h)) return;
+      if (!boxes.some((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h)) missed.push(`${label}: "${ch}" of "${c.text}" at ${px.toFixed(1)},${py.toFixed(1)}`);
+    });
+  }
+  return missed;
+}
 const ids = (bs) => bs.map((b) => b.id);
 const NOJIT = { jitter: 0, spacePause: 0 };
 
@@ -49,12 +84,43 @@ test('tokenize: the tokens join back into the source, never span a line, and nei
   assert.deepEqual(K.tokenize('/* open\ncomment', 'ts').map((t) => t.k), ['com', 'nl', 'com'], 'a block comment over two lines is a comment on both');
   assert.deepEqual(K.tokenize("x = '''a\nb'''", 'python').map((t) => t.k), ['plain', 'op', 'plain', 'str', 'nl', 'str'], 'a triple-quoted string over two lines');
   assert.deepEqual(K.tokenize('`a\n${b}`', 'js').map((t) => t.k), ['str', 'nl', 'str'], 'a template literal over two lines');
+  // a template literal inside ${} whose text holds a brace: the brace is text, not the end of the ${}
+  assert.deepEqual(K.tokenize('t = `a ${`}`} b`;', 'js').map((t) => [t.k, t.s]), [['plain', 't '], ['op', '='], ['plain', ' '], ['str', '`a ${`}`} b`'], ['punct', ';']]);
+  assert.deepEqual(K.tokenize('t = `a ${"}"} b`;', 'js').map((t) => t.k), ['plain', 'op', 'plain', 'str', 'punct'], 'a string with a brace in ${}');
+});
+test('diff: a hunk ends when its @@ counts are used up, so a second file\'s headers are headers without git\'s diff line', () => {
+  const two = '--- a/one.ts\n+++ b/one.ts\n@@ -1,3 +1,2 @@\n keep\n\n-old\n--- a/two.ts\n+++ b/two.ts\n@@ -5 +5 @@\n-x\n+y\n';
+  // one.ts: keep and the blank (context) and old (removed) use up 3 old lines; keep and the blank 2 new ones
+  assert.deepEqual(K.highlight(two, 'diff').map((l) => l.map((t) => t.k).join(',')),
+    ['meta', 'meta', 'hunk', 'ctx', '', 'del', 'meta', 'meta', 'hunk', 'del', 'add', '']);
+  const d = K.diffBlock({ src: two, x: 0, y: 0, w: 800, h: 600 });
+  assert.deepEqual(d.rows.map((r) => [r.kind, r.text]), [['hunk', '@@ -1,3 +1,2 @@'], ['ctx', 'keep'], ['ctx', ''], ['del', 'old'], ['hunk', '@@ -5 +5 @@'], ['del', 'x'], ['add', 'y']]);
+  assert.equal(d.changes, 3, 'the second file\'s --- and +++ are not changes');
+  // inside a hunk that still has lines to come, --- and +++ are a removed and an added line
+  assert.deepEqual(K.highlight('@@ -1,2 +1,2 @@\n--- x\n+++ y\n keep', 'diff').map((l) => l[0].k), ['hunk', 'del', 'add', 'ctx']);
+  // a header without counts counts one line a side: --- x is its removed line and +++ y its added one
+  assert.deepEqual(K.highlight('@@ -5 +5 @@\n--- x\n+++ y', 'diff').map((l) => l[0].k), ['hunk', 'del', 'add']);
+  // added lines count only on the new side: after +a, +b and c, one old line is still to come, so --- d is it
+  assert.deepEqual(K.highlight('@@ -1,2 +1,3 @@\n+a\n+b\n c\n--- d', 'diff').map((l) => l[0].k), ['hunk', 'add', 'add', 'ctx', 'del']);
+});
+test('diff: with a language, each side of a hunk is coloured as one source, so a comment over lines keeps its state', () => {
+  const src = '@@ -1,5 +1,5 @@\n /* start\n  middle\n end */\n-const a = 1; /* old\n+const a = 2;\n const b = 3;\n';
+  const d = K.diffBlock({ src, lang: 'js', x: 0, y: 0, w: 800, h: 600 });
+  const kinds = (i) => d.rows[i].toks.map((t) => t.k);
+  assert.deepEqual(kinds(2), ['com'], 'the middle line of the comment');
+  assert.deepEqual(kinds(3), ['com'], 'its last line');
+  assert.equal(kinds(4)[0], 'kw', 'the removed line');
+  assert.deepEqual(kinds(5)[0], 'kw', 'the added line is not inside the removed line\'s comment');
+  assert.deepEqual(kinds(6)[0], 'kw', 'nor is the context after it (context is coloured as the new file)');
+  for (const r of d.rows.slice(1)) assert.equal(r.toks.map((t) => t.s).join(''), r.text);
 });
 test('rules the goldens do not reach: a lower-case Python class, shell\'s in after for and case, a prompt only at a line\'s start', () => {
   assert.deepEqual(K.tokenize('class clock_face:', 'python').map((t) => [t.k, t.s]), [['kw', 'class'], ['plain', ' '], ['type', 'clock_face'], ['punct', ':']]);
   assert.deepEqual(K.tokenize('case x in', 'shell').map((t) => t.k), ['kw', 'plain', 'kw']);
   assert.deepEqual(K.tokenize('grep in f', 'shell').map((t) => t.k), ['cmd', 'plain'], 'in as an argument is a word');
   assert.deepEqual(K.tokenize('echo $ x', 'shell').map((t) => t.k), ['cmd', 'plain'], 'a $ mid-line is not a prompt');
+  assert.deepEqual(K.tokenize('case $x in\n  a|b) run;;\n  c) go ;;\nesac', 'shell').filter((t) => t.k === 'cmd').map((t) => t.s), ['run', 'go'], 'patterns are not commands');
+  assert.deepEqual(K.tokenize('for x in a in b', 'shell').filter((t) => t.k === 'kw').map((t) => t.s), ['for', 'in'], 'only the first in');
 });
 test('languages: aliases, and an unknown language says which ones there are', () => {
   for (const [a, l] of [['javascript', 'js'], ['tsx', 'ts'], ['py', 'python'], ['bash', 'shell'], ['zsh', 'shell'], ['patch', 'diff']]) assert.equal(K.langOf(a), l);
@@ -141,7 +207,8 @@ test('drawCode: boxes at 5.25 s: line 2 cut where the viewport starts, line 1 sc
 test('drawCode: a line wider than the viewport is cut at its edge; alpha, dx and dy; numbers widen the box to the gutter', () => {
   const b = K.codeBlock({ src: 'x'.repeat(40), x: 0, y: 0, w: 300, h: 100, size: 20, pad: 10, numbers: false, type: false, id: 'wide' });
   const [bx] = K.drawCode(fake(), b, 0, { draw: false });
-  assert.deepEqual([bx.x, bx.w, bx.text.length], [10, 290, 40]);
+  // the box is cut at the viewport's right edge (300), and its text is the 15 characters that show there (the 15th in part)
+  assert.deepEqual([bx.x, bx.w, bx.text], [10, 290, 'x'.repeat(15)]);
   assert.equal(K.drawCode(fake(), b, 0, { draw: false, alpha: 0.05 }).length, 0, 'at alpha 0.05 the text is not reported');
   assert.equal(K.drawCode(fake(), b, 0, { draw: false, alpha: 0.06 }).filter((x) => !x.deco).length, 1);
   const moved = K.drawCode(fake(), b, 0, { draw: false, dx: 50, dy: 7 })[0];
@@ -162,6 +229,26 @@ test('drawCode: type: false shows everything at once; shown lines are there befo
   assert.deepEqual(K.codeAt(ind, 0.45).lines, ['f {', '    x']);
   assert.deepEqual(K.typedTimes(ind).map((k) => k.key).join(','), 'char,space,char,enter,char,enter,char');
 });
+test('code shown whole (type: false) and taller than its view stays at the top: a finite scroll, its first rows drawn and boxed', () => {
+  const b = K.codeBlock({ src: 'one\ntwo\nthree\nfour', x: 0, y: 0, w: 400, h: 2 * 45 + 36, size: 30, lineH: 1.5, pad: 18, type: false, numbers: false });
+  assert.equal(b.rows, 2);
+  for (const t of [0, 1, 5]) {
+    assert.equal(K.codeAt(b, t).scroll, 0, `t=${t}`);
+    const { ctx, calls } = recorder(), bs = K.drawCode(ctx, b, t);
+    assert.deepEqual(bs.filter((x) => !x.deco).map((x) => x.text), ['one', 'two', 'three'], 'two rows and the top of the third');
+    for (const x of bs) for (const k of ['x', 'y', 'w', 'h']) assert.ok(Number.isFinite(x[k]), `${x.id}.${k}`);
+    assert.deepEqual(calls.filter((c) => Number.isFinite(c.x) && Number.isFinite(c.y)).map((c) => c.text).slice(0, 2), ['one', 'two']);
+  }
+  // explicit moves still scroll it
+  const sc = K.codeBlock({ src: 'one\ntwo\nthree\nfour', x: 0, y: 0, w: 400, h: 126, size: 30, lineH: 1.5, pad: 18, type: false, scroll: [{ at: 1, top: 3, dur: 0.5 }] });
+  assert.equal(K.codeAt(sc, 2).scroll, 2);
+});
+test('shown lines: the first typed line\'s indentation arrives when typing starts, not key by key', () => {
+  const b = K.codeBlock({ src: 'f {\n    x\n}', x: 0, y: 0, w: 400, h: 400, shown: 1, start: 1, type: { cps: 10, linePause: 0, ...NOJIT } });
+  assert.deepEqual(K.typedTimes(b).map((k) => [+k.t.toFixed(6), k.key]), [[1, 'char'], [1.1, 'enter'], [1.2, 'char']]);
+  assert.deepEqual(K.codeAt(b, 0.5).lines, ['f {', '']);
+  assert.deepEqual(K.codeAt(b, 1).lines, ['f {', '    x']);
+});
 test('typing: the cadence is seeded (the same seed gives the same times, another seed others), jittered within its bounds', () => {
   const src = 'const lap = (clock) => clock.read() - clock.start;\n'.repeat(3);
   const mk = (seed) => K.codeBlock({ src, x: 0, y: 0, w: 900, h: 400, start: 2, type: { cps: 20, jitter: 0.35, seed } });
@@ -176,6 +263,50 @@ test('typing: the cadence is seeded (the same seed gives the same times, another
   const after = (ch) => a.slice(1).map((x, i) => [src[i], x - a[i]]).filter(([c]) => c === ch).map(([, g]) => g);
   for (const g of after(' ')) assert.ok(g >= 0.65 / 20 + 0.02 - 1e-9 && g <= 1.35 / 20 + 0.02 + 1e-9, `after a space: ${g}`);
   assert.ok(Math.max(...gaps) - Math.min(...gaps) > 0.4 / 20, 'the jitter varies the gaps');
+});
+test('drawCode: every drawn line number has a box, a blank line\'s and the cursor\'s untyped line\'s included', () => {
+  const b = K.codeBlock({ src: 'a\n\nb\nc', x: 0, y: 0, w: 400, h: 400, size: 30, pad: 10, start: 0, type: { cps: 10, linePause: 0, ...NOJIT } });
+  // a 0, \n 0.1, \n 0.2, b 0.3: at 0.25 the cursor is on line 3, nothing typed on it yet
+  const { ctx, calls } = recorder(), bs = K.drawCode(ctx, b, 0.25);
+  const nums = calls.filter((c) => /^\s*\d+$/.test(c.text)).map((c) => c.text.trim());
+  assert.deepEqual(nums, ['1', '2', '3']);
+  assert.deepEqual(bs.filter((x) => !x.deco).map((x) => [x.id, x.text]), [['code:1', 'a'], ['code:2', '2'], ['code:3', '3']]);
+  const two = bs.find((x) => x.id === 'code:2');
+  assert.deepEqual([two.x, two.w], [10, ADV], 'the number\'s box is the number');
+  assert.deepEqual(glyphsBoxed((c) => K.drawCode(c, b, 0.25), 30, 'code'), []);
+  // with ten lines or more the numbers are right-aligned: line 2's box starts one column in, at its digit
+  const ten = K.codeBlock({ src: 'a\n\n' + 'x\n'.repeat(9) + 'y', x: 0, y: 0, w: 400, h: 900, size: 30, pad: 10, type: false });
+  const n2 = K.drawCode(fake(), ten, 0, { draw: false }).find((x) => x.id === 'code:2');
+  assert.deepEqual([n2.x, n2.w, n2.text], [10 + ADV, ADV, '2']);
+});
+test('every glyph the helpers draw where it shows is inside one of their boxes (typing, scrolling, a blank line, a diff opening, a bar)', () => {
+  const src = 'const a = 1;\n\n  return a + 2; // a line wider than the view\nb\nc\nd';
+  const code = K.codeBlock({ src, lang: 'js', x: 30, y: 40, w: 420, h: 171, size: 30, lineH: 1.5, pad: 18, start: 0.2, type: { cps: 30, ...NOJIT }, focus: [{ lines: [1, 1], from: 2, to: 3 }] });
+  const s = session(), d = diff();
+  const missed = [];
+  for (let t = 0; t <= 4; t += 0.05) {
+    missed.push(...glyphsBoxed((c) => K.drawCode(c, code, t), 30, `code t=${t.toFixed(2)}`));
+    missed.push(...glyphsBoxed((c) => K.drawCode(c, code, t, { dx: -40, dy: 10 }), 30, `code moved t=${t.toFixed(2)}`));
+    missed.push(...glyphsBoxed((c) => K.terminal(c, s, t), 30, `term t=${t.toFixed(2)}`));
+    missed.push(...glyphsBoxed((c) => K.drawDiff(c, d, t), 30, `diff t=${t.toFixed(2)}`));
+  }
+  assert.deepEqual(missed.slice(0, 5), []);
+});
+test('a box\'s text is what shows: code, diff and terminal rows cut at the viewport keep only the characters there', () => {
+  const code = K.codeBlock({ src: 'abcdefghij', x: 0, y: 0, w: 110, h: 100, size: 20, pad: 10, numbers: false, type: false });
+  assert.equal(K.drawCode(fake(), code, 0, { draw: false })[0].text, 'abcde', 'columns 0-4 (10 to 110)');
+  assert.equal(K.drawCode(fake(), code, 0, { draw: false, dx: -45 })[0].text, 'abcde', 'dx moves the viewport with the text');
+  const tight = K.codeBlock({ src: 'abcdefghij', x: 0, y: 0, w: 115, h: 100, size: 20, pad: 10, numbers: false, type: false });
+  assert.equal(K.drawCode(fake(), tight, 0, { draw: false })[0].text, 'abcdef', 'f shows in part (110 to 130, cut at 115): it counts');
+  const d = K.diffBlock({ src: '@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n', x: 0, y: 0, w: 130, h: 400, size: 20, pad: 10, start: 0 });
+  // six columns show (10 to 130): the marker column counts
+  assert.deepEqual(K.drawDiff(fake(), d, 5, { draw: false }).map((b) => b.text), ['@@ -1', '- cons', '+ cons']);
+  const s = K.termSession({ x: 0, y: 0, w: 130, h: 400, size: 20, pad: 10, prompt: '$ ', end: false, type: { cps: 100, ...NOJIT },
+    steps: [{ cmd: 'darnly fix all', pause: 0 }, { bar: 'fetching', dur: 1, width: 4 }] });
+  const bs = K.terminal(fake(), s, 5, { draw: false });
+  assert.deepEqual(bs.filter((b) => !b.deco).map((b) => b.text), ['$ darn', 'fetchi'], 'six columns; the bar row\'s percentage is past the edge');
+  const wide = K.termSession({ x: 0, y: 0, w: 400, h: 400, size: 20, pad: 10, end: false, steps: [{ bar: 'get', dur: 1, width: 4 }] });
+  assert.equal(K.terminal(fake(), wide, 5, { draw: false })[0].text, 'get 100%');
 });
 test('drawCode: highlight bands and focus dimming fade in and out; a dimmed line still reports its box while it shows', () => {
   const b = K.codeBlock({ src: 'a\nb\nc', x: 0, y: 0, w: 200, h: 400, type: false, focus: [{ lines: [2, 2], from: 1, to: 3, dim: 0.02 }] });
@@ -252,6 +383,25 @@ test('terminal: a step\'s `at` holds it back; key presses are the typed characte
   assert.deepEqual(K.termAt(s, 6.05).rows, ['> go', 'done']);
   assert.deepEqual(K.termAt(s, 6.1).rows, ['> go', 'done', '> ']);
   assert.throws(() => K.termSession({ x: 0, y: 0, w: 1, h: 1, steps: [{ nope: 1 }] }), /a step needs cmd, out, spin, bar or wait/);
+});
+test('terminal: a command with a newline is an error that says why; output with one makes a row per line; tabs become spaces', () => {
+  const box = { x: 0, y: 0, w: 800, h: 400 };
+  assert.throws(() => K.termSession({ ...box, steps: [{ cmd: 'make\nmake install' }] }), /the cmd "make\\nmake install" has a newline; a row is one line: give each command its own cmd step/);
+  assert.throws(() => K.termSession({ ...box, steps: [{ spin: 'a\nb' }] }), /the spin label .* has a newline/);
+  assert.throws(() => K.termSession({ ...box, prompt: '$\n' }), /the prompt .* has a newline/);
+  const s = K.termSession({ ...box, prompt: '$ ', end: false, type: { cps: 10, ...NOJIT }, steps: [{ cmd: 'go\tnow', pause: 0 }, { out: ['a\tb', 'one\ntwo'], every: 0.1 }] });
+  assert.deepEqual(K.termAt(s, 9).rows, ['$ go  now', 'a b', 'one', 'two']);
+});
+test('terminal: a kind the theme does not have is drawn in plain\'s colour, not the colour drawn before it', () => {
+  const th = K.codeTheme(null);
+  const s = K.termSession({ x: 0, y: 0, w: 800, h: 400, theme: th, end: false, steps: [{ out: 'bad', kind: 'del' }, { out: 'odd', kind: 'nope' }, { bar: 'get', dur: 1, kind: 'nope' }] });
+  const { ctx, calls } = recorder();
+  K.terminal(ctx, s, 9);
+  const col = (text) => calls.find((c) => c.text === text).fillStyle;
+  assert.equal(col('bad'), th.colors.del);
+  assert.equal(col('odd'), th.colors.plain);
+  assert.equal(col('get'), th.colors.plain);
+  assert.equal(col('100%'), th.colors.plain);
 });
 
 // ---------------------------------------------------------------- the diff at stated times

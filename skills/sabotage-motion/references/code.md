@@ -55,8 +55,17 @@ or the boxes are not where the text is.
 lang)` splits the same into lines. Languages: `js`, `ts` (also `javascript`, `typescript`, `jsx`, `tsx`), `python`
 (`py`), `shell` (`sh`, `bash`, `zsh`, `console`), `json`, `diff`; `plain` (or none) colours nothing. Kinds: `plain`,
 `kw`, `lit`, `str`, `num`, `com`, `fn`, `type`, `prop`, `punct`, `op`, `meta`, `var`, `flag`, `cmd`, `prompt`, `add`,
-`del`, `hunk`, `ctx`. It is a small scanner, not a parser: a regular expression literal reads as operators, and a
-shell heredoc as plain words.
+`del`, `hunk`, `ctx`. It is a small scanner, not a parser:
+
+- js and ts: a template literal is one string, `${...}` included, and nests (a template literal inside `${}` does not
+  end the outer one). A regular expression literal reads as operators.
+- python: escapes count inside triple-quoted strings (an escaped quote does not end one).
+- shell: a word starts a command at the start of a line, after `|`, `&&`, `||`, `;` or `(`, and after a case
+  pattern's `)`; a `\` at the end of a line carries the command on to the next one. `#` starts a comment only at the
+  start of a word (`a#b` is a word). The `in` of `for`, `case` and `select` is a keyword on the same line or a later
+  one. A heredoc reads as plain words.
+- diff: a hunk ends when the line counts in its `@@` header are used up (or at a `diff ` line), so a second file's
+  `---` and `+++` are headers with or without git's `diff ` line.
 
 `codeTheme(style)` turns the piece's style (its look, or `brand.json`) into colours: keywords and shell commands take
 `accent`, strings, variables and the prompt `accent2`, comments `muted`, text the `ink`, and the rest mixes of them.
@@ -78,8 +87,9 @@ codeBlock({ src, lang, x, y, w, h, theme, size: 32, lineH: 1.45, pad, numbers: t
 
 - **Typing.** From `start`, one character every `1/cps` s, each gap varied by up to `jitter` (seeded by `seed`), plus
   `linePause` after a newline and `spacePause` after a space. The indentation after a newline arrives with it, as an
-  editor indents for you. `type: false` shows the whole block from the start. `shown: n` puts the first n lines
-  there before typing starts (a file being edited), and typing goes on from line n + 1.
+  editor indents for you. `type: false` shows the whole block from the start, at the top of its view (use `scroll` to
+  move it). `shown: n` puts the first n lines there before typing starts (a file being edited), and typing goes on
+  from line n + 1, its indentation there when typing starts.
 - **The cursor** is solid while keys come and for 0.5 s after the last one (`CURSOR_SOLID`), then blinks every `blink`
   seconds; a prompt that has not been typed into blinks from t = 0, on first.
 - **Line highlight and focus.** `highlight` lays a band of the accent behind lines a to b (numbered from 1) from
@@ -101,7 +111,9 @@ diffBlock({ src /* a unified diff */, lang: 'ts', x, y, w, h, theme, size, lineH
 
 The context and the removed lines show from the start, as the file was. From `start`, the changes land in order,
 `step` seconds apart: a removed line takes the removed colour, its `-` and a strike-through; an added line opens over
-`grow` seconds, pushing the lines under it down, with its `+`. `lang` colours the code inside the lines. File headers
+`grow` seconds, pushing the lines under it down, with its `+`. `lang` colours the code inside the lines, each hunk as
+the two files it shows (the old one: context and removed lines; the new one: context and added lines), each scanned
+as one source, so a comment that runs over lines stays a comment. File headers
 (`diff`, `index`, `---`, `+++`) are left out: put the file's name in the frame's title. Hunk headers show unless
 `hunks: false`. When a change lands below the view, it scrolls. `diffAt(block, t)` is the state: `{ landed, changes,
 scroll, rows: [{ kind, text, open, mark }] }`.
@@ -120,8 +132,11 @@ termSession({ x, y, w, h, theme, size, lineH, pad, prompt: '$ ', lang: 'shell', 
 
 A row per command or line of output, each step starting when the one before is done, or at its `at` (picture time) if
 that is later: tie the steps to the board's beats with `at: beatWindow('run')[0] + 0.1`. The session opens on a prompt
-that is there from the first frame, and (with `end: true`) ends on a fresh one. Commands are coloured as shell; `kind`
-and `doneKind` take any theme kind for output (`add` for a success line, `del` for an error, `com` for a quiet one). The
+that is there from the first frame, and (with `end: true`) ends on a fresh one. A command, a spin or bar label, a done
+line and the prompt are one row each: one with a newline is an error that says so (give each command its own step);
+an `out` text with a newline makes a row per line, and tabs become spaces. Commands are coloured as shell; `kind` and
+`doneKind` take any theme kind for output (`add` for a success line, `del` for an error, `com` for a quiet one; one
+the theme does not have is drawn in `plain`'s colour). The
 spinner turns ASCII frames at `fps`; the bar is drawn as rectangles, its percentage eased. When the rows outgrow the
 viewport the view scrolls so the newest row is the last. `termAt(session, t)` is the state: `{ rows, scroll, typing,
 cursor, cursorRow, fill }`.
@@ -140,7 +155,10 @@ or phone maker's look, and never a real product's logo in the frame.
 
 The `draw: false` call returns the boxes of the text visible at `t`, one per visible line, in design pixels:
 
-- cut to the block's viewport (a line half scrolled out reports the half that shows);
+- cut to the block's viewport (a line half scrolled out reports the half that shows), and its text is only the
+  characters that show there, so copy cut off at the edge never counts as on screen;
+- a drawn line number counts: a row that shows only its number (a blank line, or the cursor's line before anything is
+  typed on it) has a box for the number;
 - a line scrolled out entirely is left out;
 - every line of a block has `group` set to the block's `id`, so `text_overlap` never reads a block's own lines as
   overlapping each other (give two blocks two ids);

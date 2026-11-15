@@ -180,6 +180,13 @@ test('references/code.md: every helper code.js exports is documented, and its la
   assert.match(md, new RegExp(`reads at ${CODE.CODE_CONTRAST}:1 or more`));
   assert.match(md, new RegExp(`for ${CODE.CURSOR_SOLID} s after the last one \\(\`CURSOR_SOLID\`\\)`));
   for (const x of ['draw: false', 'deco', 'group', 'examples/terminal-demo/']) assert.ok(md.includes(x), `code.md: ${x}`);
+  // the limits and rules a user meets (council round 1)
+  assert.match(md, /one with a newline is an error that says so/, 'a command is one row');
+  assert.match(md, /a template literal is one string, `\$\{\.\.\.\}` included, and nests/);
+  assert.match(md, /A regular expression literal reads as operators/);
+  assert.match(md, /A heredoc reads as plain words/);
+  assert.match(md, /its text is only the\s+characters that show there/);
+  assert.match(md, /a drawn line number counts/);
 });
 test('README: the terminal-demo row and the code suite', () => {
   const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');

@@ -31,8 +31,9 @@
 // progress bar here are ASCII and rectangles. No line wraps: size the font so the longest line fits (fitSize).
 //
 // The layout call. drawCode, drawDiff and terminal take (ctx, block, t, { draw, alpha, dx, dy }) and return the
-// boxes of the text visible at t, one per visible line, in design pixels: cut to the block's rectangle (its viewport),
-// lines scrolled out left out, every line of one block in one `group` (the block's id), so check's text_overlap
+// boxes of the text visible at t, one per visible line (a line number counts: a row that shows only its number has a
+// box for it), in design pixels: cut to the block's rectangle (its viewport), with only the characters that show in
+// its text, lines scrolled out left out, every line of one block in one `group` (the block's id), so check's text_overlap
 // never reads a block's own lines as overlapping. The cursor's box is `deco`, and so is everything drawFrame
 // reports (the frame and its title), so text_safe and text_overlap leave chrome alone. With draw: false nothing is
 // drawn: that is the call for boxes(t). The array also carries `.state`, the same as codeAt / diffAt / termAt(block,
@@ -73,11 +74,12 @@ const isPascal = (w) => /^[A-Z][a-z0-9]/.test(w) && /[a-z]/.test(w);
 const nextChar = (src, i) => { while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++; return src[i]; };
 
 // A scanner: at each position the first rule that matches makes a token. A rule's kind may be a function of the
-// match and the scan so far (the previous significant token, and what follows).
+// match and the scan so far (the previous significant token, and what follows); it returns false to decline the
+// match, and the next rule is tried.
 function scan(src, rules) {
   const out = [];
   let i = 0;
-  const st = { prev: null, prev2: null, lineStart: true, cmdPos: true, hunk: false };
+  const st = { prev: null, lineStart: true, cmdPos: true, cont: false, awaitIn: false, caseBody: false, casePat: false, hunk: false, counts: null };
   while (i < src.length) {
     let hit = false;
     for (const [re, kind] of rules) {
@@ -85,9 +87,10 @@ function scan(src, rules) {
       const m = re.exec(src);
       if (!m || !m[0].length) continue;
       const k = typeof kind === 'function' ? kind(m[0], src, i + m[0].length, st, m) : kind;
+      if (k === false) continue;
       if (Array.isArray(k)) for (const t of k) out.push(t); else out.push({ k, s: m[0] });
       const last = out[out.length - 1];
-      if (last.k !== 'plain' || last.s.trim()) { st.prev2 = st.prev; st.prev = last; }
+      if (last.k !== 'plain' || last.s.trim()) st.prev = last;
       st.lineStart = m[0].endsWith('\n');
       i += m[0].length; hit = true;
       break;
@@ -96,9 +99,37 @@ function scan(src, rules) {
   }
   return out;
 }
-const NL = [/\n/y, (s, src, j, st) => { st.cmdPos = true; return 'nl'; }];
+// A newline; in shell it puts the next word in command position, unless the line ended with a \ continuation.
+// In a case body waiting for a pattern, the next line starts with a pattern instead.
+const NL = [/\n/y, (s, src, j, st) => { if (!st.cont) st.cmdPos = !(st.caseBody && st.casePat); st.cont = false; return 'nl'; }];
 const WS = [/[ \t\r]+/y, 'plain'];
 const DQ = /"(?:\\.|[^\\"\n])*"?/y, SQ = /'(?:\\.|[^\\'\n])*'?/y;
+
+// A template literal, from its backtick to the closing one, past every ${...} in it (which may hold strings, comments
+// and template literals of its own); unterminated, it runs to the end. The whole literal, ${...} included, is a string.
+function templateEnd(s, i) {
+  let j = i + 1;
+  while (j < s.length) {
+    const c = s[j];
+    if (c === '\\') j += 2;
+    else if (c === '`') return j + 1;
+    else if (c === '$' && s[j + 1] === '{') j = exprEnd(s, j + 2);
+    else j++;
+  }
+  return s.length;
+}
+function exprEnd(s, j) {
+  let depth = 1;
+  while (j < s.length) {
+    const c = s[j];
+    if (c === '{') { depth++; j++; } else if (c === '}') { if (--depth === 0) return j + 1; j++; } else if (c === '`') j = templateEnd(s, j);
+    else if (c === '"' || c === "'") { j++; while (j < s.length && s[j] !== c && s[j] !== '\n') j += s[j] === '\\' ? 2 : 1; j++; } else if (c === '/' && s[j + 1] === '/') { while (j < s.length && s[j] !== '\n') j++; } else if (c === '/' && s[j + 1] === '*') { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; } else j++;
+  }
+  return s.length;
+}
+// A rule that matches with a function instead of a regular expression: fn(src, i) gives where the match ends.
+const sticky = (fn) => ({ lastIndex: 0, exec(s) { const e = fn(s, this.lastIndex); return e > this.lastIndex ? [s.slice(this.lastIndex, e)] : null; } });
+const TEMPLATE = sticky((s, i) => (s[i] === '`' ? templateEnd(s, i) : i));
 
 function jsIdent(ts) {
   return (w, src, j, st) => {
@@ -116,7 +147,7 @@ const jsRules = (ts) => [
   NL, WS,
   [/\/\/[^\n]*/y, 'com'],
   [/\/\*[\s\S]*?(?:\*\/|$)/y, 'com'],
-  [/`(?:\\[\s\S]|[^\\`])*`?/y, 'str'],
+  [TEMPLATE, 'str'],
   [DQ, 'str'], [SQ, 'str'],
   [/(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)n?/y, 'num'],
   [/@[A-Za-z_$][\w$]*/y, 'meta'],
@@ -127,7 +158,7 @@ const jsRules = (ts) => [
 const pyRules = [
   NL, WS,
   [/#[^\n]*/y, 'com'],
-  [/(?:[rRbBuUfF]{1,2})?(?:"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$))/y, 'str'],
+  [/(?:[rRbBuUfF]{1,2})?(?:"""(?:\\[\s\S]|[^\\])*?(?:"""|$)|'''(?:\\[\s\S]|[^\\])*?(?:'''|$))/y, 'str'],
   [/(?:[rRbBuUfF]{1,2})?(?:"(?:\\.|[^\\"\n])*"?|'(?:\\.|[^\\'\n])*'?)/y, 'str'],
   [/(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)[jJ]?/y, 'num'],
   [/@[A-Za-z_][\w.]*/y, 'meta'],
@@ -145,13 +176,16 @@ const pyRules = [
 ];
 // A shell word: classified by where it sits (a command at the start of a line or after | && || ; ( $( ).
 function shWord(w, src, j, st) {
+  // the in of for x in, case x in, select x in: on the same line or a later one. After case's in come patterns, each
+  // closed by ) and followed by commands, until esac.
+  if (w === 'in' && st.awaitIn) { st.caseBody = st.casePat = st.awaitIn === 'case'; st.awaitIn = false; st.cmdPos = false; return 'kw'; }
+  if (w === 'esac' && st.caseBody) { st.caseBody = st.casePat = false; st.cmdPos = false; return 'kw'; }
   if (st.cmdPos) {
     if (/^[A-Za-z_]\w*=/.test(w)) return 'var';                    // FOO=bar before a command
-    if (SH_KW.has(w)) { st.cmdPos = !['for', 'in', 'case', 'function', 'select'].includes(w); return 'kw'; }
+    if (SH_KW.has(w)) { st.cmdPos = !['for', 'in', 'case', 'function', 'select'].includes(w); st.awaitIn = ['for', 'case', 'select'].includes(w) ? w : false; return 'kw'; }
     st.cmdPos = false;
     return 'cmd';
   }
-  if (w === 'in' && st.prev2 && (st.prev2.s === 'for' || st.prev2.s === 'case' || st.prev2.s === 'select')) return 'kw';   // for x in
   const f = w.match(/^(--?[A-Za-z0-9][\w-]*)(=)([\s\S]*)$/);
   if (f) return [{ k: 'flag', s: f[1] }, { k: 'op', s: '=' }, ...(f[3] ? [{ k: 'plain', s: f[3] }] : [])];
   if (/^--?[A-Za-z0-9]/.test(w)) return 'flag';
@@ -161,13 +195,19 @@ function shWord(w, src, j, st) {
 const shRules = [
   NL, WS,
   [/[$%](?= )/y, (s, src, j, st) => (st.lineStart ? 'prompt' : 'plain')],
-  [/#[^\n]*/y, 'com'],
+  [/#[^\n]*/y, (s, src, j) => { const p = src[j - s.length - 1]; return p === undefined || /[\s;|&()<>]/.test(p) ? 'com' : false; }],   // # starts a word
   [/'[^']*'?/y, 'str'],
   [/"(?:\\[\s\S]|[^\\"])*"?/y, 'str'],
   [/\$\(\(?/y, (s, src, j, st) => { st.cmdPos = s === '$('; return 'op'; }],
   [/\$(?:\{[^}\n]*\}?|[A-Za-z_]\w*|[0-9#?@*$!-])/y, 'var'],
-  [/(?:\|\||&&|;;|\d?>>|\d?>&\d|\d?>|<<-?|<|\||&|;|\(|\))/y, (s, src, j, st) => { if (['||', '&&', ';;', '|', '&', ';', '('].includes(s)) st.cmdPos = true; return 'op'; }],
-  [/\\(?=\n)/y, 'op'],
+  [/(?:\|\||&&|;;|\d?>>|\d?>&\d|\d?>|<<-?|<|\||&|;|\(|\))/y, (s, src, j, st) => {
+    const pat = st.caseBody && st.casePat;
+    if (['||', '&&', ';;', '|', '&', ';', '('].includes(s) && !(pat && s === '|')) { st.cmdPos = true; st.awaitIn = false; }   // | in a pattern is or
+    if (pat && s === ')') { st.casePat = false; st.cmdPos = true; }   // a case pattern ends: a command follows
+    if (st.caseBody && s === ';;') { st.casePat = true; st.cmdPos = false; }   // a case clause ends: a pattern follows
+    return 'op';
+  }],
+  [/\\(?=\n)/y, (s, src, j, st) => { st.cont = true; return 'op'; }],   // a continuation: the next line goes on with this command
   [/(?:[^\s|&;<>()'"`$\\]|\\.)+/y, shWord],
 ];
 const jsonRules = [
@@ -178,21 +218,33 @@ const jsonRules = [
   [/[{}[\],:]/y, 'punct'],
 ];
 // diff: a line at a time. File headers are meta outside a hunk; inside one, --- and +++ lines are a removed and an
-// added line. "diff " starts a new file.
+// added line. A hunk ends when the line counts in its @@ header are used up (a context line counts on both sides, a
+// removed line on the old side, an added line on the new), or at a "diff " line, so the next file's --- and +++ are
+// headers again, with or without git's "diff " line. A header without counts (@@ -3 +3 @@) counts one line a side.
+const hunkCounts = (line) => {
+  const m = line.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
+  return m ? { old: m[1] != null ? +m[1] : 1, new: m[2] != null ? +m[2] : 1 } : null;
+};
+function useLine(st, o, n) {
+  if (!st.counts) return;
+  st.counts.old -= o; st.counts.new -= n;
+  if (st.counts.old <= 0 && st.counts.new <= 0) { st.hunk = false; st.counts = null; }
+}
 const diffRules = [
-  NL,
+  // a blank line inside a hunk is a context line whose leading space was trimmed
+  [/\n/y, (s, src, j, st) => { const a = j - 1; if (st.hunk && a > 0 && src[a - 1] === '\n') useLine(st, 1, 1); return 'nl'; }],
   [/[^\n]+/y, (line, src, j, st) => {
-    if (/^diff /.test(line)) { st.hunk = false; return 'meta'; }
+    if (/^diff /.test(line)) { st.hunk = false; st.counts = null; return 'meta'; }
     if (/^@@/.test(line)) {
-      st.hunk = true;
+      st.hunk = true; st.counts = hunkCounts(line);
       const m = line.match(/^(@@[^@]*@@)([\s\S]*)$/);
       return m && m[2] ? [{ k: 'hunk', s: m[1] }, { k: 'ctx', s: m[2] }] : 'hunk';
     }
     if (!st.hunk && /^(?:--- |\+\+\+ |index |new file|deleted file|similarity|rename |old mode|new mode|Binary files)/.test(line)) return 'meta';
-    if (line[0] === '+') return 'add';
-    if (line[0] === '-') return 'del';
     if (line[0] === '\\') return 'meta';
-    return 'ctx';
+    const kind = line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : 'ctx';
+    if (st.hunk) useLine(st, kind === 'add' ? 0 : 1, kind === 'del' ? 0 : 1);
+    return kind;
   }],
 ];
 const RULES = { js: jsRules(false), ts: jsRules(true), python: pyRules, shell: shRules, json: jsonRules, diff: diffRules };
@@ -293,14 +345,15 @@ export function fitSize(ctx, family, cols, width, { max = 40, min = 14 } = {}) {
   return Math.max(min, Math.min(max, Math.floor(width / Math.max(1, cols) / a)));
 }
 // When each character appears: the seeded cadence from `start`. A newline adds linePause; the indentation after it
-// arrives with it (an editor indents for you); a space adds spacePause. Returns { T, keys }.
+// arrives with it (an editor indents for you), and so does the indentation of the first line typed after shown lines
+// (at `start`); a space adds spacePause. Returns { T, keys }.
 function cadence(chars, start, type, from = 0) {
   const ty = { ...DEFAULT_TYPE, ...type }, T = new Array(chars.length).fill(-Infinity), keys = [];
   const rnd = mulberry32((ty.seed >>> 0) || 1);
-  let t = start, indent = false;
+  let t = start, indent = from > 0 && chars[from - 1] === '\n';   // after shown lines typing starts on a fresh line
   for (let i = from; i < chars.length; i++) {
     const c = chars[i];
-    if (indent && c === ' ') { T[i] = T[i - 1]; continue; }
+    if (indent && c === ' ') { T[i] = i > from ? T[i - 1] : t; continue; }
     indent = false;
     T[i] = t;
     keys.push({ t, key: c === '\n' ? 'enter' : c === ' ' ? 'space' : 'char' });
@@ -337,11 +390,19 @@ function drawToks(c, toks, x, base, adv, theme, cols, fallback = 'plain') {
   for (const tk of toks) {
     if (col >= cols) break;
     const s = [...tk.s], n = Math.min(s.length, cols - col);
-    if (tk.s.trim()) { c.fillStyle = theme.colors[tk.k] || theme.colors[fallback]; c.fillText(s.slice(0, n).join(''), x + col * adv, base); }
+    if (tk.s.trim()) { c.fillStyle = colorOf(theme, tk.k, fallback); c.fillText(s.slice(0, n).join(''), x + col * adv, base); }
     col += s.length;
   }
 }
 const lineText = (toks) => toks.map((t) => t.s).join('');
+// The colour of a kind; a kind the theme does not have takes `fallback`'s, then plain's, never the colour drawn last.
+const colorOf = (theme, k, fallback = 'plain') => theme.colors[k] || theme.colors[fallback] || theme.colors.plain;
+// The characters of s, drawn from column 0 at x, whose cells show between the view's left and right edges, trimmed:
+// a box's text is only what can be seen.
+function visible(s, x, adv, view) {
+  const cs = [...s], lo = Math.max(0, Math.floor((view.x - x) / adv + 1e-9)), hi = Math.min(cs.length, Math.ceil((view.x + view.w - x) / adv - 1e-9));
+  return lo < hi ? cs.slice(lo, hi).join('').trim() : '';
+}
 // The vertical layout of a monospace block in its viewport: row height, padding, how many whole rows fit.
 function grid(b) {
   const lh = b.size * b.lineH;
@@ -367,7 +428,8 @@ const fontOf = (b) => `${b.size}px "${b.family}"`;
 // src is typed from `start` with a seeded cadence; type: false shows it all from the start. `shown` lines (from the
 // top) are there before typing starts, as in a file being edited. Lines are numbered from 1: highlight puts a band
 // of the accent behind lines a to b from `from` to `to`; focus dims every other line to `dim`. The view follows the
-// cursor down (keeping `margin` rows under it), or, with `scroll`, moves so line `top` is at the top at each `at`.
+// cursor down (keeping `margin` rows under it), or, with `scroll`, moves so line `top` is at the top at each `at`;
+// code shown whole (type: false) stays at the top unless `scroll` moves it.
 export function codeBlock(o) {
   const b = common(o, 'code');
   const src = normCode(o.src == null ? '' : o.src, o.tab || 2);
@@ -389,11 +451,12 @@ export function codeBlock(o) {
   if (o.scroll) {
     let prev = 0;
     for (const m of [...o.scroll].sort((a, c) => a.at - c.at)) { const top = clamp((m.top || 1) - 1, 0, maxTop); moves.push({ at: m.at, by: top - prev, dur: m.dur || 0.5 }); prev = top; }
-  } else if (o.follow !== false) {
+  } else if (o.follow !== false && o.type !== false) {
+    // typed code follows its cursor; code shown whole (type: false) stays at the top unless `scroll` moves it
     const L0 = Math.min(shown, lines.length - 1);
     s0 = want(L0);
     let prev = s0;
-    chars.forEach((c, i) => { if (c === '\n' && i >= from) { const w = want(lineOf[i] + 1); if (w !== prev) { moves.push({ at: cad.T[i], by: w - prev, dur }); prev = w; } } });
+    chars.forEach((c, i) => { if (c === '\n' && i >= from && Number.isFinite(cad.T[i])) { const w = want(lineOf[i] + 1); if (w !== prev) { moves.push({ at: cad.T[i], by: w - prev, dur }); prev = w; } } });
   }
   return Object.freeze({ ...b, kind: 'code', src, chars, lines, lineOf, lineStart, T: cad.T, keys: cad.keys, end: cad.end, start, shown,
     numbers: o.numbers !== false, rows: g.rows, lh: g.lh, s0, moves, highlight: o.highlight || [], focus: o.focus || [] });
@@ -448,11 +511,13 @@ export function drawCode(ctx, b, t, { draw = true, alpha = 1, dx = 0, dy = 0 } =
       drawToks(ctx, b.lines[L], tx, y.base, adv, b.theme, [...text].length);
       ctx.restore();
     }
-    const e = extent(text);
-    if (e && alpha * dim > BOX_ALPHA) {
-      const bx = b.numbers ? x0 : tx + e[0] * adv;
-      const bb = cut({ id: `${b.id}:${L + 1}`, text: text.trim(), x: bx, y: y.boxTop, w: tx + e[1] * adv - bx, h: b.size, group: b.id, line: L + 1 }, view);
-      if (bb) out.push(bb);
+    // a box per drawn row: from the line number (when there are numbers) to the end of the text, or the number alone on a
+    // row with no text yet; its text is what shows of the code (or of the number, on a row with only a number)
+    const e = extent(text), num = String(L + 1), nx = x0 + (nd - num.length) * adv;
+    if ((e || b.numbers) && alpha * dim > BOX_ALPHA) {
+      const left = b.numbers ? nx : tx + e[0] * adv, right = e ? tx + e[1] * adv : nx + num.length * adv;
+      const bb = cut({ id: `${b.id}:${L + 1}`, text: '', x: left, y: y.boxTop, w: right - left, h: b.size, group: b.id, line: L + 1 }, view);
+      if (bb) { bb.text = (e && visible(text, tx, adv, view)) || (b.numbers ? visible(num, nx, adv, view) : ''); out.push(bb); }
     }
   }
   if (st.cursor && b.cursor) {
@@ -483,8 +548,21 @@ export function diffBlock(o) {
     if (kind === 'meta') continue;
     if (kind === 'hunk' && o.hunks === false) continue;
     const body = kind === 'hunk' ? text : text.slice(1);
-    const code = kind === 'hunk' ? toks : o.lang ? highlight(body, o.lang)[0] : [{ k: kind, s: body }];
-    rows.push({ kind, mark: kind === 'add' ? '+' : kind === 'del' ? '-' : ' ', text: body, toks: code });
+    rows.push({ kind, mark: kind === 'add' ? '+' : kind === 'del' ? '-' : ' ', text: body, toks: kind === 'hunk' ? toks : [{ k: kind, s: body }] });
+  }
+  // with a language, each hunk is coloured as the two files it shows: the old one (context and removed lines) and the
+  // new one (context and added lines), each scanned as one source, so a comment or a string over lines keeps its state
+  if (o.lang) {
+    let seg = [];
+    const flush = () => {
+      for (const [mine, kinds] of [['del', ['ctx', 'del']], ['add', ['ctx', 'add']]]) {
+        const rs = seg.filter((r) => kinds.includes(r.kind)), hl = highlight(rs.map((r) => r.text).join('\n'), o.lang);
+        rs.forEach((r, i) => { if (r.kind === mine || (mine === 'add' && r.kind === 'ctx')) r.toks = hl[i] || []; });
+      }
+      seg = [];
+    };
+    for (const r of rows) { if (r.kind === 'hunk') flush(); else seg.push(r); }
+    flush();
   }
   const start = o.start || 0, step = o.step != null ? o.step : 0.3, grow = o.grow != null ? o.grow : 0.25;
   let k = 0;
@@ -555,9 +633,9 @@ export function drawDiff(ctx, b, t, { draw = true, alpha = 1, dx = 0, dy = 0 } =
     const shows = r.kind === 'hunk' ? R.text : (r.mark > 0 && r.kind !== 'ctx' ? R.mark + ' ' : '  ') + R.text;
     const e = extent(shows), a = alpha * (r.kind === 'add' ? r.open : 1);
     if (e && a > BOX_ALPHA) {
-      const inSlot = cut({ id: `${b.id}:${i + 1}`, text: shows.trim(), x: x0 + e[0] * adv, y: boxTop, w: (e[1] - e[0]) * adv, h: b.size, group: b.id, line: i + 1 }, slot);
+      const inSlot = cut({ id: `${b.id}:${i + 1}`, text: '', x: x0 + e[0] * adv, y: boxTop, w: (e[1] - e[0]) * adv, h: b.size, group: b.id, line: i + 1 }, slot);
       const bb = inSlot && cut(inSlot, view);
-      if (bb) out.push(bb);
+      if (bb) { bb.text = visible(shows, x0, adv, view); out.push(bb); }
     }
   });
   if (draw) ctx.restore();
@@ -573,15 +651,24 @@ export function drawDiff(ctx, b, t, { draw = true, alpha = 1, dx = 0, dy = 0 } =
 //     { bar: 'fetching', dur: 1.4, width: 16, done: '...', kind, doneKind },
 //     { wait: 0.5 } ] })
 // One row per command or line of output; rows come one after another, each starting when the one before is done (a
-// step's `at`, in picture time, holds it back until then: a command's typing, any other step's start). kind colours a
-// row (a codeTheme kind: plain, add, del, com...), doneKind the line a spinner or a bar ends on. The session opens on
-// a prompt (there from the first frame) and, with end: true, ends on a fresh one. It scrolls when the rows outgrow
-// the viewport, so the newest row is the last that shows.
+// step's `at`, in picture time, holds it back until then: a command's typing, any other step's start). A command, a
+// spin or bar label, a done line and the prompt are one line each (a newline in one is an error); an out text with a
+// newline makes a row per line; tabs become spaces. kind colours a row (a codeTheme kind: plain, add, del, com...;
+// one the theme does not have takes plain's colour), doneKind the line a spinner or a bar ends on. The session opens
+// on a prompt (there from the first frame) and, with end: true, ends on a fresh one. It scrolls when the rows
+// outgrow the viewport, so the newest row is the last that shows.
 // When a step that is not a command starts: `after` seconds after the step before, or at `at` if that is later.
 const begin = (t, s) => Math.max(t + (s.after || 0), s.at != null ? s.at : -Infinity);
 export function termSession(o) {
   const b = common(o, 'term');
-  const prompt = o.prompt != null ? String(o.prompt) : '$ ';
+  const tab = o.tab || 2;
+  // a command, a label or the prompt is one row: tabs to spaces, and a newline refused
+  const oneLine = (x, what) => {
+    const v = normCode(String(x), tab);
+    if (v.includes('\n')) throw new Error(`termSession: ${what} ${JSON.stringify(String(x))} has a newline; a row is one line: give each command its own cmd step, and print lines with out`);
+    return v;
+  };
+  const prompt = o.prompt != null ? oneLine(o.prompt, 'the prompt') : '$ ';
   const lang = o.lang === undefined ? 'shell' : o.lang;
   const rows = [], keys = [];
   let t = o.start || 0, seed = (o.type && o.type.seed) || 1;
@@ -589,7 +676,7 @@ export function termSession(o) {
   for (const s of o.steps || []) {
     if (s.cmd != null) {
       // its prompt shows once the step before is done (the first from the start); the command is typed after `pause`
-      const cmd = String(s.cmd), at0 = s.at != null ? Math.max(t, s.at) : t + (s.pause != null ? s.pause : 0.3);
+      const cmd = oneLine(s.cmd, 'the cmd'), at0 = s.at != null ? Math.max(t, s.at) : t + (s.pause != null ? s.pause : 0.3);
       const cad = cadence([...cmd], at0, { ...(o.type || {}), seed: seed++ });
       const enter = cad.end + (s.enter != null ? s.enter : 0.15);
       keys.push(...cad.keys, { t: enter, key: 'enter' });
@@ -597,18 +684,18 @@ export function termSession(o) {
         pre: [...prompt].length, T: cad.T, enter });
       t = enter;
     } else if (s.out != null) {
-      const list = [].concat(s.out).map(String), every = s.every != null ? s.every : 0.06;
+      const list = [].concat(s.out).flatMap((x) => normCode(String(x), tab).split('\n')), every = s.every != null ? s.every : 0.06;   // a newline starts a row
       t = begin(t, s);
       list.forEach((line, i) => rows.push({ type: 'out', at: t + i * every, text: line, toks: [{ k: s.kind || 'plain', s: line }] }));
       t += list.length * every;
     } else if (s.spin != null) {
       t = begin(t, s);
-      rows.push({ type: 'spin', at: t, dur: s.dur || 1, text: String(s.spin), done: s.done != null ? String(s.done) : null, fps: s.fps || 10,
+      rows.push({ type: 'spin', at: t, dur: s.dur || 1, text: oneLine(s.spin, 'the spin label'), done: s.done != null ? oneLine(s.done, 'the done line') : null, fps: s.fps || 10,
         frames: s.frames || ['|', '/', '-', '\\'], kind: s.kind || 'plain', doneKind: s.doneKind || s.kind || 'plain' });
       t += s.dur || 1;
     } else if (s.bar != null) {
       t = begin(t, s);
-      rows.push({ type: 'bar', at: t, dur: s.dur || 1, text: String(s.bar), done: s.done != null ? String(s.done) : null, width: s.width || 16,
+      rows.push({ type: 'bar', at: t, dur: s.dur || 1, text: oneLine(s.bar, 'the bar label'), done: s.done != null ? oneLine(s.done, 'the done line') : null, width: s.width || 16,
         kind: s.kind || 'plain', doneKind: s.doneKind || s.kind || 'plain' });
       t += s.dur || 1;
     } else if (s.wait != null) t = begin(t, s) + s.wait;
@@ -673,21 +760,22 @@ export function terminal(ctx, b, t, { draw = true, alpha = 1, dx = 0, dy = 0 } =
     if (r.type === 'bar' && n.pct != null) {
       const cols = [...r.text].length, bx = x0 + (cols + 1) * adv, bw = r.width * adv, bh = b.size * 0.5, by = y.base - b.size * 0.42;
       if (draw) {
-        ctx.fillStyle = th.colors[r.kind]; ctx.fillText(r.text, x0, y.base);
+        ctx.fillStyle = colorOf(th, r.kind); ctx.fillText(r.text, x0, y.base);
         ctx.fillStyle = rgba(th.border, 0.9); ctx.fillRect(bx, by, bw, bh);
         ctx.fillStyle = th.bar; ctx.fillRect(bx, by, bw * n.fill, bh);
-        ctx.fillStyle = th.colors[r.kind]; ctx.fillText(`${n.pct}%`, bx + bw + adv, y.base);
+        ctx.fillStyle = colorOf(th, r.kind); ctx.fillText(`${n.pct}%`, bx + bw + adv, y.base);
       }
-      text = `${r.text} ${n.pct}%`;
+      // what shows of the label and of the percentage (the bar between them is drawn, not text)
+      text = [visible(r.text, x0, adv, view), visible(`${n.pct}%`, bx + bw + adv, adv, view)].filter(Boolean).join(' ');
       ext = [0, cols + 1 + r.width + 1 + `${n.pct}%`.length];
     } else if (draw) {
       if (r.type === 'cmd') drawToks(ctx, r.toks, x0, y.base, adv, th, n.cols);
-      else { ctx.fillStyle = th.colors[(n.done ? r.doneKind : r.kind) || (r.toks && r.toks[0].k) || 'plain']; ctx.fillText(text, x0, y.base); }
+      else { ctx.fillStyle = colorOf(th, (n.done ? r.doneKind : r.kind) || (r.toks && r.toks[0].k)); ctx.fillText(text, x0, y.base); }
     }
     const e = ext || extent(text);
     if (e && alpha > BOX_ALPHA) {
-      const bb = cut({ id: `${b.id}:${n.i + 1}`, text: text.trim(), x: x0 + e[0] * adv, y: y.boxTop, w: (e[1] - e[0]) * adv, h: b.size, group: b.id, line: n.i + 1 }, view);
-      if (bb) out.push(bb);
+      const bb = cut({ id: `${b.id}:${n.i + 1}`, text: '', x: x0 + e[0] * adv, y: y.boxTop, w: (e[1] - e[0]) * adv, h: b.size, group: b.id, line: n.i + 1 }, view);
+      if (bb) { bb.text = ext ? text : visible(text, x0, adv, view); out.push(bb); }
     }
     if (r.type === 'cmd' && n.i === st.cursorRow && st.cursor && b.cursor) {
       const cx = x0 + n.cols * adv, c = b.cursor === 'bar' ? { x: cx, y: y.boxTop, w: Math.max(2, b.size * 0.09), h: b.size } : { x: cx, y: y.boxTop, w: adv, h: b.size };
