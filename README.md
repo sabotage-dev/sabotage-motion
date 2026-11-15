@@ -7,7 +7,7 @@ optional WebGL2 pass (bloom, grain, shader backgrounds, real motion blur). Headl
 exactly and pipes it to ffmpeg. Sound effects are synthesized in code on the same timeline, so they land on the
 frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
-![The showreel example's contact sheet: twelve frames of a 20 s reel made with this skill](skills/sabotage-motion/examples/showreel/contact.png)
+![Eight seconds of the showreel example, made with this skill: kinetic type, morphing shapes, a particle field and a raymarched blob](docs/media/hero.gif)
 
 - **Storyboard.** One `board.js` per piece: each beat's voice line, on-screen copy, visual note and sound cue. A
   board sheet shows a panel per beat, first as slates and then as real frames, and a slate scene gives you an
@@ -24,6 +24,26 @@ frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 
 Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Google Chrome and ffmpeg
 ([Requirements](#requirements)). The design and its decisions are in [docs/PLAN.md](docs/PLAN.md).
+
+## One prompt, three results
+
+Three fresh Claude Code sessions, each on an empty home folder with only this skill installed (0.1.0), got the same
+request:
+
+> Make me a 5-second vertical (9:16) motion-graphics title card for a made-up travel app called Plumtrail, with the
+> line "Plan trips in one tap". Build it in this folder, render the final mastered MP4, and run the quality check on
+> that file. When you're done, tell me the final file's path and what the check said.
+
+<p>
+<img src="docs/media/plumtrail-1.gif" width="270" alt="First session: a dotted route loops into an amber map pin with rings, then the name and tagline">
+<img src="docs/media/plumtrail-2.gif" width="270" alt="Second session: a plum-shaped pin with a leaf, the name, and the tagline on two lines">
+<img src="docs/media/plumtrail-3.gif" width="270" alt="Third session: a dotted arc lands on a glowing pin above the name and tagline">
+</p>
+
+Each took about three minutes and handed back a mastered MP4 that `check --file` passed with 0 FAIL and 0 WARN.
+All three read the name and went plum; the mark, the route and the type are each their own. The agent designs the
+piece; the skill supplies the engine, the craft defaults and the checks. (The GIFs are silent; each master has
+synthesized sound on its motion.)
 
 ## Install
 
@@ -71,7 +91,7 @@ Start a new Claude Code session after installing, so it loads the skill.
 
 **With Claude Code.** In an empty folder, ask for a piece in plain words, for example:
 
-> Make a 6 second 9:16 end card for a made-up app called Fernway: a mark drawn in code, the name, the tagline
+> Make a 6 second 9:16 end card for a made-up app called Plumtrail: a mark drawn in code, the name, the tagline
 > "Maps that walk with you", a "Get the app" button, a whoosh and a chime, mastered for TikTok.
 
 The skill copies its template into a piece folder, checks the machine with `doctor`, shows you a contact sheet
