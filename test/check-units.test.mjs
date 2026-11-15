@@ -3,7 +3,10 @@
 // No browser and no ffmpeg; check.test.mjs and check-file.test.mjs run the same detectors on real renders.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { C } from './check-helpers.mjs';
+import { templateDir } from './helpers.mjs';
 
 const FPS = 30;
 const SAFE = { x: 84, y: 160, w: 852, h: 1320 };
@@ -392,6 +395,7 @@ test('file_spec: size, fps, pixel format, frame count, duration within one frame
   assert.equal(C.fileSpec({ ...probe, duration: 19.2 + 1 / 30 }, want, 'x').level, 'OK');
   assert.equal(C.fileSpec({ ...probe, audio: false }, { ...want, silent: true }, 'x').level, 'OK');
   assert.equal(C.fileSpec({ ...probe, pixFmt: 'yuva444p10le' }, { ...want, alpha: 'prores' }, 'x').level, 'OK');
+  assert.equal(C.fileSpec({ ...probe, pixFmt: 'yuva444p12le' }, { ...want, alpha: 'prores' }, 'x').level, 'OK', 'ffmpeg 9 reads ProRes 4444 back at 12 bits (P4)');
   assert.equal(C.fileSpec({ error: 'bad' }, want, 'x').level, 'FAIL');
 });
 test('faststart: moov before mdat is fine, after is a WARN, and only an .mp4 is checked', () => {
@@ -446,4 +450,33 @@ test('captions: the words shown together share one group, draw: false draws noth
   assert.ok(twoLines > 0, 'the test needs a block of more than one line');
   assert.ok(lib.captions(ctx, WORDS, 0.5, opts).length > 0 && calls.length > 0, 'and without it, captions draw');
   assert.ok(Math.abs(lib.CAPTION_POP_MAX - 1.165) < 1e-9);
+});
+
+// P4: captions keep out of a target's exclude rectangles (tiktok-ad's button column), so a default caption line on
+// tiktok-ad passes text_safe; without opts.exclude the same words run under the column.
+test('captions: with opts.exclude, every word stays beside tiktok-ad\'s button column; without it, a line runs under it (P4)', async () => {
+  const { lib, fakeCtx } = await import('./voice-helpers.mjs');
+  const zone = JSON.parse(fs.readFileSync(path.join(templateDir, 'safezones.json'), 'utf8')).targets['tiktok-ad'];
+  // 30 px a character: two 8-letter words make a 510 px line, which fits the 566 px left of the column
+  const WORDS = ['aaaaaaaa', 'bbbbbbbb', 'cccccccc', 'dddddddd', 'eeeeeeee', 'ffffffff', 'gggggggg', 'hhhhhhhh']
+    .map((text, i) => ({ text, start: i * 0.4, end: i * 0.4 + 0.35 }));
+  const { ctx } = fakeCtx();
+  const hits = (exclude) => {
+    let under = 0, outside = 0, n = 0;
+    for (let t = 0; t < 3.6; t += 1 / 120) {
+      for (const b of lib.captions(ctx, WORDS, t, { safe: zone.safe, exclude, size: 72, voOffset: 0, draw: false })) {
+        n++;
+        if (!C.insideRect(b, zone.safe)) outside++;
+        if (zone.exclude.some((e) => C.overlapArea(b, e) > 0)) under++;
+      }
+    }
+    return { under, outside, n };
+  };
+  const withEx = hits(zone.exclude), without = hits(undefined);
+  assert.ok(withEx.n > 0 && without.n > 0);
+  assert.deepEqual([withEx.under, withEx.outside], [0, 0], `with exclude: ${withEx.under} word samples under the column, ${withEx.outside} outside the safe area`);
+  assert.ok(without.under > 0, 'the test needs words that run under the column when exclude is not passed');
+  // the free span is the safe area's left edge to the column's left edge at the bottom, and the whole width higher up
+  assert.deepEqual(lib.captionSpan(zone.safe, zone.exclude, { size: 72 }), { left: 120, right: 780 });
+  assert.deepEqual(lib.captionSpan(zone.safe, zone.exclude, { size: 72, pos: 'top' }), { left: 120, right: 960 });
 });

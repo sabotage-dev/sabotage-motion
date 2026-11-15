@@ -1,0 +1,11 @@
+# Render outputs; the source is everything else. This example commits its review sheets (board.png and
+# contact.png) so they show without a render.
+out/
+stills/
+board.md
+node_modules/
+
+# Secrets: an --env-file kept in the piece (API keys) must never be committed.
+.env
+*.env
+.env.*

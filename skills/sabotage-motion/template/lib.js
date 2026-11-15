@@ -461,6 +461,20 @@ export function beatAt(t) {
   return w ? { id: w.id, index: w.index, start: w.start, end: w.end, beat: w.beat } : null;
 }
 export const boardDur = () => boardInfo().dur;
+// The target a scene lays out for: init's `target` (the --target entry from safezones.json) when there is one, else
+// the board's target (BOARD.target) read from safezones.json beside this file, so a scene fits the safe area of the
+// platform its board names even when render.mjs runs without --target. Null when there is neither. Page only.
+//   export async function init({ target }) { const T = await sceneTarget(target); const safe = T ? T.safe : null; ... }
+export async function sceneTarget(target) {
+  if (target) return target;
+  const name = BOARD && BOARD.target;
+  if (!name) return null;
+  try {
+    const r = await fetch(new URL('./safezones.json', import.meta.url));
+    const t = r.ok ? ((await r.json()).targets || {})[name] : null;
+    return t ? { name, ...t } : null;
+  } catch { return null; }
+}
 // through boardInfo() whenever there is a board, so a stale cues.js is refused here too, not read past
 const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSET : 0);
 
@@ -476,6 +490,10 @@ const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSE
 // them as one phrase. VO_OFFSET is added here (opts.voOffset overrides it); tags never show.
 // opts.draw: false lays the words out and returns their boxes without drawing, for boxes(t):
 //   export const boxes = (t) => captions(ctx, CUES.WORDS, t, { ...capOpts, draw: false });
+// opts.exclude: the target's exclude rectangles (target.exclude, such as tiktok-ad's button column). The block then
+// keeps out of them: its lines are filled to the width the rectangles leave free at the block's height, and centred
+// in it. Without it, a full line on tiktok-ad runs under the button column and check's text_safe fails it.
+//   captions(ctx, CUES.WORDS, t, { safe: target.safe, exclude: target.exclude })
 const _capCache = new WeakMap();
 // The largest scale a popped word reaches: anticip dips below 0 before it settles, so 1.15 - 0.15 x (-0.072).
 // The default line width leaves this much room, so the popped word at either end of a full line stays inside.
@@ -520,17 +538,45 @@ function captionLayout(ctx, WORDS, o) {
   byKey.set(key, out);
   return out;
 }
+// The part of the safe width a caption block can use, given the platform's exclude rectangles (safezones.json's
+// `exclude`: areas it covers inside the safe area, like tiktok-ad's button column). The block's band is the height
+// a block of `lines` lines can take at `pos` (with room for the pop); every exclude rectangle that reaches into that
+// band cuts the free width from the side it sits on. Returns { left, right }.
+export function captionSpan(safe, exclude, { size = 64, lines = 2, lineH = size * 1.15, pos = 'bottom', margin = size * 0.4, y = null } = {}) {
+  if (!exclude || !exclude.length) return { left: safe.x, right: safe.x + safe.w };
+  const blockH = (lines - 1) * lineH;
+  const lastBase = y != null ? y
+    : pos === 'top' ? safe.y + margin + size * 0.8 + blockH
+    : pos === 'center' ? safe.y + safe.h / 2 + blockH / 2 + size * 0.3
+    : safe.y + safe.h - margin - size * 0.2;
+  const pad = size * (CAPTION_POP_MAX - 1);
+  return freeSpan(safe, exclude, lastBase - blockH - size * 0.8 - pad, lastBase + size * 0.2 + pad);
+}
+// The part of the safe width [safe.x, safe.x + safe.w] that a band of the frame from y `top` to y `bottom` leaves
+// free of exclude rectangles: each rectangle reaching into the band cuts the span from the side it sits on. For any
+// layout that must keep out of a platform's covered areas (captions use it; so does the template's title card).
+export function freeSpan(safe, exclude, top, bottom) {
+  let left = safe.x, right = safe.x + safe.w;
+  for (const e of exclude || []) {
+    if (!(e.y < bottom && e.y + e.h > top && e.x < right && e.x + e.w > left)) continue;
+    if (e.x + e.w / 2 >= (left + right) / 2) right = Math.min(right, e.x); else left = Math.max(left, e.x + e.w);
+  }
+  return { left, right: Math.max(left, right) };
+}
 export function captions(ctx, WORDS, t, opts = {}) {
   if (!WORDS || !WORDS.length) return [];
   const safe = opts.safe || null;
   if (!safe && (opts.x == null || opts.y == null)) throw new Error('captions: pass opts.safe (target.safe from init) or opts.x and opts.y');
   const size = opts.size || 64;
+  const lineH = opts.lineH || size * 1.15, fadeOut = opts.fade != null ? opts.fade : 0.08, popDur = opts.popDur || 0.22;
+  const nLines = opts.lines || 2, pos = opts.pos || 'bottom', margin = opts.margin != null ? opts.margin : size * 0.4;
+  // opts.exclude (target.exclude): lay the lines out beside the rectangles the platform covers, not under them
+  const span = safe ? captionSpan(safe, opts.exclude, { size, lines: nLines, lineH, pos, margin, y: opts.y }) : null;
   const o = {
-    font: opts.font || `${size}px ${opts.family || 'DISPLAY'}`, maxW: opts.maxW || (safe ? safe.w / CAPTION_POP_MAX : 900),
-    lines: opts.lines || 2, breakGap: opts.breakGap != null ? opts.breakGap : 0.6, sentence: opts.sentence !== false,
+    font: opts.font || `${size}px ${opts.family || 'DISPLAY'}`, maxW: opts.maxW || (span ? (span.right - span.left) / CAPTION_POP_MAX : 900),
+    lines: nLines, breakGap: opts.breakGap != null ? opts.breakGap : 0.6, sentence: opts.sentence !== false,
     upper: !!opts.upper, hold: opts.hold != null ? opts.hold : 0.5,
   };
-  const lineH = opts.lineH || size * 1.15, fadeOut = opts.fade != null ? opts.fade : 0.08, popDur = opts.popDur || 0.22;
   const tv = t - (opts.voOffset != null ? opts.voOffset : pieceVoOffset());
   const { groups, space } = captionLayout(ctx, WORDS, o);
   const g = groups.find((x) => tv >= x.t0 && tv < x.t1);
@@ -541,8 +587,7 @@ export function captions(ctx, WORDS, t, opts = {}) {
   let active = null;
   for (const w of all) if (w.start <= tv) active = w;
   const n = g.lines.length, blockH = (n - 1) * lineH;
-  const pos = opts.pos || 'bottom', margin = opts.margin != null ? opts.margin : size * 0.4;
-  const cx = opts.x != null ? opts.x : safe.x + safe.w / 2;
+  const cx = opts.x != null ? opts.x : (span.left + span.right) / 2;
   const lastBase = opts.y != null ? opts.y
     : pos === 'top' ? safe.y + margin + size * 0.8 + blockH
     : pos === 'center' ? safe.y + safe.h / 2 + blockH / 2 + size * 0.3

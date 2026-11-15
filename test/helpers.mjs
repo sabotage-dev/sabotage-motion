@@ -84,3 +84,7 @@ export function repoFiles() {
   return execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: repoRoot })
     .toString().split('\0').filter(Boolean).filter((f) => fs.existsSync(path.join(repoRoot, f)) && fs.statSync(path.join(repoRoot, f)).isFile());
 }
+
+// The three examples (plan section 15), each a full piece in the skill's examples/ folder.
+export const examplesDir = path.join(repoRoot, 'skills', 'sabotage-motion', 'examples');
+export const EXAMPLES = ['showreel', 'explainer-beat', 'lower-third'];

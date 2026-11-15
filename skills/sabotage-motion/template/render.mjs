@@ -12,6 +12,8 @@
 //                         [--json] [--strict] [--plain] [--only id,id]  measured checks (check.mjs)
 //
 // Paths in --out / --dir resolve against THIS folder (the piece), not your shell's cwd; absolute paths work.
+// video, audio and full write to a temporary sibling (out/x.partial.mp4) and rename it onto the output once it is
+// complete, so a failed render leaves an earlier output untouched (its old .render.json is deleted at the start).
 // board: one panel per board.js beat at its key time, captions under each (default --scale 1/3);
 //         --slates draws them with slate.js, --safe shades what is outside the target's safe area (the
 //         --target, else BOARD.target). Timing comes from cues.js once it exists, else the estimate.
@@ -251,9 +253,19 @@ function videoArgs(out) {
     '-maxrate', opt('maxrate', '45M'), '-bufsize', '90M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out];
 }
 let ffOut = null, ffAborting = false;
-// The files this render is writing (its output; for full also the .video temp), removed on any failure, so a failed
-// render never leaves a half-written file beside the deleted record. Cleared once the record is written.
+// A render writes each output to a temporary sibling with the same extension (out/x.mp4 -> out/x.partial.mp4) and
+// renames it onto the output only once it is complete. A failed render removes only its temporary files, so an
+// earlier good output survives untouched (its old record is still deleted first: it described the file this render
+// set out to replace, and a record never outlives a doubt about which file it describes).
+const partialOf = (f) => { const ext = path.extname(f); return (ext ? f.slice(0, -ext.length) : f) + '.partial' + ext; };
+// The temporary files this render is writing (the .partial outputs; for full also the .video temp), removed on any
+// failure. Cleared once the record is written.
 const partials = new Set();
+// Moves a finished temporary file onto its output.
+function promote(part, out) {
+  fs.renameSync(part, out);
+  partials.delete(part);
+}
 function removePartials() {
   for (const f of partials) { try { if (fs.statSync(f).isFile()) fs.rmSync(f, { force: true }); } catch { /* not there */ } }
   partials.clear();
@@ -449,11 +461,11 @@ async function doctor() {
 const relRoot = (f) => { const x = path.relative(root, f); return x && !x.startsWith('..') && !path.isAbsolute(x) ? x : f; };
 // The files a render leaves out of its source hash besides out/ and the review sheets: its own outputs.
 function recordSkips(rec) {
-  const out = path.resolve(root, rec.file), skip = new Set([out]);
+  const out = path.resolve(root, rec.file), skip = new Set([out, partialOf(out)]);
   if (rec.mode === 'full') {
     const ext = path.extname(out);
     skip.add(out.slice(0, -ext.length) + '.video' + ext);
-    if (rec.audio) skip.add(path.resolve(root, rec.audio));
+    if (rec.audio) { skip.add(path.resolve(root, rec.audio)); skip.add(partialOf(path.resolve(root, rec.audio))); }
   }
   return skip;
 }
@@ -741,34 +753,42 @@ try {
       console.log(r.estimated ? 'timing: estimated (no cues.js yet)' : r.take ? `timing: from cues.js (VO_OFFSET ${r.voOffset} s)` : 'timing: the beats\' durations (no voice)');
       for (const p of r.order) console.log(`note: board_order would fail: ${p}`);
     } else if (mode === 'video') {
-      const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
+      const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt)), part = partialOf(out);
       fs.rmSync(recordOf(out), { force: true });
-      const src = sourceHash(new Set([out]));
+      const src = sourceHash(new Set([out, part]));
       const from = +opt('from', 0), to = +opt('to', DUR);
-      const frames = await renderVideo(page, out, from, to);
+      const frames = await renderVideo(page, part, from, to);   // encodes to the .partial file
+      promote(part, out);
       console.log('wrote', out);
       writeRenderJson(out, src, { from, to, frames });
       partials.clear();
     } else if (mode === 'audio') {
-      const out = resolveOut(opt('out', `out/${sceneBase}.wav`));
+      const out = resolveOut(opt('out', `out/${sceneBase}.wav`)), part = partialOf(out);
       fs.rmSync(recordOf(out), { force: true });
-      const src = sourceHash(new Set([out]));
-      await renderAudioTo(page, out);
+      const src = sourceHash(new Set([out, part]));
+      partials.add(part);
+      await renderAudioTo(page, part);
+      promote(part, out);
       console.log('wrote', out);
       writeAudioRecord(out, src);
+      partials.clear();
     } else if (mode === 'full') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
       const base = out.slice(0, -path.extname(out).length);
-      const vtmp = base + '.video' + videoExt, atmp = base + '.wav';
+      const vtmp = base + '.video' + videoExt, atmp = base + '.wav', part = partialOf(out), apart = partialOf(atmp);
       fs.rmSync(recordOf(out), { force: true });
-      const src = sourceHash(new Set([out, vtmp, atmp]));
-      await renderAudioTo(page, atmp);          // audio first: it takes 0.1 s, so a broken audio.js fails fast
+      const src = sourceHash(new Set([out, vtmp, atmp, part, apart]));
+      partials.add(apart);
+      await renderAudioTo(page, apart);          // audio first: it takes 0.1 s, so a broken audio.js fails fast
       const frames = await renderVideo(page, vtmp, 0, DUR);
       const acodec = alphaKind === 'prores' ? ['-c:a', 'pcm_s16le'] : alphaKind === 'webm' ? ['-c:a', 'libopus', '-b:a', '192k'] : ['-c:a', 'aac', '-b:a', '256k'];
-      partials.add(out);                         // the mux writes it; a failed mux leaves neither it nor the temp
-      await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', vtmp, '-i', atmp, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', ...acodec,
-        '-t', String(DUR), ...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), out]);
-      fs.rmSync(vtmp, { force: true });
+      partials.add(part);                        // the mux writes the .partial file; a failed mux leaves no temp behind
+      await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', vtmp, '-i', apart, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', ...acodec,
+        '-t', String(DUR), ...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), part]);
+      fs.rmSync(vtmp, { force: true }); partials.delete(vtmp);
+      fs.rmSync(recordOf(atmp), { force: true });   // an `audio` record of the old effects stem no longer describes it
+      promote(apart, atmp);
+      promote(part, out);
       console.log('wrote', out, '(audio kept at', atmp + ')');
       writeRenderJson(out, src, { from: 0, to: DUR, frames, audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)) });
       partials.clear();
