@@ -151,7 +151,8 @@ function regexEnd(s, i) {
 // A / where an operand belongs starts a regular expression literal: at the start of the ${...}, after an operator or
 // an opening bracket, after a keyword that takes an operand (return /x/), and after the ) of if (...), while (...),
 // for (...) or with (...). After a name (a keyword after a dot is a name: o.in), a number, a closing bracket, a string,
-// a regex or a postfix ++ or -- it divides.
+// a regex or a postfix ++ or -- it divides. `of` takes an operand only inside a for (...) condition; anywhere else it
+// is a name like any other (const of = 4; of / 2 divides).
 const REGEX_PREV = new Set([...'(,=:[!&|?{};+-*%<>~^']), REGEX_AFTER = words('return typeof case do else in of instanceof new delete void throw yield await');
 const CONTROL = words('if while for with');
 const ID = /[A-Za-z_$][\w$]*/y, NUM = /\d[\w.]*/y;
@@ -159,7 +160,7 @@ const ID = /[A-Za-z_$][\w$]*/y, NUM = /\d[\w.]*/y;
 // go on: a string or a regex that does not close on its line, or a template literal inside that does not close.
 function exprScan(s, j) {
   let depth = 1, prev = '', word = '';
-  const parens = [];   // for each open (, whether it is a control statement's condition
+  const parens = [];   // for each open (, the control keyword whose condition it is, or ''
   while (j < s.length) {
     const c = s[j], n = s[j + 1];
     if (/\s/.test(c)) { j++; continue; }
@@ -172,11 +173,11 @@ function exprScan(s, j) {
     else if (/\d/.test(c)) { NUM.lastIndex = j; next = j + NUM.exec(s)[0].length; last = '0'; }
     else if (c === '{') depth++;
     else if (c === '}') { if (--depth === 0) return { end: j + 1 }; }
-    else if (c === '(') parens.push(CONTROL.has(word));
+    else if (c === '(') parens.push(CONTROL.has(word) ? word : '');
     else if (c === ')') { if (parens.pop()) last = ';'; }
     else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; next = e.end; }
     else if (c === '"' || c === "'") { next = stringEnd(s, j); if (next < 0) return { end: j, stop: true }; }
-    else if (c === '/' && (!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))) { next = regexEnd(s, j); if (next < 0) return { end: j, stop: true }; }
+    else if (c === '/' && (!prev || REGEX_PREV.has(prev) || (REGEX_AFTER.has(word) && (word !== 'of' || parens[parens.length - 1] === 'for')))) { next = regexEnd(s, j); if (next < 0) return { end: j, stop: true }; }
     else if ((c === '+' || c === '-') && n === c) { next = j + 2; last = prev === 'a' || prev === ')' || prev === ']' ? ')' : c; }   // postfix ++ and -- leave an operand
     prev = last; word = w; j = next;
   }

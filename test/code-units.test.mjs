@@ -204,6 +204,13 @@ test('js: in ${}, a regex is a token: its quotes, braces, backticks and / in a [
   }
   // a comment is not a token: a / after f( and a comment still starts a regex
   assert.equal(after('const s = `${ f(/* c */ /`/.test(s)) }`; const n = `w`;'), 'kw plain op plain str punct');
+  // `of` is a name outside a for (...) condition: of / 2 divides (round 4); inside one, a regex may follow it
+  const ofDiv = 'function f() { const s = `${of / 2}`; return /x/.test(s); } const n = `w`;';
+  assert.equal(strFrom(ofDiv, '`${of / 2}`'), '`${of / 2}`');
+  assert.equal(after(ofDiv), 'kw plain op plain str punct');
+  const ofRe = 'const s = `${ (() => { for (const m of /`/g.exec(s)) {} })() }`; const n = 1;';
+  assert.equal(strFrom(ofRe, '`${ (() => { for (const m of /`/g.exec(s)) {} })() }`'), '`${ (() => { for (const m of /`/g.exec(s)) {} })() }`');
+  assert.equal(after(ofRe), 'kw plain op plain num punct');
   // a keyword after a dot is a name: o.in / 2 divides
   assert.equal(after('const s = `${ o.in / 2 + `/*` }`; const n = 1;'), 'kw plain op plain num punct');
   // still division: after a name, a ), a ], a number
