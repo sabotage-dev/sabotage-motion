@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
@@ -1101,8 +1101,10 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   changes to `mix.mjs` this needs: it uses `out/<name>.bed.wav` as the bed when no `--bed` is given, for voiced
   mixes (ducked under the voice like any bed) and for `--master-only` mixes alike; a generated bed starts at 0, is
   never end-aligned and has no default fade, since it already spans the picture; `master.json` records its hash,
-  and `check --file`'s provenance includes it. `audio_spike` measures what is heard: the effects and the bed
-  together when a bed stem exists, so extreme's hits are judged against the beat under them.
+  and `check --file`'s provenance includes it. `audio_spike` measures what is heard: the effects stem and the bed
+  stem summed at the mixer's own gains (the effects at their bus gain, the bed at its bed gain, as `mix.mjs` sets
+  them), so extreme's hits are judged against the beat under them. The bed stem gets a render record linked to the
+  source the way the effects stem is, and a missing or stale bed is reported, never silently left out.
 - **Text stays readable and inside the safe area through the moves.** Text-bearing layers are not carried by whips
   (a whip happens on the cut between two beats, when no copy is on screen). For every other move (push, punch,
   zoom bounce, shake) the camera rig computes, at each `t`, the largest zoom and offset that keep the text boxes on
@@ -1138,18 +1140,22 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
 - **`flash` (FAIL), on the delivered picture, at every preset (Q20).** It runs in `check --file` on the decoded master
   (and in P10 on the decoded composite), so it sees exactly what a viewer sees, motion blur and grain included, at
   the file's frame rate. Each frame is scaled so its longer side is 1024 px and read as RGB; relative luminance comes
-  from linearised sRGB, as WCAG defines it. Transitions are measured between extremes over time, not between
-  adjacent frames, so a gradual ramp counts as fully as a hard cut: the scaled frame is divided into 16x16 px cells,
-  each cell's mean relative luminance (and its mean chromaticity and red share) is followed frame by frame, and a
-  *transition* runs from one local extreme of that series to the next. A general transition changes relative
-  luminance by 10% or more of the maximum with the darker extreme below 0.80; a red transition has one extreme a
-  saturated red (R/(R+G+B) of 0.8 or more) and the two extremes more than 0.2 apart in CIE 1976 u'v'. At any moment,
-  the cells in the same kind and direction of transition count toward the area: a transition event is large enough
-  when those cells cover more than 21,824 px of some 341x256 window. A *flash* is a pair of opposing transition
-  events; more than three general flashes, or more than three red flashes, in any one-second window FAIL. Source
+  from linearised sRGB, as WCAG defines it. Flashes are found per pixel, as WCAG defines them, never on averages
+  (an average hides a pattern whose halves swap, and spreads a small flashing spot over a whole cell). Each pixel's
+  relative luminance is followed frame by frame with a threshold zig-zag: a *general transition* of that pixel is
+  confirmed when its luminance has moved 10% of the maximum or more from its last turning point, in the direction
+  opposite to its previous transition, with the darker of the two below 0.80; smaller wobbles (grain, a noisy or
+  stepped ramp) never end a transition, so a ramp counts as fully as a hard cut. Red transitions are followed the
+  same way on chromaticity: one end a saturated red (R/(R+G+B) of 0.8 or more) and the two ends more than 0.2 apart
+  in CIE 1976 u'v'. A pixel's confirmed transition counts toward the area for 0.1 s after it is confirmed, so a band
+  that sweeps across an area within 0.1 s counts as that area. A frame is over the limit in a kind and direction when
+  those pixels cover more than 21,824 px of some 341x256 window (a summed-area table over the scaled frame); a run of
+  consecutive frames over the limit in the same kind and direction is one *transition event*. A *flash* is an event
+  followed by one of the opposite direction; more than three general flashes, or
+  more than three red flashes, whose first events fall in any one-second window FAIL. Source
   `check` runs `flash` on `out/<name>.mp4` when that render's record matches the current source, and otherwise
-  reports it not checked and says to render; delivery is `check --file` on the master, as the workflow already says. Fast cuts count too: at
-  extreme's cut rate, shots that alternate dark and light are a flash sequence, so `energy.js` keeps consecutive
+  reports it not checked and says to render; delivery is `check --file` on the master, as the workflow already says.
+  Fast cuts count too: at extreme's cut rate, shots that alternate dark and light are a flash sequence, so `energy.js` keeps consecutive
   shots' luminance close at extreme, and the agent slows the cuts where a piece needs a light-dark swing.
 - **Skill text and recipes.** The board names its energy and the agent says which it chose and why; `subtle` is a
   choice, not the default. SKILL.md's craft defaults are rewritten per preset (the "post effects stay subtle" rule
@@ -1168,7 +1174,10 @@ rate, ink type size and motion fall inside that preset's ranges and its `check` 
 an `extreme` board rendered at normal pace; `flash` FAILs fixtures with four general flashes and with four red
 flashes in one second, passes three of each, passes a flash below the area threshold, catches a flash that falls
 between the probe's samples (a sub-frame flash that the motion-blurred master shows), and catches a full-screen 4 Hz
-triangular luminance ramp (from 0.10 to 0.38, at 60 fps) whose adjacent frames change by only 0.04; the extreme
+triangular luminance ramp (from 0.10 to 0.38, at 60 fps) whose adjacent frames change by only 0.04, the same ramp
+with small reversals and with grain-sized noise, and a pattern whose 8 px halves swap between 0.10 and 0.50 four
+times a second (all FAIL), and passes a 6x6 px spot flashing in every 16x16 cell (its area is under the limit);
+`audio_spike` still warns on a click over the bed and passes the extreme card's hits only with the bed under them; the extreme
 card passes `audio_spike` with its bed under it; an unvoiced `--master-only` mix carries the generated bed on the
 beat grid; the bed is ducked under a voice
 in a voiced fixture; a fresh session P5's way, given one brief three times (asking for subtle, saying nothing, asking
@@ -1180,7 +1189,7 @@ and confirms they read as subtle, normal and extreme.
 | Q19 | Names and default | `subtle`, `normal`, `extreme`, as the owner put it; `normal` is the default. |
 | Q20 | The flash limit | WCAG 2.3.1 (three flashes) and its definitions, on the decoded master: no more than three general and no more than three red flashes in any one second; a transition counts over more than 21,824 px of a 341x256 window, the frame scaled to 1024 px on its longer side. |
 | Q21 | Where energy is measured | From the frames: cuts the scene declares count only when the frames confirm them; type size from the ink of a text-off render; motion from the probe. |
-| Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo within 10% of its preset's, and the preset's cut interval in beats then sets the shot length (the ranges in the table are the preset tempos'). |
+| Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo within 10% of its preset's. `energy_match` then judges the shot length against the preset's cut interval in beats at the board's own tempo (the seconds in the table are at the preset tempos). |
 | Q23 | Motion floors | First values: subtle at most 10% of pixels changing per frame pair, normal at least 2%, extreme at least 6%; tuned on the calibration fixtures in P11. |
 
 ### 23.10 Council round 1 on 23.9 (2026-11-15, rev 1.9 at `d55c925`)
@@ -1217,6 +1226,16 @@ Round 2 (2026-11-15, delta at `31020c3`): codex BLOCK, sonnet and grok SHIP-WITH
 | Subtle's beat endpoints (2.857 s, 3.571 s) fell outside 2.9-3.6 s; a whole beat at 136 BPM (0.441 s) outside 0.44 s | grok | Ranges stated from the beat counts: 2.8-3.6 s and 0.2-0.45 s |
 | A silent beat snapped on a voiced board still moved the voiced windows | grok | Nothing snaps on a voiced board |
 | `flash` only under `check --file` | sonnet | Source `check` runs it on a current render; delivery is `check --file` |
+
+Round 3 (2026-11-15, delta at `e478035`): codex BLOCK, sonnet and grok SHIP-WITH-FIXES. Folded in rev 2.2:
+
+| Finding | Seats | Fold |
+|---|---|---|
+| 16x16 cell means hide a pattern whose halves swap, and a small spot makes a whole cell count, so the area is wrong both ways | codex, sonnet | Transitions found per pixel; area counted from the pixels themselves, by window |
+| "From one local extreme to the next" had no minimum swing, so small reversals or grain split a dangerous ramp | codex, sonnet | A threshold zig-zag per pixel: a transition ends only on a 10% move from the last turning point |
+| `audio_spike` with the bed: which file, which gains, how fresh, and a row a wrong build would pass | sonnet | Summed at the mixer's gains, the bed stem linked to the source, a click over the bed must still warn |
+| A board tempo 10% off its preset's moves the shot length out of the table's seconds | grok | Judged in beats at the board's own tempo |
+| Five beats at 84 BPM "past 3.6 s" | grok | Not adopted: 5 x 60/84 = 3.571 s, inside 3.6 s |
 
 ## 24. Version 0.3 (planned)
 
