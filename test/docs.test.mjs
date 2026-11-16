@@ -187,6 +187,10 @@ test('references/code.md: every helper code.js exports is documented, and its la
   assert.match(md, /A heredoc reads as plain words/);
   assert.match(md, /its text is only the\s+characters that show there/);
   assert.match(md, /a drawn line number counts/);
+  // R2-4: one account of a diff's colours: context lines take the new file's from the start
+  assert.match(md, /context lines take the new file's\s+colours from the start/);
+  assert.doesNotMatch(md, /as the file was/);
+  assert.match(md, /Each hunk starts afresh, whether its header shows or not/);
 });
 test('README: the terminal-demo row and the code suite', () => {
   const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');

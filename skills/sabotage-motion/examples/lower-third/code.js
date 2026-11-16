@@ -106,30 +106,49 @@ const WS = [/[ \t\r]+/y, 'plain'];
 const DQ = /"(?:\\.|[^\\"\n])*"?/y, SQ = /'(?:\\.|[^\\'\n])*'?/y;
 
 // A template literal, from its backtick to the closing one, past every ${...} in it (which may hold strings, comments
-// and template literals of its own); unterminated, it runs to the end. The whole literal, ${...} included, is a string.
-function templateEnd(s, i) {
+// and template literals of its own); the whole literal, ${...} included, is a string. When the ${...} scan cannot read
+// the code in it (a regular expression literal, whose quotes and braces are not code) or runs to the end of the source
+// without closing, the literal ends at the next unescaped backtick instead (plainEnd), so it never swallows the code
+// after it.
+function plainEnd(s, i) {
+  let j = i + 1;
+  while (j < s.length) { if (s[j] === '\\') j += 2; else if (s[j] === '`') return j + 1; else j++; }
+  return s.length;
+}
+// { end, closed }: closed is true only when the literal reached its own closing backtick; it is false when its ${...}
+// scan stopped at a regular expression literal, or when the source ended first.
+function templateScan(s, i) {
   let j = i + 1;
   while (j < s.length) {
     const c = s[j];
     if (c === '\\') j += 2;
-    else if (c === '`') return j + 1;
-    else if (c === '$' && s[j + 1] === '{') j = exprEnd(s, j + 2);
-    else j++;
+    else if (c === '`') return { end: j + 1, closed: true };
+    else if (c === '$' && s[j + 1] === '{') { const e = exprScan(s, j + 2); if (e.stop) return { end: e.end, closed: false }; j = e.end; } else j++;
   }
-  return s.length;
+  return { end: s.length, closed: false };
 }
-function exprEnd(s, j) {
-  let depth = 1;
+// A / where an operand belongs starts a regular expression literal: at the start of the ${...}, after an operator or
+// an opening bracket, or after a keyword that takes an operand (return /x/).
+const REGEX_PREV = new Set([...'(,=:[!&|?{};+-*%<>~^']), REGEX_AFTER = words('return typeof case do else in of instanceof new delete void throw yield await');
+// The end of a ${...} (just past its closing brace, or the end of the source), or { stop: true } where the scan cannot
+// go on: at a regular expression literal (its quotes and braces would be misread as code), or after a template literal
+// inside that did not close.
+function exprScan(s, j) {
+  let depth = 1, prev = '', word = '';
   while (j < s.length) {
     const c = s[j];
-    if (c === '{') { depth++; j++; } else if (c === '}') { if (--depth === 0) return j + 1; j++; } else if (c === '`') j = templateEnd(s, j);
+    if (c === '/' && s[j + 1] !== '/' && s[j + 1] !== '*' && (!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))) return { end: j, stop: true };
+    if (c === '{') { depth++; j++; } else if (c === '}') { if (--depth === 0) return { end: j + 1 }; j++; } else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; j = e.end; }
     else if (c === '"' || c === "'") { j++; while (j < s.length && s[j] !== c && s[j] !== '\n') j += s[j] === '\\' ? 2 : 1; j++; } else if (c === '/' && s[j + 1] === '/') { while (j < s.length && s[j] !== '\n') j++; } else if (c === '/' && s[j + 1] === '*') { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; } else j++;
+    if (/\s/.test(c)) continue;
+    word = /[\w$]/.test(c) ? (/[\w$]/.test(prev) ? word + c : c) : '';
+    prev = s[j - 1];   // the last character read: an operator, a bracket, a word's last letter, a string's quote
   }
-  return s.length;
+  return { end: s.length };
 }
 // A rule that matches with a function instead of a regular expression: fn(src, i) gives where the match ends.
 const sticky = (fn) => ({ lastIndex: 0, exec(s) { const e = fn(s, this.lastIndex); return e > this.lastIndex ? [s.slice(this.lastIndex, e)] : null; } });
-const TEMPLATE = sticky((s, i) => (s[i] === '`' ? templateEnd(s, i) : i));
+const TEMPLATE = sticky((s, i) => { if (s[i] !== '`') return i; const r = templateScan(s, i); return r.closed ? r.end : plainEnd(s, i); });
 
 function jsIdent(ts) {
   return (w, src, j, st) => {
@@ -177,9 +196,9 @@ const pyRules = [
 // A shell word: classified by where it sits (a command at the start of a line or after | && || ; ( $( ).
 function shWord(w, src, j, st) {
   // the in of for x in, case x in, select x in: on the same line or a later one. After case's in come patterns, each
-  // closed by ) and followed by commands, until esac.
+  // closed by ) and followed by commands, until an esac where a command or a pattern starts (echo esac is an argument).
   if (w === 'in' && st.awaitIn) { st.caseBody = st.casePat = st.awaitIn === 'case'; st.awaitIn = false; st.cmdPos = false; return 'kw'; }
-  if (w === 'esac' && st.caseBody) { st.caseBody = st.casePat = false; st.cmdPos = false; return 'kw'; }
+  if (w === 'esac' && st.caseBody && (st.cmdPos || st.casePat)) { st.caseBody = st.casePat = false; st.cmdPos = false; return 'kw'; }   // not echo esac
   if (st.cmdPos) {
     if (/^[A-Za-z_]\w*=/.test(w)) return 'var';                    // FOO=bar before a command
     if (SH_KW.has(w)) { st.cmdPos = !['for', 'in', 'case', 'function', 'select'].includes(w); st.awaitIn = ['for', 'case', 'select'].includes(w) ? w : false; return 'kw'; }
@@ -543,26 +562,27 @@ export function diffBlock(o) {
   const src = normCode(o.src == null ? '' : o.src, o.tab || 2);
   const rows = [], lines = highlight(src, 'diff');
   if (lines.length > 1 && !lines[lines.length - 1].length) lines.pop();   // the newline that ends the last line
+  let piece = 0;   // which hunk a row belongs to: each hunk header starts the next, shown or not (hunks: false)
   for (const toks of lines) {
     const kind = toks.length ? toks[0].k : 'ctx', text = lineText(toks);   // a blank line in a hunk is context
+    if (kind === 'hunk') piece++;
     if (kind === 'meta') continue;
     if (kind === 'hunk' && o.hunks === false) continue;
     const body = kind === 'hunk' ? text : text.slice(1);
-    rows.push({ kind, mark: kind === 'add' ? '+' : kind === 'del' ? '-' : ' ', text: body, toks: kind === 'hunk' ? toks : [{ k: kind, s: body }] });
+    rows.push({ kind, piece, mark: kind === 'add' ? '+' : kind === 'del' ? '-' : ' ', text: body, toks: kind === 'hunk' ? toks : [{ k: kind, s: body }] });
   }
-  // with a language, each hunk is coloured as the two files it shows: the old one (context and removed lines) and the
-  // new one (context and added lines), each scanned as one source, so a comment or a string over lines keeps its state
+  // with a language, each hunk is coloured as two sources: the old file's lines (context and removed) and the new
+  // file's (context and added), each scanned as one, so a comment or a string over lines keeps its state. Removed lines
+  // take the old file's colours, added and context lines the new file's. Each hunk starts afresh, its header shown or not.
   if (o.lang) {
-    let seg = [];
-    const flush = () => {
+    const pieces = new Map();
+    for (const r of rows) if (r.kind !== 'hunk') { if (!pieces.has(r.piece)) pieces.set(r.piece, []); pieces.get(r.piece).push(r); }
+    for (const seg of pieces.values()) {
       for (const [mine, kinds] of [['del', ['ctx', 'del']], ['add', ['ctx', 'add']]]) {
         const rs = seg.filter((r) => kinds.includes(r.kind)), hl = highlight(rs.map((r) => r.text).join('\n'), o.lang);
         rs.forEach((r, i) => { if (r.kind === mine || (mine === 'add' && r.kind === 'ctx')) r.toks = hl[i] || []; });
       }
-      seg = [];
-    };
-    for (const r of rows) { if (r.kind === 'hunk') flush(); else seg.push(r); }
-    flush();
+    }
   }
   const start = o.start || 0, step = o.step != null ? o.step : 0.3, grow = o.grow != null ? o.grow : 0.25;
   let k = 0;

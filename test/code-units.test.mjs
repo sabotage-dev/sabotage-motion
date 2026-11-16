@@ -114,6 +114,40 @@ test('diff: with a language, each side of a hunk is coloured as one source, so a
   assert.deepEqual(kinds(6)[0], 'kw', 'nor is the context after it (context is coloured as the new file)');
   for (const r of d.rows.slice(1)) assert.equal(r.toks.map((t) => t.s).join(''), r.text);
 });
+test('diff: with hunks: false a hunk that ends inside a comment does not colour the next hunk or the next file (R2-1)', () => {
+  const src = ['--- a/a.js', '+++ b/a.js', '@@ -1,2 +1,2 @@', ' const a = 1; /* open', '-x', '+y', '@@ -10 +10 @@', '-const b = 2;', '+const c = 3;',
+    '--- a/b.js', '+++ b/b.js', '@@ -1 +1 @@', '-const d = 4;', '+const e = 5;', ''].join('\n');
+  for (const hunks of [false, true]) {
+    const d = K.diffBlock({ src, lang: 'js', hunks, x: 0, y: 0, w: 900, h: 900 }), rows = d.rows.filter((r) => r.kind !== 'hunk');
+    assert.deepEqual(rows.map((r) => r.toks[0].k), ['kw', 'com', 'com', 'kw', 'kw', 'kw', 'kw'], `hunks: ${hunks}`);
+    assert.equal(d.rows.some((r) => r.kind === 'hunk'), hunks);
+  }
+});
+test('js: a regular expression in ${} does not carry the template past its closer; the next statement keeps its colours (R2-2)', () => {
+  const ks = (src) => K.tokenize(src, 'js').map((t) => [t.k, t.s]);
+  const after = (src) => K.tokenize(src, 'js').slice(-6).map((t) => t.k);
+  // the two inputs from the review: a brace in a regex, a quote in a regex
+  assert.deepEqual(ks('const s = `${ /{/.test(x) }`; const n = 1;').slice(4, 6), [['str', '`${ /{/.test(x) }`'], ['punct', ';']]);
+  assert.deepEqual(after('const s = `${ /{/.test(x) }`; const n = 1;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
+  assert.deepEqual(ks('const t = `a ${s.replace(/\'/g, "")} b`; const m = 2;').slice(4, 6), [['str', '`a ${s.replace(/\'/g, "")} b`'], ['punct', ';']]);
+  assert.deepEqual(after('const t = `a ${s.replace(/\'/g, "")} b`; const m = 2;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
+  // in a method, a misread scan would not run out: it would close the ${} on the class's braces and end the template at
+  // the next backtick in the file. A quote in a regex at the start of the ${}, after an operator, after return, and in
+  // a template inside the ${}: the line after the class keeps its colours. The first three end on their own closer; the
+  // last falls back to round 1's rule, which ends the outer template at the next backtick (the inner one's opener).
+  for (const expr of ["/'/.test(s)", 's.replace(/\'/g, "")', "(() => { return /'/.test(s) })()", "`b ${ /'/.test(s) }`"]) {
+    const cls = `class A {\n  f(s) {\n    return \`\${ ${expr} }\`;\n  }\n}\nconst v = \`w\`;`;
+    const got = K.highlight(cls, 'js').map((l) => l.map((t) => t.k).join(' '));
+    assert.deepEqual([got[0], got[1], got[3], got[4], got[5]], ['kw plain punct', 'plain fn punct plain punct plain punct', 'plain punct', 'punct', 'kw plain op plain str punct'], expr);
+    if (expr[0] !== '`') assert.equal(got[2], 'plain kw plain str punct', expr);
+  }
+  // a template cut off inside ${} (a snippet), and a string inside ${} that never closes: each ends at its own closer
+  assert.deepEqual(after('const s = `a ${ x(`; const n = 1;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
+  assert.deepEqual(after('const s = `a ${ f(" `; const n = 1;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
+  // what still nests: a template inside ${}, division, and a template over lines
+  assert.deepEqual(ks('t = `a ${`b ${c}`} d ${x / y / z}`;')[3], ['str', '`a ${`b ${c}`} d ${x / y / z}`']);
+  assert.deepEqual(K.highlight('h = `\n  ${items.map((x) => `<li>${x}</li>`).join("")}\n`;', 'js').map((l) => l.map((t) => t.k).join(' ')), ['plain op plain str', 'str', 'str punct']);
+});
 test('rules the goldens do not reach: a lower-case Python class, shell\'s in after for and case, a prompt only at a line\'s start', () => {
   assert.deepEqual(K.tokenize('class clock_face:', 'python').map((t) => [t.k, t.s]), [['kw', 'class'], ['plain', ' '], ['type', 'clock_face'], ['punct', ':']]);
   assert.deepEqual(K.tokenize('case x in', 'shell').map((t) => t.k), ['kw', 'plain', 'kw']);

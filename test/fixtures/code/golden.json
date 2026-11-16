@@ -42,6 +42,9 @@
     [["plain","  "],["kw","in"],["plain"," a.ts b.ts"],["op",";"],["plain"," "],["kw","do"],["plain"," "],["cmd","wc"],["plain"," "],["flag","-l"],["plain"," "],["str","\"$f\""],["op",";"],["plain"," "],["kw","done"]],
     [["kw","case"],["plain"," "],["str","\"$1\""]],
     [["kw","in"],["plain"," fix"],["op",")"],["plain"," "],["cmd","darnly"],["plain"," fix"],["op",";;"],["plain"," "],["kw","esac"]],
+    [["kw","case"],["plain"," "],["str","\"$1\""],["plain"," "],["kw","in"]],
+    [["plain","  log"],["op",")"],["plain"," "],["cmd","echo"],["plain"," esac"],["op",";;"]],
+    [["kw","esac"]],
     []
   ] },
   { "file": "sample.json", "lang": "json", "lines": [

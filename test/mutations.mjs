@@ -333,7 +333,7 @@ const M = [
   ["P8 fold 2: in forgets its for across a continuation", T + "code.js", [["st.awaitIn = ['for', 'case', 'select'].includes(w) ? w : false; return 'kw'; }", "st.awaitIn = false; return 'kw'; }"]], CU],
   ["P8 fold 2: after a case pattern's ) no command", T + "code.js", [["    if (pat && s === ')') { st.casePat = false; st.cmdPos = true; }", ""]], CU],
   ["P8 fold 2: a case pattern on its own line read as a command", T + "code.js", [["if (!st.cont) st.cmdPos = !(st.caseBody && st.casePat);", "if (!st.cont) st.cmdPos = true;"]], CU],
-  ["P8 fold 2: esac only a keyword in command position", T + "code.js", [["  if (w === 'esac' && st.caseBody) {", "  if (false) {"]], CU],
+  ["P8 fold 2: esac read as a word in a case body", T + "code.js", [["  if (w === 'esac' && st.caseBody && (st.cmdPos || st.casePat)) {", "  if (false) {"]], CU],
   ["P8 fold 3: untyped code schedules moves at -Infinity", T + "code.js", [["} else if (o.follow !== false && o.type !== false) {", "} else if (o.follow !== false) {"], ["if (c === '\\n' && i >= from && Number.isFinite(cad.T[i])) {", "if (c === '\\n' && i >= from) {"]], CU],
   ["P8 fold 4: a box's text is the whole line (code)", T + "code.js", [["bb.text = (e && visible(text, tx, adv, view))", "bb.text = (e && text.trim())"]], CU],
   ["P8 fold 4: a box's text is the whole line (diff)", T + "code.js", [["if (bb) { bb.text = visible(shows, x0, adv, view); out.push(bb); }", "if (bb) { bb.text = shows.trim(); out.push(bb); }"]], CU],
@@ -345,9 +345,9 @@ const M = [
   ["P8 fold 5: a header without counts counts none", T + "code.js", [["return m ? { old: m[1] != null ? +m[1] : 1, new: m[2] != null ? +m[2] : 1 } : null;", "return m ? { old: m[1] != null ? +m[1] : 0, new: m[2] != null ? +m[2] : 0 } : null;"]], CU],
   ["P8 fold 5: an added line counts on the old side", T + "code.js", [["if (st.hunk) useLine(st, kind === 'add' ? 0 : 1, kind === 'del' ? 0 : 1);", "if (st.hunk) useLine(st, 1, kind === 'del' ? 0 : 1);"]], CU],
   ["P8 fold 6: an escaped quote ends a triple-quoted string", T + "code.js", [["(?:\"\"\"(?:\\\\[\\s\\S]|[^\\\\])*?(?:\"\"\"|$)", "(?:\"\"\"[\\s\\S]*?(?:\"\"\"|$)"]], CU],
-  ["P8 fold 6: a template literal inside ${} ends the outer one", T + "code.js", [["} else if (c === '`') j = templateEnd(s, j);", "}"]], CU],
-  ["P8 fold 6: ${ not followed into", T + "code.js", [["    else if (c === '$' && s[j + 1] === '{') j = exprEnd(s, j + 2);\n", ""]], CU],
-  ["P8 fold 7: diff lines coloured one by one", T + "code.js", [["    for (const r of rows) { if (r.kind === 'hunk') flush(); else seg.push(r); }\n    flush();", "    for (const r of rows) { seg = [r]; if (r.kind !== 'hunk') flush(); }"]], CU],
+  ["P8 fold 6: a template literal inside ${} ends the outer one", T + "code.js", [["} else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; j = e.end; }", "}"]], CU],
+  ["P8 fold 6: ${ not followed into", T + "code.js", [["    else if (c === '$' && s[j + 1] === '{') { const e = exprScan(s, j + 2); if (e.stop) return { end: e.end, closed: false }; j = e.end; } else j++;", "    else j++;"]], CU],
+  ["P8 fold 7: diff lines coloured one by one", T + "code.js", [["for (const r of rows) if (r.kind !== 'hunk') { if (!pieces.has(r.piece)) pieces.set(r.piece, []); pieces.get(r.piece).push(r); }", "for (const r of rows) if (r.kind !== 'hunk') pieces.set(pieces.size, [r]);"]], CU],
   ["P8 fold 7: context coloured as the old file", T + "code.js", [["if (r.kind === mine || (mine === 'add' && r.kind === 'ctx')) r.toks = hl[i] || [];", "if (r.kind === mine || (mine === 'del' && r.kind === 'ctx')) r.toks = hl[i] || [];"]], CU],
   ["P8 fold 8: a command with a newline accepted", T + "code.js", [["    if (v.includes('\\n')) throw new Error(", "    if (false) throw new Error("]], CU],
   ["P8 fold 8: code.md does not say a command is one row", "skills/sabotage-motion/references/code.md", [["one with a newline is an error that says so", "one with a newline is cut at it"]], DOCS],
@@ -357,6 +357,21 @@ const M = [
   ["P8 fold 9: the example names line 16 again", "skills/sabotage-motion/examples/terminal-demo/scene.js", [["src/clock.ts:15", "src/clock.ts:16"]], CE],
   ["P8 fold 9: the example's hunk header counts six lines", "skills/sabotage-motion/examples/terminal-demo/scene.js", [["@@ -14,5 +14,5 @@", "@@ -14,6 +14,6 @@"]], CE],
   ["P8 fold 9: code.md does not name nested template literals", "skills/sabotage-motion/references/code.md", [["`${...}` included, and nests", "`${...}` included"]], DOCS],
+  // ---- P8 council round 2: hidden hunk headers keep their hunks apart, a regex in ${} (at its start, after an operator,
+  // after return, in a template inside) stops the scan and the template ends at the next backtick, a template that runs
+  // out is not closed, esac only where a command or a pattern starts, code.md's one account of a diff's colours.
+  ["P8 R2 hunks: false joins its hunks for colouring", T + "code.js", [["    if (kind === 'hunk') piece++;", "    if (kind === 'hunk' && o.hunks !== false) piece++;"]], CU],
+  ["P8 R2 a regex in ${} read as code", T + "code.js", [["if (c === '/' && s[j + 1] !== '/' && s[j + 1] !== '*' && (!prev ||", "if (false && (!prev ||"]], CU],
+  ["P8 R2 a regex at the start of ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(REGEX_PREV.has(prev) || REGEX_AFTER.has(word))"]], CU],
+  ["P8 R2 a regex after an operator in ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(!prev || REGEX_AFTER.has(word))"]], CU],
+  ["P8 R2 a regex after return in ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(!prev || REGEX_PREV.has(prev))"]], CU],
+  ["P8 R2 a template inside ${} that stopped is read past", T + "code.js", [["if (!e.closed) return { end: e.end, stop: true }; j = e.end; }", "j = e.end; }"]], CU],
+  ["P8 R2 a template that runs out counts as closed", T + "code.js", [["  return { end: s.length, closed: false };\n}", "  return { end: s.length, closed: true };\n}"]], CU],
+  ["P8 R2 no fallback to the next backtick", T + "code.js", [["return r.closed ? r.end : plainEnd(s, i);", "return r.end;"]], CU],
+  ["P8 R2 esac as an argument ends the case", T + "code.js", [["st.caseBody && (st.cmdPos || st.casePat)) {", "st.caseBody) {"]], CU],
+  ["P8 R2 esac where a pattern starts not a keyword", T + "code.js", [["st.caseBody && (st.cmdPos || st.casePat)) {", "st.caseBody && st.cmdPos) {"]], CU],
+  ["P8 R2 code.md: context in the old file's colours", "skills/sabotage-motion/references/code.md", [["context lines take the new file's", "context lines take the old file's"]], DOCS],
+  ["P8 R2 code.md: a hidden header joins the hunks", "skills/sabotage-motion/references/code.md", [["Each hunk starts afresh, whether its header shows or not.", "Hidden hunk headers join the hunks."]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

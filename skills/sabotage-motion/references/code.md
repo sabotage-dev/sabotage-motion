@@ -109,11 +109,12 @@ diffBlock({ src /* a unified diff */, lang: 'ts', x, y, w, h, theme, size, lineH
             grow: 0.25, hunks: true, follow: true, margin: 0, scrollDur: 0.35, id: 'diff' })
 ```
 
-The context and the removed lines show from the start, as the file was. From `start`, the changes land in order,
-`step` seconds apart: a removed line takes the removed colour, its `-` and a strike-through; an added line opens over
-`grow` seconds, pushing the lines under it down, with its `+`. `lang` colours the code inside the lines, each hunk as
-the two files it shows (the old one: context and removed lines; the new one: context and added lines), each scanned
-as one source, so a comment that runs over lines stays a comment. File headers
+The context and the removed lines show from the start: the lines the old file had. From `start`, the changes land in
+order, `step` seconds apart: a removed line takes the removed colour, its `-` and a strike-through; an added line opens
+over `grow` seconds, pushing the lines under it down, with its `+`. `lang` colours the code inside the lines, each hunk
+scanned as two sources, so a comment that runs over lines stays a comment: removed lines are coloured as in the old
+file (scanned with the context), and context and added lines as in the new file, so context lines take the new file's
+colours from the start. Each hunk starts afresh, whether its header shows or not. File headers
 (`diff`, `index`, `---`, `+++`) are left out: put the file's name in the frame's title. Hunk headers show unless
 `hunks: false`. When a change lands below the view, it scrolls. `diffAt(block, t)` is the state: `{ landed, changes,
 scroll, rows: [{ kind, text, open, mark }] }`.

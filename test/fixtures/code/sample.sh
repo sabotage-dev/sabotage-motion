@@ -10,3 +10,6 @@ for f \
   in a.ts b.ts; do wc -l "$f"; done
 case "$1"
 in fix) darnly fix;; esac
+case "$1" in
+  log) echo esac;;
+esac
