@@ -105,8 +105,8 @@ test('seq: the page moves on the piece\'s clock (a CSS animation at its time, a 
     const im = rgb(P(seqDir, `assets/seq/tall/${String(i).padStart(3, '0')}.png`)), t = i / 24;
     const cssX = firstX(im, 8 * DPR, red), jsX = firstX(im, 20 * DPR, green);   // #css spans rows 4 to 12 CSS px, #js 16 to 24
     assert.ok(Math.abs(cssX - DPR * (96 + 30 * (t % 1))) <= 1, `frame ${i}: the CSS animation at x ${cssX}, expected ${DPR * (96 + 30 * (t % 1))}`);
-    // the page's clock reads 1 ms more than the frame's time when the capture starts; requestAnimationFrame ticks every 16 ms
-    const ms = 1 + SH.clockAt(i, 24), lo = DPR * (96 + 30 * (((ms - 17) / 1000) % 1)), hi = DPR * (96 + 30 * ((ms / 1000) % 1));
+    // requestAnimationFrame ticks every 16 ms on the page's clock, from 0 at frame 0; before its first tick #js is at 96
+    const ms = SH.clockAt(i, 24), lo = DPR * (96 + 30 * ((Math.max(0, ms - 17) / 1000) % 1)), hi = DPR * (96 + 30 * ((ms / 1000) % 1));
     assert.ok(jsX >= Math.floor(lo) - 1 && jsX <= Math.ceil(hi) + 1, `frame ${i}: the requestAnimationFrame loop at x ${jsX}, expected ${lo.toFixed(1)} to ${hi.toFixed(1)}`);
   }
   const r = shots(seqDir, ['seq', 'tall', 'tall.html', ...VP, '--dur', '0.9', '--scroll', '100:2700']);

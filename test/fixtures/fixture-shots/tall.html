@@ -2,8 +2,8 @@
 <!-- fixture-shots: a tall page for tools/shots.mjs (test/shots.test.mjs). 3000 CSS px tall on black, at a 135x240
      viewport: fourteen white landmarks, 4 px tall, at 200, 400 ... 2800 px, the k-th (from 0) 8 + 6k px wide, so a
      frame says which landmark is which; three things that move on their own, at the top right and the bottom:
-     #css, a CSS animation 30 px to the right a second; #js, moved by a requestAnimationFrame loop from
-     performance.now(), the same path; #bar, a scroll-driven animation that grows with the scroll. -->
+     #css, a CSS animation 30 px to the right a second; #js, moved by a requestAnimationFrame loop from its
+     timestamp, the same path; #bar, a scroll-driven animation that grows with the scroll. -->
 <html><head><meta charset="utf-8"><style>
 html, body { margin: 0; background: #000; }
 body { height: 3000px; position: relative; }
@@ -24,7 +24,7 @@ for (let k = 0; k < 14; k++) {
   document.body.appendChild(d);
 }
 const js = document.getElementById('js');
-const step = () => { js.style.transform = `translateX(${30 * ((performance.now() / 1000) % 1)}px)`; requestAnimationFrame(step); };
-step();
+const step = (ts) => { js.style.transform = `translateX(${30 * ((ts / 1000) % 1)}px)`; requestAnimationFrame(step); };
+requestAnimationFrame(step);
 </script>
 </body></html>

@@ -20,8 +20,11 @@
 //       (--fps, else the scene's CFG.FPS, else the --target's, else 30: the rule frames.mjs uses). Frame i is the
 //       page at i / fps seconds, scrolled to from + (to - from) x ease(i / (frames - 1)) CSS pixels, rounded to a
 //       whole pixel (Chrome scrolls by whole pixels). The page's clock is Playwright's (timers, requestAnimationFrame,
-//       Date, performance.now), run forward a frame at a time, and every CSS animation and transition is paused and
-//       set to its time since the frame it first appeared in, so the same page gives the same frames on every run.
+//       Date, performance.now), stopped before the page opens and run forward a frame at a time (i / fps at frame i,
+//       to the millisecond), and every CSS animation and transition is paused and set to its time since the frame it
+//       first appeared in, so the same page gives the same frames on every run. One exception, Playwright's: a page
+//       that reads performance.now() or Date.now() while it loads, outside a timer or a requestAnimationFrame
+//       callback, can read it a millisecond apart from run to run.
 //       In the scene: await loadSeq('<name>') in init, ctx.drawImage(seqAt('<name>', t, t0), x, y, w, h).
 //
 // loadSeq holds every frame decoded (w x h x 4 bytes), so a sequence over 1 GB decoded (frames x w x h x 4 bytes,
@@ -50,7 +53,9 @@ export function seqTooBig({ frames, w, h }) {
 }
 // The scroll position of frame i of n, from `from` to `to` CSS px through `ease`, rounded to a whole pixel.
 export const scrollAt = (i, n, from, to, ease = swift) => Math.round(from + (to - from) * ease(n > 1 ? i / (n - 1) : 1));
-// The page's clock at frame i, in whole milliseconds (Playwright's clock moves in whole milliseconds).
+// The page's clock at frame i, in whole milliseconds since frame 0 (Playwright's clock moves in whole milliseconds); its
+// Date reads CLOCK0 ms past the epoch at frame 0.
+export const CLOCK0 = 1000;
 export const clockAt = (i, fps) => Math.round((i * 1000) / fps);
 
 // A local source: a running local app's URL, or an HTML file in or beside the piece.
@@ -97,8 +102,11 @@ const posNum = (o, k, def) => {
 const launch = () => chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), headless: true });
 async function open(browser, src, vp, dpr, { clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: dpr });
+  // the page's clock, installed on the context and paused before the page exists, at a time ahead of any setup, so the
+  // page opens on a stopped clock (installed on the page, or paused at a time already passed, it starts each capture a
+  // few real milliseconds apart)
+  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }
   const page = await context.newPage();
-  if (clock) { await page.clock.install({ time: 0 }); await page.clock.pauseAt(1); }   // the page starts at 0 and waits for us
   await page.goto(src.url, { waitUntil: src.http ? 'networkidle' : 'load' });
   await page.evaluate(() => document.fonts.ready);
   return page;

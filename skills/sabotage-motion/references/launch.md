@@ -122,4 +122,6 @@ look at the contact sheet for text in the shot that a platform's buttons would c
   the draft is shown first.
 - Colours in Sass variables, CSS-in-JS, design-token JSON or images are not read; add them to the kit by hand.
 - `shots.mjs` takes the page as Chrome draws it at that viewport, scrolling the window (not an inner scrolling element).
-  Video elements and a page's own network data are not set per frame.
+  Video elements and a page's own network data are not set per frame. Timers, `requestAnimationFrame` and CSS
+  animations are the same on every run; a page that reads `performance.now()` or `Date.now()` while it loads, outside a
+  timer or a frame callback, can read it a millisecond apart from run to run (Playwright's clock).
