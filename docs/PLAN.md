@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
@@ -1147,15 +1147,14 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   opposite to its previous transition, with the darker of the two below 0.80; smaller wobbles (grain, a noisy or
   stepped ramp) never end a transition, so a ramp counts as fully as a hard cut. Red transitions are followed the
   same way on chromaticity: one end a saturated red (R/(R+G+B) of 0.8 or more) and the two ends more than 0.2 apart
-  in CIE 1976 u'v'. A frame is over the limit in a kind and direction when the pixels that confirm a transition of
-  that kind and direction *at that frame* cover more than 21,824 px of some 341x256 window (a summed-area table over
-  the scaled frame). Nothing carries over from earlier frames: the area is what flashes concurrently, so a strobe that
-  reverses every frame is an over-limit frame every frame, and a small bar moving across the picture never adds up
-  its past positions. Consecutive over-limit frames in the same kind and direction, with no over-limit frame of the
-  opposite direction between them, are one *transition event* (a sweep that takes a few frames). A *flash* is an
-  event and the next event of the opposite direction, paired from the start without overlap (up, down, up, down, up,
-  down is three flashes). For each flash, the flashes of its kind that begin within one second of its start are
-  counted; more than three general flashes, or more than three red flashes, FAIL. Source
+  in CIE 1976 u'v'. Each pixel counts its own flashes: a *flash* is one of its transitions and the next one, in the
+  opposite direction, paired from its first transition without overlap (up, down, up, down, up, down is three), and
+  dated by when it began. A pixel is *over the rate* at a frame when it confirms a transition there and its flashes of
+  that kind that began within the last second, the one this transition closes included, number more than three. A
+  frame FAILs `flash` when its over-the-rate pixels (general or red) cover more than 21,824 px of some 341x256
+  window, by a summed-area table over the scaled frame. The area is what flashes at that moment, so a strobe that
+  reverses every frame fails, while a small bar moving across the picture never adds up its past positions; and a
+  pattern whose halves swap twice a second is two flashes for each pixel, not four for the picture. Source
   `check` runs `flash` on `out/<name>.mp4` when that render's record matches the current source, and otherwise
   reports it not checked and says to render; delivery is `check --file` on the master, as the workflow already says.
   Fast cuts count too: at extreme's cut rate, shots that alternate dark and light are a flash sequence, so `energy.js` keeps consecutive
@@ -1182,8 +1181,8 @@ with small reversals and with grain-sized noise, and a pattern whose 8 px halves
 times a second, a full-frame strobe reversing every frame at 30 fps and at 60 fps (15 and 30 flashes a second), an
 uneven strobe (up, down, up, then down two frames later, twice a second), a bright band 25% of the frame wide crossing
 it four times a second, and up-down four times in a second (all FAIL); passes up-down three times in a second, a 6x6
-px spot flashing in every 16x16 cell, and a 32x256 px bright bar that steps across the picture and repeats (each
-frame's flashing area is under the limit);
+px spot flashing in every 16x16 cell, a 32x256 px bright bar that steps across the picture and repeats (each
+frame's flashing area is under the limit), and 8 px halves swapping twice a second (two flashes for each pixel);
 `audio_spike` still warns on a click over the bed and passes the extreme card's hits only with the bed under them; the extreme
 card passes `audio_spike` with its bed under it; an unvoiced `--master-only` mix carries the generated bed on the
 beat grid; the bed is ducked under a voice
@@ -1250,6 +1249,11 @@ reversal every frame, an uneven strobe, a repeating band sweep), and the same me
 past positions into a false FAIL; flash pairing was ambiguous. Folded in rev 2.3: no memory (the area is what
 confirms at that frame), runs merge only within one direction, flashes paired without overlap, and each of those
 inputs is a fixture.
+
+Before round 5 the main loop simulated rev 2.3 on every fixture: it got all fourteen right, but paired up and down
+events of different pixels, so halves swapping twice a second (two flashes for each pixel, within the limit) would
+have counted as four. Rev 2.4 counts flashes per pixel and takes the area from the pixels over the rate at each frame;
+the same simulation gets all fifteen fixtures right under it.
 
 ## 24. Version 0.3 (planned)
 
