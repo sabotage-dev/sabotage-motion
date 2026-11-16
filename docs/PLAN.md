@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
@@ -1078,61 +1078,77 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
 - **Beats and shots are different things.** A board beat holds its copy at least as long as `check` requires to read
   it (`board_copy_unread`: max(1.0 s, 0.25 s per word)), at every preset. A *shot* is what lies between two visual
   cuts, and cuts happen inside beats: a new angle, a new background, a punch-in, a swapped layer, while the copy stays
-  on screen across them. So extreme's short shots never shorten a read. Voiced boards keep their timing from the
-  voice (cue anchors win); the beat grid places the visual cuts and hits inside the voiced windows, and only silent
-  beats snap their own length to whole musical beats.
+  on screen across them. So extreme's short shots never shorten a read. On a voiced board nothing snaps: the voice
+  sets every window (cue anchors win, and a silent beat keeps its declared length, since those lengths keep each
+  anchor inside its beat), and the beat grid only places the visual cuts and hits inside the windows. Only a board
+  with no voice snaps its beat lengths to whole musical beats.
 - **What each preset sets** (`energy.js` in the template). Shot lengths are cut intervals, in musical beats of the
   preset's tempo:
 
   | | subtle | normal | extreme |
   |---|---|---|---|
   | Tempo of the beat grid and the bed (Q22) | 84 BPM | 116 BPM | 136 BPM |
-  | Cut interval, so mean shot length | every 4 to 5 beats: 2.9 to 3.6 s | every 2 to 3 beats: 1.0 to 1.6 s | every beat or half beat: 0.22 to 0.44 s, within beats that still hold their copy |
+  | Cut interval in beats, and the mean shot length it gives | 4 to 5 beats: 2.8 to 3.6 s | 2 to 3 beats: 1.0 to 1.6 s | a half beat to one beat: 0.2 to 0.45 s, within beats that still hold their copy |
   | Camera | a slow push, a drift | push-ins, a punch on each hit | punch-ins, whips between beats, shake on impacts, zoom bounces |
   | Transitions | crossfade, soft wipe | mask wipe, slide, whip | whip, glitch cut and flash frame (where the look allows), speed ramp |
-  | Largest line of type, ink height as a share of frame height | 4 to 8% | 9 to 16% | 18 to 35% |
+  | Largest line of type: one line's ink height as a share of frame height | 4 to 8% | 9 to 16% | 18 to 35% |
   | Easing | gentle springs | snap, swift | overshoot, anticipation, whip |
   | Post | low bloom and grain | medium | chromatic aberration and RGB split on hits, within the flash limit |
   | Sound | a soft pad, few hits | a beat bed, whooshes on cuts, hits | a driving beat, impacts, risers and drops, each under `audio_spike` |
 
-- **The bed is its own stem.** `audio.js` writes the preset's beat pattern to `out/<name>.bed.wav` (synthesized,
-  silent at `subtle` if the board says so), separate from the effects stem; `mix.mjs` takes it as the bed when no
-  `--bed` is given, so it is ducked under a voice like any bed, and records it in `master.json`. The effects stem
-  stays the effects.
+- **The bed is its own stem.** `audio.js` writes the preset's beat pattern to `out/<name>.bed.wav`, the picture's
+  full length and on its beat grid (silent at `subtle` if the board says so), separate from the effects stem. The
+  changes to `mix.mjs` this needs: it uses `out/<name>.bed.wav` as the bed when no `--bed` is given, for voiced
+  mixes (ducked under the voice like any bed) and for `--master-only` mixes alike; a generated bed starts at 0, is
+  never end-aligned and has no default fade, since it already spans the picture; `master.json` records its hash,
+  and `check --file`'s provenance includes it. `audio_spike` measures what is heard: the effects and the bed
+  together when a bed stem exists, so extreme's hits are judged against the beat under them.
 - **Text stays readable and inside the safe area through the moves.** Text-bearing layers are not carried by whips
-  (a whip happens on the cut between two beats, when no copy is on screen), shake is limited so text boxes stay inside
-  the target's safe area, and word-by-word slams return one box per word under the line's shared `group`, so
-  `text_safe` and `text_overlap` see them as they do any caption.
+  (a whip happens on the cut between two beats, when no copy is on screen). For every other move (push, punch,
+  zoom bounce, shake) the camera rig computes, at each `t`, the largest zoom and offset that keep the text boxes on
+  screen inside the target's safe area after the camera, and clamps to it. Word-by-word slams return one box per
+  word under the phrase's shared `group` (the whole board copy string, as the template's title does), so
+  `board_copy_*` still finds the phrase and `text_overlap` sees the words as one caption.
 - **Helpers,** pure functions of `t` like everything else: the camera rig driven by a hit list (push, punch, seeded
   shake, whip), transitions (`whip`, `wipe`, `mask`, `zoomPunch`, `glitchCut`, `flash`), kinetic type (slams, scale and
   rotate in) with a layout-only call for `boxes(t)` as in P8, and `cuts(t)`, the scene's list of its visual cuts.
 - **`energy_match` (WARN), measured, never taken on the scene's word (Q21):**
-  - *Cuts* are the scene's declared cuts that the frames confirm: across a cut at `c` (or a transition from `c` to
-    `c + d`, d at most 0.3 s), the probe frames 0.1 s before and 0.1 s after differ in at least 30% of their pixels by
-    at least 16/255, and the frame 0.25 s after still differs from the one before (a flash, which returns, is not a
-    cut). Changes nobody declared (shake, flashes, glitches) never count, and a declared cut the frames do not show is
-    reported. Mean shot length = length / (confirmed cuts + 1).
+  - *Cuts* are the scene's declared cuts that the frames confirm. A declared cut at `c` (or a transition from `c` to
+    `c + d`, d at most 0.3 s) is confirmed when the probe frames at the middle of the shot before it and the middle of
+    the shot after it differ in at least 30% of their pixels by at least 16/255. A "shot" shorter than 0.15 s is part
+    of the transition, not a shot, so a flash declared as a cut is never confirmed; an A-B-A-B run of real half-beat
+    shots is, since each middle frame lies inside its own shot. Changes nobody declared (shake, flashes, glitches)
+    never count, and a declared cut the frames do not show is reported. Mean shot length = length / (confirmed cuts
+    + 1).
   - *Type size* is measured from ink, not boxes: each probe sample is rendered a second time with `fillText` and
-    `strokeText` suppressed (P7 already wraps both), the difference is the text mask, and a box's ink height is the
-    height of the mask inside it. A box with no ink is reported. The largest ink height over the piece, as a share of
-    the frame height, is the type size.
-  - *Motion* is the median, over probe frame pairs outside holds and more than 0.1 s from a confirmed cut, of the
-    share of pixels whose luma changes by at least 8/255.
+    `strokeText` suppressed (P7 already wraps both), and the difference is the text mask, after the camera and the
+    post chain like the frame itself. Each box is mapped through the camera as `text_safe` maps it, and inside it the
+    mask's rows of ink are split into lines (runs of inked rows separated by empty ones); a line's ink height is its
+    run's height. A box with no ink is reported. The tallest line's ink height over the piece, as a share of the frame
+    height, is the type size, so a three-line block of small type reads as small type.
+  - *Motion* is the median, over probe frame pairs outside holds, leaving out only the pairs that straddle a
+    confirmed cut or lie inside a transition, of the share of pixels whose luma changes by at least 8/255.
   - It warns when a `normal` or `extreme` piece is calmer than its preset's floor on any of the three (mean shot
     longer than its range, type smaller than its range, motion under its floor), or a `subtle` piece busier than its
     ceiling. The motion floors and ceiling (Q23), and the 30%, 16/255, 8/255 and 0.25 s above, are first values,
     tuned in P11 on calibration fixtures whose ground truth is built in (a hard cut, a wipe, a whip, a shake, a
     full-frame flash, a slow drift, a static card), never on the preset cards themselves, and recorded in
-    `references/check.md` like the other thresholds.
+    `references/check.md` like the other thresholds. The fixtures include an A-B-A-B run at extreme's half-beat
+    shot, a multi-line block of small type, and a punch-in on large type.
 - **`flash` (FAIL), on the delivered picture, at every preset (Q20).** It runs in `check --file` on the decoded master
   (and in P10 on the decoded composite), so it sees exactly what a viewer sees, motion blur and grain included, at
   the file's frame rate. Each frame is scaled so its longer side is 1024 px and read as RGB; relative luminance comes
-  from linearised sRGB, as WCAG defines it. Per pixel, a *transition* is a change of relative luminance of 10% or
-  more of the maximum where the darker state is below 0.80, or, for red, a change where one state is a saturated red
-  (R/(R+G+B) of 0.8 or more) and the two differ by more than 0.2 in CIE 1976 u'v'. A frame pair has a flash
-  transition when the transitioning pixels of one direction exceed 21,824 px in some 341x256 window. A *flash* is a
-  pair of opposing transitions; more than three general flashes, or more than three red flashes, in any one-second
-  window FAIL. Source `check` reports `flash` as not checked and says to run `check --file`. Fast cuts count too: at
+  from linearised sRGB, as WCAG defines it. Transitions are measured between extremes over time, not between
+  adjacent frames, so a gradual ramp counts as fully as a hard cut: the scaled frame is divided into 16x16 px cells,
+  each cell's mean relative luminance (and its mean chromaticity and red share) is followed frame by frame, and a
+  *transition* runs from one local extreme of that series to the next. A general transition changes relative
+  luminance by 10% or more of the maximum with the darker extreme below 0.80; a red transition has one extreme a
+  saturated red (R/(R+G+B) of 0.8 or more) and the two extremes more than 0.2 apart in CIE 1976 u'v'. At any moment,
+  the cells in the same kind and direction of transition count toward the area: a transition event is large enough
+  when those cells cover more than 21,824 px of some 341x256 window. A *flash* is a pair of opposing transition
+  events; more than three general flashes, or more than three red flashes, in any one-second window FAIL. Source
+  `check` runs `flash` on `out/<name>.mp4` when that render's record matches the current source, and otherwise
+  reports it not checked and says to render; delivery is `check --file` on the master, as the workflow already says. Fast cuts count too: at
   extreme's cut rate, shots that alternate dark and light are a flash sequence, so `energy.js` keeps consecutive
   shots' luminance close at extreme, and the agent slows the cuts where a piece needs a light-dark swing.
 - **Skill text and recipes.** The board names its energy and the agent says which it chose and why; `subtle` is a
@@ -1150,8 +1166,11 @@ one full-frame flash, declared `extreme`, WARNs on `energy_match`; at each prese
 rate, ink type size and motion fall inside that preset's ranges and its `check` and `check --file` show 0 FAIL and
 0 WARN (copy read in full, text inside the safe area); `energy_match` warns on a `normal` board rendered calm and on
 an `extreme` board rendered at normal pace; `flash` FAILs fixtures with four general flashes and with four red
-flashes in one second, passes three of each, passes a flash below the area threshold, and catches a flash that falls
-between the probe's samples (a sub-frame flash that the motion-blurred master shows); the bed is ducked under a voice
+flashes in one second, passes three of each, passes a flash below the area threshold, catches a flash that falls
+between the probe's samples (a sub-frame flash that the motion-blurred master shows), and catches a full-screen 4 Hz
+triangular luminance ramp (from 0.10 to 0.38, at 60 fps) whose adjacent frames change by only 0.04; the extreme
+card passes `audio_spike` with its bed under it; an unvoiced `--master-only` mix carries the generated bed on the
+beat grid; the bed is ducked under a voice
 in a voiced fixture; a fresh session P5's way, given one brief three times (asking for subtle, saying nothing, asking
 for extreme), makes three pieces whose measurements fall in their presets' ranges; and the owner watches those three
 and confirms they read as subtle, normal and extreme.
@@ -1161,7 +1180,7 @@ and confirms they read as subtle, normal and extreme.
 | Q19 | Names and default | `subtle`, `normal`, `extreme`, as the owner put it; `normal` is the default. |
 | Q20 | The flash limit | WCAG 2.3.1 (three flashes) and its definitions, on the decoded master: no more than three general and no more than three red flashes in any one second; a transition counts over more than 21,824 px of a 341x256 window, the frame scaled to 1024 px on its longer side. |
 | Q21 | Where energy is measured | From the frames: cuts the scene declares count only when the frames confirm them; type size from the ink of a text-off render; motion from the probe. |
-| Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo, and the preset's cut interval in beats keeps its shot length in range. |
+| Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo within 10% of its preset's, and the preset's cut interval in beats then sets the shot length (the ranges in the table are the preset tempos'). |
 | Q23 | Motion floors | First values: subtle at most 10% of pixels changing per frame pair, normal at least 2%, extreme at least 6%; tuned on the calibration fixtures in P11. |
 
 ### 23.10 Council round 1 on 23.9 (2026-11-15, rev 1.9 at `d55c925`)
@@ -1183,6 +1202,21 @@ Seats: codex `gpt-6.1-sol` effort high (BLOCK); sonnet on Claude Code (`claude-s
 | P10 must check flashes in the composite; caption styles per preset were unstated | codex, grok | `flash` on P10's decoded composite; the style mapping |
 | Q22's tempos and shot ranges did not agree; the diagnosis said `check` never flags stillness (`motion_dead` does, at 3 s) | grok | Cut intervals in beats; the diagnosis corrected |
 | P11 rewrites P9's recipe while P9 is in review; the examples carry `check.mjs` copies | sonnet | P9 merges first and P11 updates it; the parity test carries the checks |
+
+Round 2 (2026-11-15, delta at `31020c3`): codex BLOCK, sonnet and grok SHIP-WITH-FIXES. Folded in rev 2.1:
+
+| Finding | Seats | Fold |
+|---|---|---|
+| `flash` compared adjacent frames only, so a gradual 4 Hz ramp (0.04 per frame at 60 fps) passed | codex | Transitions between luminance extremes per 16x16 cell; the ramp fixture |
+| The 0.25 s persistence test rejected real A-B-A-B half-beat cuts, and the motion window left 0.02 s per extreme shot | codex, sonnet, grok | Cuts confirmed between the middles of the shots either side; sub-0.15 s "shots" are transitions; motion drops only the pairs at a cut |
+| The bed never reached an unvoiced mix, was looked for as `bed.mp3`, end-aligned and faded | sonnet | The `mix.mjs` changes named: `out/<name>.bed.wav` for voiced and `--master-only`, at 0, full length, no fade, in provenance |
+| `audio_spike` would judge extreme's hits against an effects stem with the beat taken out | sonnet | `audio_spike` measures effects and bed together |
+| Ink height intersected pre-camera boxes with a post-camera mask, and a multi-line box read as one tall line | grok, sonnet | Boxes mapped through the camera; ink split into lines |
+| Pushes, punches and zoom bounces could carry text out of the safe area | sonnet | The rig clamps every move to keep text boxes inside |
+| One group per line broke `board_copy_*` on wrapped copy | codex | One group per board phrase |
+| Subtle's beat endpoints (2.857 s, 3.571 s) fell outside 2.9-3.6 s; a whole beat at 136 BPM (0.441 s) outside 0.44 s | grok | Ranges stated from the beat counts: 2.8-3.6 s and 0.2-0.45 s |
+| A silent beat snapped on a voiced board still moved the voiced windows | grok | Nothing snaps on a voiced board |
+| `flash` only under `check --file` | sonnet | Source `check` runs it on a current render; delivery is `check --file` |
 
 ## 24. Version 0.3 (planned)
 
