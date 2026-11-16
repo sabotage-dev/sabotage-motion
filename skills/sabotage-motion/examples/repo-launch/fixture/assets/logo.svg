@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Snagwick's mark: a bramble stem with its thorns, on a moss-green tile. Drawn for this example; the product is made up. -->
+  <rect width="120" height="120" rx="30" fill="#98BC0C"/>
+  <path d="M38 92 C38 66 48 44 70 34 C80 30 88 36 86 46 C84 55 74 57 68 50" fill="none" stroke="#5E2404" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M41 74 L27 66 M47 57 L58 50 M57 43 L50 31" fill="none" stroke="#5E2404" stroke-width="8" stroke-linecap="round"/>
+</svg>

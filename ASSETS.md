@@ -4,7 +4,8 @@ Every binary file in this repository, with where it came from and its licence. T
 test (`test/assets.test.mjs`) fails on a binary file that is not listed here and on a listed file that
 is missing. A path in the licence column is relative to the piece the file belongs to (the template, or an
 example), except `LICENSE`, which is this repository's own licence at its root, and the look fonts' and the fixture
-kit's licence texts, which sit beside their files (named in full below).
+kit's licence texts, which sit beside their files (named in full below). The repo-launch example's fixture fonts'
+licence texts sit in its `fixture/fonts/`.
 
 | File | Source | Licence |
 |---|---|---|
@@ -34,6 +35,15 @@ kit's licence texts, which sit beside their files (named in full below).
 | `skills/sabotage-motion/examples/lower-third/board.png` | Rendered by this repo from the lower third's own scene and board (`node render.mjs board` in the example's folder): its board sheet | MIT (this repo's own work), `LICENSE` |
 | `skills/sabotage-motion/examples/terminal-demo/contact.png` | Rendered by this repo from the terminal demo's own scene (`node render.mjs contact` in the example's folder): a review sheet of its frames | MIT (this repo's own work), `LICENSE` |
 | `skills/sabotage-motion/examples/terminal-demo/board.png` | Rendered by this repo from the terminal demo's own scene and board (`node render.mjs board` in the example's folder): its board sheet | MIT (this repo's own work), `LICENSE` |
+| `skills/sabotage-motion/examples/repo-launch/fonts/archivo-black-latin-400-normal.woff2` | A copy of the template's file of the same name (same source) | SIL OFL 1.1, `fonts/OFL-ArchivoBlack.txt` |
+| `skills/sabotage-motion/examples/repo-launch/fonts/inter-latin-600-normal.woff2` | A copy of the template's file of the same name (same source) | SIL OFL 1.1, `fonts/OFL-Inter.txt` |
+| `skills/sabotage-motion/examples/repo-launch/fonts/jetbrains-mono-latin-500-normal.woff2` | A copy of the template's file of the same name (same source) | SIL OFL 1.1, `fonts/OFL-JetBrainsMono.txt` |
+| `skills/sabotage-motion/examples/repo-launch/fixture/fonts/snagwick-display.woff2` | The made-up fixture project's display face: an unchanged copy of `looks/fonts/fredoka-latin-600-normal.woff2` (same source), under the project's own file name | SIL OFL 1.1, `fixture/fonts/OFL-Fredoka.txt` |
+| `skills/sabotage-motion/examples/repo-launch/fixture/fonts/snagwick-text.woff2` | The made-up fixture project's body face: an unchanged copy of `template/fonts/inter-latin-600-normal.woff2` (same source), under the project's own file name | SIL OFL 1.1, `fixture/fonts/OFL-Inter.txt` |
+| `skills/sabotage-motion/examples/repo-launch/fixture/assets/logo.svg` | The made-up fixture project's mark (a bramble stem with its thorns on a tile), drawn as SVG for this repo | MIT (this repo's own work), `LICENSE` |
+| `skills/sabotage-motion/examples/repo-launch/assets/shots/app.png` | Captured by this repo from the fixture's own page: `node tools/shots.mjs page app fixture/app/index.html --viewport 390x844 --dpr 2` in the example's folder (a made-up app, its own fonts) | MIT (this repo's own work), `LICENSE` |
+| `skills/sabotage-motion/examples/repo-launch/contact.png` | Rendered by this repo from the repo-launch example's own scene (`node render.mjs contact` in the example's folder): a review sheet of its frames | MIT (this repo's own work), `LICENSE` |
+| `skills/sabotage-motion/examples/repo-launch/board.png` | Rendered by this repo from the repo-launch example's own scene and board (`node render.mjs board` in the example's folder): its board sheet | MIT (this repo's own work), `LICENSE` |
 | `skills/sabotage-motion/examples/explainer-beat/take-raw.wav` | The example's voice: synthesized with the Kokoro-82M v1.0 text-to-speech model, voice `af_heart`, from the board's lines, run locally (`VOICE.md` says how). Not a recording of any person | Apache License 2.0, `LICENSE-voice.txt` (the model's licence, huggingface.co/hexgrad/Kokoro-82M) |
 | `skills/sabotage-motion/examples/explainer-beat/bed.mp3` | The example's music bed, synthesized from code by `examples/explainer-beat/make-bed.mjs` in this repo (no samples, no recordings) | MIT (this repo's own work), `LICENSE` |
 | `docs/media/hero.gif` | Eight seconds (2 s to 10 s) of the showreel example: `node render.mjs video --out out/showreel.mp4` in the example's folder, then `node scripts/readme-media.mjs hero skills/sabotage-motion/examples/showreel/out/showreel.mp4` from the repo root (its defaults are `--from 2 --dur 8`); its type is the showreel's bundled fonts (SIL OFL 1.1, licences in the example's `fonts/`) | MIT (this repo's own work), `LICENSE` |

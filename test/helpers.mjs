@@ -85,6 +85,6 @@ export function repoFiles() {
     .toString().split('\0').filter(Boolean).filter((f) => fs.existsSync(path.join(repoRoot, f)) && fs.statSync(path.join(repoRoot, f)).isFile());
 }
 
-// The examples (plan sections 15 and 23.3), each a full piece in the skill's examples/ folder.
+// The examples (plan sections 15, 23.3 and 23.4), each a full piece in the skill's examples/ folder.
 export const examplesDir = path.join(repoRoot, 'skills', 'sabotage-motion', 'examples');
-export const EXAMPLES = ['showreel', 'explainer-beat', 'lower-third', 'terminal-demo'];
+export const EXAMPLES = ['showreel', 'explainer-beat', 'lower-third', 'terminal-demo', 'repo-launch'];

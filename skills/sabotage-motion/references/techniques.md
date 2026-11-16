@@ -159,7 +159,8 @@ under `${CLAUDE_SKILL_DIR}`).
 - **Screen recordings and app mockups**, for a SaaS promo: cut the clip with `tools/frames.mjs` to the size you will
   draw it, `await loadSeq(name)` in `init`, draw `seqAt(name, t, t0)`; or draw a screenshot as an image. Animate a
   fake cursor along a spline with `swift`, zoom the camera onto the active control, and add a click ring (a circle
-  scaling 0.6 to 1.4 while it fades).
+  scaling 0.6 to 1.4 while it fades). `tools/shots.mjs` takes the screenshot, or a scrolling sequence, of a local page
+  (`references/launch.md`, and the `repo-launch` example, which pans a full-page shot inside a phone frame).
 
 ## 11. Captions and lower thirds
 - **Word-by-word captions** (E): `captions(ctx, CUES.WORDS, t, { safe: target.safe, exclude: target.exclude })`

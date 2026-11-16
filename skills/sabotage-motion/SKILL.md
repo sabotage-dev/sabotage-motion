@@ -1,6 +1,6 @@
 ---
 name: sabotage-motion
-description: Make motion-graphics videos in code. Kinetic typography, title and end cards, logo stings and reveals, animated captions and lower thirds, transparent overlays for existing footage, product and app promo animations, data and counter animations, and synthesized sound effects synced to the picture, with an optional voice-over timed word by word, a music bed, and a master for social. A scene is a pure function of time, drawn with Canvas2D over an optional WebGL2 pass and rendered frame-exact to MP4, MOV or WebM through headless Chrome and ffmpeg, then measured before it ships (safe zones, loudness, frame count, dead stretches). Use it whenever someone wants an animated video asset, a sting, an intro or outro, an end card, animated text over a clip, a storyboarded explainer, a short vertical social clip (9:16) or a website loop whose content is graphics and type rather than filmed people. Not for photoreal people or scenes (that is a generative video model), and not for animating UI inside an app (that is CSS or JS).
+description: Make motion-graphics videos in code. Kinetic typography, title and end cards, logo stings and reveals, animated captions and lower thirds, transparent overlays for existing footage, product and app promo animations, launch videos for a code repo, data and counter animations, and synthesized sound effects synced to the picture, with an optional voice-over timed word by word, a music bed, and a master for social. A scene is a pure function of time, drawn with Canvas2D over an optional WebGL2 pass and rendered frame-exact to MP4, MOV or WebM through headless Chrome and ffmpeg, then measured before it ships (safe zones, loudness, frame count, dead stretches). Use it whenever someone wants an animated video asset, a sting, an intro or outro, an end card, animated text over a clip, a storyboarded explainer, a short vertical social clip (9:16) or a website loop whose content is graphics and type rather than filmed people. Not for photoreal people or scenes (that is a generative video model), and not for animating UI inside an app (that is CSS or JS).
 ---
 
 # sabotage-motion
@@ -54,7 +54,7 @@ size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a 
 | `slate.js` | A placeholder card per beat, for the board sheet and the animatic | No |
 | `grid.js` | A labelled measuring grid at a target's size (optional, for reading safe-zone edges off screenshots) | No |
 | `cues.js`, `cues.json` | Written by `tools/cues.mjs` from a voice take; never by hand | No |
-| `tools/` | `cues.mjs` (voice timing), `voice-elevenlabs.mjs` (optional TTS), `mix.mjs` (mix and master), `frames.mjs` (footage) | No |
+| `tools/` | `cues.mjs` (voice timing), `voice-elevenlabs.mjs` (optional TTS), `mix.mjs` (mix and master), `frames.mjs` (footage), `repo-scan.mjs` (what a project's files say about it), `shots.mjs` (pictures of a local page) | No |
 | `main.js`, `render.mjs`, `check.mjs`, `gl.js`, `wav.js` | The harness, the driver, the checks | No |
 
 Every file documents itself in its header: the scene contract at the top of `scene.js`, the board fields at the top
@@ -74,6 +74,18 @@ Read the `scene.js` header before writing a scene. The rules that keep frames co
 ## Workflow
 
 Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, overlays.
+
+**A launch video for a repo** (a CLI, a library, an app) runs this workflow with a scan in front of it; follow
+`references/launch.md`, in this order:
+1. **Scan** the project: `node tools/repo-scan.mjs <project>` prints its name, pitch, install command, features, colours
+   (each with its file and line), fonts, logo candidates and screenshots, and never touches the network.
+2. **Write `brand.json` from what the scan found** (`--brand <project>/brand.json` writes the draft) and **show it**,
+   with the brand sheet and the scan's notes, before using it.
+3. **Write the board**: a hook, the install in a terminal (`terminal` in `code.js`), two or three feature beats with
+   code or screenshots in a frame (`node tools/shots.mjs` pictures a local page), and an end card with the logo and the
+   install command.
+4. **Show the board** (`node render.mjs board --slates`) before rendering.
+5. **Render, mix, `palette` and `check`**: step 10 below.
 
 1. **Pin the brief.** The destination (it sets the size, fps and safe area: pick a target in `safezones.json`),
    the duration, the exact copy, and where the asset lives (a standalone clip, an overlay on footage, a website
@@ -173,6 +185,9 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
 - `terminal-demo/` (8 s, 9:16): a made-up command-line tool installed and run in a terminal (typed commands, a progress
   bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look, and
   `check` clean on the source and the master (`references/code.md`).
+- `repo-launch/` (15 s, 9:16): a launch video for a made-up project kept in its `fixture/`: the scan, the kit it drafted,
+  a full-page screenshot of the app panned in a phone, the install in a terminal, code with its TODOs lighting up, and
+  an end card, with `palette`, `check` and `check --file` clean (`references/launch.md`).
 
 ## Gotchas (each one cost time before)
 
@@ -217,5 +232,7 @@ measured checks, and rendering it exactly on one machine.
 - `references/techniques.md`: the motion craft catalog, with pointers into the template and the examples.
 - `references/code.md`: code and terminal motion (`code.js`): highlighting and its colours, typed code, diffs, a terminal
   session, frames, the boxes `check` reads, key ticks.
+- `references/launch.md`: a launch video for a repo: the scan (`tools/repo-scan.mjs`), the kit from it, pictures of the
+  app (`tools/shots.mjs`: a full-page screenshot, or a frame sequence under 1 GB decoded), the board, and the checks.
 - `references/delivery.md`: sizes and safe areas, encode settings, alpha overlays, compositing recipes, loudness
   targets, footage, previews.

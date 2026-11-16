@@ -24,6 +24,9 @@ frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 - **Code and terminals.** Code typed out with a seeded cadence, diffs that land line by line and terminal sessions
   (typed commands, a spinner, a progress bar) in generic window, browser and phone frames, highlighted in the look's
   colours with no dependency, with key ticks that follow the typing.
+- **A launch video for a repo.** A scan of the project's files (name, pitch, install command, features, colours,
+  fonts, logo) drafts its brand kit, a full-page screenshot or a scroll sequence pictures its app, and a recipe puts
+  them on a board: hook, install, features, end card.
 
 Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Google Chrome and ffmpeg
 ([Requirements](#requirements)). The design and its decisions are in [docs/PLAN.md](docs/PLAN.md).
@@ -247,6 +250,26 @@ scene draws; `frames.mjs` prints the total and warns over 1 GB. Measured on an A
 in 1.2 s. Both rendered. The limit is the machine's free memory, so keep a sequence well under it, and smaller on
 CI runners. The clip's sound goes in through `mix.mjs --stem` (the tool's header shows the ffmpeg line).
 
+## A launch video for a repo
+
+`tools/repo-scan.mjs` reads a project and prints what a launch video is built from, each value with the file and line
+it came from: the name, a one-line pitch, the install command, the features, the colours (CSS custom properties, a
+Tailwind theme, a web manifest's `theme_color`), the fonts, the logo candidates ranked, and screenshots. It skips
+dependency and build folders, never runs the project's code and never touches the network; with `--brand` it writes a
+draft `brand.json` to show the person first. `tools/shots.mjs` pictures a local HTML file or an app running on this
+machine at a stated viewport:
+
+```sh
+node tools/repo-scan.mjs ../.. --brand ../../brand.json      # the scan, and a draft kit in the project root
+node tools/shots.mjs page home ../../site/index.html --viewport 390x844 --dpr 2    # one full-page screenshot to pan
+node tools/shots.mjs seq feed http://localhost:5173/ --viewport 390x844 --dpr 2 --dur 3 --scroll 0:1400
+```
+
+A page that does not move is one full-page screenshot, which the scene pans. A page that moves becomes a frame sequence
+in the layout `tools/frames.mjs` writes, at the piece's fps, the scroll and the page's own clock set for every frame; one
+over 1 GB decoded is refused. [references/launch.md](skills/sabotage-motion/references/launch.md) is the recipe, and the
+`repo-launch` example runs it on a made-up project.
+
 ## Check and safe zones
 
 `node render.mjs check` measures the piece before you post it, and `--file` measures the master too. Run it in
@@ -303,7 +326,7 @@ checks.
 
 ## Examples
 
-Four examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
+Five examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
 contact sheet and board sheet committed:
 
 | Example | What it shows | `check` |
@@ -312,6 +335,7 @@ contact sheet and board sheet committed:
 | `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
 | `terminal-demo/` | 8 s, 9:16: a made-up command-line tool installed and run in a terminal (typed commands, a progress bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look | 0 FAIL, 0 WARN on the source and the master |
+| `repo-launch/` | 15 s, 9:16: a launch video for a made-up project kept in the example: its scan, the brand kit the scan drafted, the install in a terminal, its code, a full-page screenshot of its app panned in a phone, and an end card | `palette` passes; 0 FAIL, 0 WARN on the source and the master |
 
 Each example's README has its commands. `ASSETS.md` lists every binary file in the repo with its source and licence.
 
@@ -359,6 +383,7 @@ npm run test:check                         # check's detectors, fixture-check an
 npm run test:looks                         # looks and brand kits: precedence, fonts, fonts_used, palette, brand sheet, look cards
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
 npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks
+npm run test:launch                        # a launch video for a repo: the scan, page shots and sequences, the example
 npm run test:examples                      # the examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text
 ```
@@ -380,7 +405,10 @@ alone (a held end card, grain, a 10 px dot moving 1 px a frame, a slow drift, wo
 entrance), then mix masters from it with each artifact defect. The code suites hold the highlighter to golden token
 streams per language (`test/fixtures/code/`), check the typing, scrolling and boxes at stated times against values
 worked out by hand, and render `test/fixtures/fixture-code` (typed code, a terminal and a phone frame on `tiktok-ad`)
-for the frame hashes, `text_safe`, `text_overlap` and the key ticks in its sound. `ASSETS.md` lists every binary file with its source
+for the frame hashes, `text_safe`, `text_overlap` and the key ticks in its sound. The launch suites scan made-up projects
+built under `test/.work/` (colours from each source with their lines, the logo ranking, decoy dependency folders, a
+guard that fails any network call), and capture `test/fixtures/fixture-shots/tall.html`, a tall page with landmarks at
+known heights, as a full-page screenshot and as sequences read back frame by frame. `ASSETS.md` lists every binary file with its source
 and licence, and a test keeps it complete.
 
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist

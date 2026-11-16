@@ -1,0 +1,8 @@
+{
+  "name": "snagwick",
+  "version": "1.2.0",
+  "description": "Every TODO in your code, on one board.",
+  "bin": { "snagwick": "bin/snagwick.js" },
+  "keywords": ["todo", "fixme", "cli", "board"],
+  "license": "MIT"
+}

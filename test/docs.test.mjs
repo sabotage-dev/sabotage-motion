@@ -202,3 +202,46 @@ test('README: the terminal-demo row and the code suite', () => {
   assert.match(pkg.scripts['test:code'], /code-units\.test\.mjs.*code\.test\.mjs.*code-example\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:code/);
 });
+
+// ---------------------------------------------------------------- a launch video for a repo (plan 23.4)
+const SHOTS = await import(pathToFileURL(path.join(templateDir, 'tools', 'shots.mjs')).href);
+const SCAN = await import(pathToFileURL(path.join(templateDir, 'tools', 'repo-scan.mjs')).href);
+test('SKILL.md: the launch branch, in its order (scan, the kit shown, the board, the board shown, render and check), and its tools', () => {
+  const md = read('SKILL.md');
+  const at = md.indexOf('**A launch video for a repo**');
+  assert.ok(at > md.indexOf('## Workflow') && at < md.indexOf('1. **Pin the brief.**'), 'the branch opens the workflow');
+  const branch = md.slice(at, md.indexOf('1. **Pin the brief.**'));
+  const steps = ['**Scan**', '**Write `brand.json` from what the scan found**', '**show it**', '**Write the board**', '**Show the board**', '**Render, mix, `palette` and `check`**'];
+  const pos = steps.map((x) => branch.indexOf(x));
+  assert.ok(pos.every((p) => p >= 0), `the branch names ${steps.filter((_, i) => pos[i] < 0).join(', ')}`);
+  assert.deepEqual([...pos].sort((a, b) => a - b), pos, 'in that order');
+  for (const x of ['node tools/repo-scan.mjs', '`references/launch.md`', 'node tools/shots.mjs', 'a hook, the install in a terminal', 'an end card with the logo and the\n   install command']) assert.ok(branch.includes(x), `the branch: ${x}`);
+  for (const x of ['`repo-scan.mjs`', '`shots.mjs`', '`repo-launch/`', 'launch videos for a code repo']) assert.ok(md.includes(x), `SKILL.md names ${x}`);
+});
+test('references/launch.md: its numbers and lists are the tools\' (1 GB, the bytes a frame, the skipped folders, the token names)', () => {
+  const md = read('references/launch.md');
+  assert.equal(SHOTS.SEQ_MAX_BYTES, 1024 ** 3);
+  assert.match(md, /a sequence over 1 GB decoded \(frames x width x height x\s+4 bytes, in device pixels\) is refused before anything is captured/);
+  // the worked numbers: a 390x844 viewport at dpr 2, 3 s and 8 s at 30 fps, and 8 s at dpr 1
+  const gb = (frames, dpr) => SHOTS.seqBytes({ frames, w: 390 * dpr, h: 844 * dpr }) / SHOTS.SEQ_MAX_BYTES;
+  assert.ok(md.includes(`is ${(SHOTS.seqBytes({ frames: 1, w: 780, h: 1688 }) / (1 << 20)).toFixed(1)} MB a frame decoded`));
+  assert.ok(md.includes(`3 s at 30 fps holds ${gb(90, 2).toFixed(2)} GB`) && md.includes(`(${gb(240, 2).toFixed(2)} GB) is refused`) && md.includes(`8 s holds ${gb(240, 1).toFixed(2)} GB`));
+  assert.ok(SHOTS.seqTooBig({ frames: 240, w: 780, h: 1688 }) && !SHOTS.seqTooBig({ frames: 90, w: 780, h: 1688 }), 'the refused one is refused');
+  for (const d of ['node_modules', 'vendor', '.venv', 'dist', 'build', 'out', 'target', '.next', 'coverage', '.git']) {
+    assert.ok(SCAN.SKIP_DIRS.includes(d), `${d} is skipped`); assert.ok(md.includes(`\`${d}\``), `launch.md names ${d}`);
+  }
+  const names = { bg: 'bgA', background: 'bgA', page: 'bgA', surface: 'bgB', card: 'bgB', panel: 'bgB', 'bg-2': 'bgB', 'bg-alt': 'bgB', text: 'ink', fg: 'ink', foreground: 'ink',
+    muted: 'muted', subtle: 'muted', accent: 'accent', primary: 'accent', brand: 'accent', secondary: 'accent2', 'accent-2': 'accent2', link: 'accent2' };
+  for (const [n, tok] of Object.entries(names)) { assert.equal(SCAN.tokenFor(n), tok, n); assert.ok(md.includes(`\`${n}\``), `launch.md names ${n}`); }
+  for (const x of ['never touches the network', 'never runs the project\'s code', 'never\noverwrites one', 'show it', 'examples/repo-launch/']) assert.ok(md.includes(x) || md.replace(/\n/g, ' ').includes(x.replace(/\n/g, ' ')), `launch.md: ${x}`);
+  assert.match(read('references/techniques.md'), /`tools\/shots\.mjs`/);
+});
+test('README: the launch section, the repo-launch row and the launch suite; CI runs it', () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(md, /^## A launch video for a repo$/m);
+  assert.match(md, /^\| `repo-launch\/` \|.*`palette` passes; 0 FAIL, 0 WARN on the source and the master \|$/m);
+  assert.match(md, /^npm run test:launch /m);
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['test:launch'], /repo-scan\.test\.mjs.*shots\.test\.mjs.*launch-example\.test\.mjs/);
+  assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:launch/);
+});

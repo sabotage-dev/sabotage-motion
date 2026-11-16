@@ -245,13 +245,14 @@ test('dependency and build folders are skipped: their colours, fonts and logos a
   const skip = ['node_modules/pkg', 'packages/web/node_modules/pkg', 'dist', 'build', 'out', 'target', '.venv/lib', 'vendor/x', 'coverage', '.next', '.git', '.cache'];
   for (const d of skip) { files[`${d}/x.css`] = decoy; files[`${d}/d.woff2`] = 'x'; files[`${d}/logo.svg`] = '<svg/>'; files[`${d}/tailwind.config.js`] = "module.exports = { theme: { colors: { primary: '#FF0000' } } };"; }
   files['.github/logo.png'] = 'x';
+  files['.idea/x.css'] = decoy;   // a hidden folder that is not on the list
   const dir = project('skip', files);
   const r = scan(dir);
   assert.equal(r.status, 0, r.out);
   assert.deepEqual(r.json.colors.map((c) => [c.file, c.hex]), [['a.css', '#98BC0C']]);
   assert.deepEqual(r.json.fonts, []);
   assert.deepEqual(r.json.logos.map((l) => l.file).sort(), ['.github/logo.png', 'logo.svg']);
-  assert.deepEqual([...r.json.skipped].sort(), ['.cache', '.git', '.next', '.venv', 'build', 'coverage', 'dist', 'node_modules', 'out', 'packages/web/node_modules', 'target', 'vendor']);
+  assert.deepEqual([...r.json.skipped].sort(), ['.cache', '.git', '.idea', '.next', '.venv', 'build', 'coverage', 'dist', 'node_modules', 'out', 'packages/web/node_modules', 'target', 'vendor']);
 });
 
 test('it never touches the network: no network module, no fetch, and a scan under a guard that fails every connection passes', () => {
