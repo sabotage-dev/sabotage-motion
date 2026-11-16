@@ -21,6 +21,9 @@ frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 - **`check`.** Measured checks before you post: size, fps and frame count, loudness and true peak, stretches where
   nothing moves, an empty first frame, and text outside the platform's safe zones.
 - **Transparent output.** ProRes 4444 or WebM with alpha, for overlays on other footage.
+- **Code and terminals.** Code typed out with a seeded cadence, diffs that land line by line and terminal sessions
+  (typed commands, a spinner, a progress bar) in generic window, browser and phone frames, highlighted in the look's
+  colours with no dependency, with key ticks that follow the typing.
 
 Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Google Chrome and ffmpeg
 ([Requirements](#requirements)). The design and its decisions are in [docs/PLAN.md](docs/PLAN.md).
@@ -300,7 +303,7 @@ checks.
 
 ## Examples
 
-Three examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
+Four examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
 contact sheet and board sheet committed:
 
 | Example | What it shows | `check` |
@@ -308,6 +311,7 @@ contact sheet and board sheet committed:
 | `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage and an end card, with a synthesized score. It ends on the end card of sabotage development, the studio behind this repo. | 0 FAIL; 1 WARN kept on purpose (it fades up from black) |
 | `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
+| `terminal-demo/` | 8 s, 9:16: a made-up command-line tool installed and run in a terminal (typed commands, a progress bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look | 0 FAIL, 0 WARN on the source and the master |
 
 Each example's README has its commands. `ASSETS.md` lists every binary file in the repo with its source and licence.
 
@@ -354,7 +358,8 @@ npm run test:footage                       # frame sequences: the cut, the manif
 npm run test:check                         # check's detectors, fixture-check and its masters, the safe zones
 npm run test:looks                         # looks and brand kits: precedence, fonts, fonts_used, palette, brand sheet, look cards
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
-npm run test:examples                      # the three examples: engine files, outputs, VOICE.md, cues, check
+npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks
+npm run test:examples                      # the examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text
 ```
 
@@ -372,7 +377,10 @@ ffmpeg-generated clips whose frames carry their own numbers, renders `test/fixtu
 back which frame `seqAt` drew. The check suites render `test/fixtures/fixture-check` (19.2 s, voiced by a
 synthetic take): one of each defect `check` looks for, between moving content, and the clean cases it must leave
 alone (a held end card, grain, a 10 px dot moving 1 px a frame, a slow drift, word-by-word captions, a slam
-entrance), then mix masters from it with each artifact defect. `ASSETS.md` lists every binary file with its source
+entrance), then mix masters from it with each artifact defect. The code suites hold the highlighter to golden token
+streams per language (`test/fixtures/code/`), check the typing, scrolling and boxes at stated times against values
+worked out by hand, and render `test/fixtures/fixture-code` (typed code, a terminal and a phone frame on `tiktok-ad`)
+for the frame hashes, `text_safe`, `text_overlap` and the key ticks in its sound. `ASSETS.md` lists every binary file with its source
 and licence, and a test keeps it complete.
 
 **Leak check.** Nothing published here may contain an absolute home path or a string from the owner's denylist

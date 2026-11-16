@@ -1,4 +1,4 @@
-// `check` on the three examples, in place (plan sections 15 and 17, P4): the source checks that need no WebGL
+// `check` on the examples, in place (plan sections 15, 17 and 23.3): the source checks that need no WebGL
 // probe pass with no FAIL and no WARN. motion_dead and first_frame_empty render every frame through WebGL, which
 // takes minutes for the 20 s, 60 fps showreel under SwiftShader on the Linux runners, so they and `check --file` on
 // the masters run on a Mac before a release (the PR records the results); see references/check.md for the WARN

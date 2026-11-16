@@ -158,3 +158,47 @@ test('README: the --param line names the colour tokens and the shader id; "Looks
   assert.ok(buf.length <= 600 * 1024, `looks.png is ${buf.length} bytes (budget 600 KB)`);
   for (const n of LK.LOOK_NAMES) assert.ok(section.includes(`\`${n}\``), `the section names ${n}`);
 });
+
+// ---------------------------------------------------------------- code and terminal motion (plan 23.3)
+const CODE = await import(pathToFileURL(path.join(templateDir, 'code.js')).href);
+test('SKILL.md: code.js in the files table, its craft line, references/code.md and the terminal-demo example', () => {
+  const md = read('SKILL.md');
+  for (const x of ['| `code.js` |', '`references/code.md`', 'codeTheme(style)', 'keyTicks', '`terminal-demo/`']) assert.ok(md.includes(x), `SKILL.md names ${x}`);
+  assert.ok(fs.existsSync(path.join(skillDir, 'references', 'code.md')));
+  assert.match(read('references/techniques.md'), /`references\/code\.md`/);
+});
+test('references/code.md: every helper code.js exports is documented, and its languages, kinds and numbers are code.js\'s', () => {
+  const md = read('references/code.md');
+  const internal = new Set(['mix', 'contrast', 'readable', 'advance', 'langOf', 'normCode', 'KINDS', 'LANGS']);
+  const undocumented = Object.keys(CODE).filter((k) => !internal.has(k) && !md.includes(`\`${k}`)).sort();
+  assert.deepEqual(undocumented, [], 'exports of code.js that references/code.md never names');
+  const langs = md.match(/Languages: (.+?); `plain`/s)[1];
+  for (const l of CODE.LANGS) assert.ok(langs.includes(`\`${l}\``), `the language list names ${l}`);
+  const kinds = [...md.match(/Kinds: ([^.]+)\./s)[1].matchAll(/`(\w+)`/g)].map((m) => m[1]);
+  assert.deepEqual(kinds, CODE.KINDS, 'the kinds, in code.js\'s order');
+  assert.match(md, new RegExp(`at most \`KEY_MAX\` \\(${CODE.KEY_MAX}\\) a second`));
+  assert.match(md, new RegExp(`reads at ${CODE.CODE_CONTRAST}:1 or more`));
+  assert.match(md, new RegExp(`for ${CODE.CURSOR_SOLID} s after the last one \\(\`CURSOR_SOLID\`\\)`));
+  for (const x of ['draw: false', 'deco', 'group', 'examples/terminal-demo/']) assert.ok(md.includes(x), `code.md: ${x}`);
+  // the limits and rules a user meets (council round 1)
+  assert.match(md, /one with a newline is an error that says so/, 'a command is one row');
+  assert.match(md, /a template literal is one string, `\$\{\.\.\.\}` included, and nests/);
+  assert.match(md, /A regular\s+expression literal reads as operators outside `\$\{\}`/);
+  assert.match(md, /Inside `\$\{\}`, a `\/` where an operand belongs/, 'R3: a regex inside ${} is read');
+  assert.match(md, /postfix `\+\+` or `--` it divides/);
+  assert.match(md, /A heredoc reads as plain words/);
+  assert.match(md, /its text is only the\s+characters that show there/);
+  assert.match(md, /a drawn line number counts/);
+  // R2-4: one account of a diff's colours: context lines take the new file's from the start
+  assert.match(md, /context lines take the new file's\s+colours from the start/);
+  assert.doesNotMatch(md, /as the file was/);
+  assert.match(md, /Each hunk starts afresh, whether its header shows or not/);
+});
+test('README: the terminal-demo row and the code suite', () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  for (const ex of EXAMPLES) assert.match(md, new RegExp(`^\\| \`${ex}/\` \\|`, 'm'), `the examples table has ${ex}`);
+  assert.match(md, /^npm run test:code /m);
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['test:code'], /code-units\.test\.mjs.*code\.test\.mjs.*code-example\.test\.mjs/);
+  assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:code/);
+});

@@ -1,0 +1,75 @@
+[
+  { "file": "sample.js", "lang": "js", "lines": [
+    [["com","// add two numbers"]],
+    [["kw","export"],["plain"," "],["kw","function"],["plain"," "],["fn","add"],["punct","("],["plain","a"],["punct",","],["plain"," b "],["op","="],["plain"," "],["num","0x1F"],["punct",")"],["plain"," "],["punct","{"]],
+    [["plain","  "],["kw","const"],["plain"," s "],["op","="],["plain"," "],["str","`${a}+${b}`"],["punct",";"],["plain"," "],["com","/* sum */"]],
+    [["plain","  "],["kw","return"],["plain"," a "],["op","+"],["plain"," b "],["op","??"],["plain"," "],["lit","null"],["punct",";"]],
+    [["punct","}"]],
+    [["plain","console"],["punct","."],["fn","log"],["punct","("],["fn","add"],["punct","("],["num","1.5e3"],["punct",","],["plain"," "],["num","2n"],["punct","),"],["plain"," obj"],["op","?."],["prop","prop"],["punct",","],["plain"," "],["kw","new"],["plain"," "],["type","Date"],["punct","());"]],
+    [["kw","const"],["plain"," t "],["op","="],["plain"," "],["str","`a ${`b ${c}`} d`"],["punct",";"]],
+    []
+  ] },
+  { "file": "sample.ts", "lang": "ts", "lines": [
+    [["kw","interface"],["plain"," "],["type","Clock"],["plain"," "],["punct","{"],["plain"," start"],["op",":"],["plain"," "],["type","number"],["punct",";"],["plain"," laps"],["op",":"],["plain"," "],["type","number"],["punct","[]"],["plain"," "],["punct","}"]],
+    [["kw","export"],["plain"," "],["kw","type"],["plain"," "],["type","Lap"],["plain"," "],["op","="],["plain"," "],["type","Readonly"],["op","<"],["type","Clock"],["op",">"],["punct",";"]],
+    [["kw","function"],["plain"," "],["fn","lap"],["punct","("],["plain","c"],["op",":"],["plain"," "],["type","Clock"],["punct",")"],["op",":"],["plain"," "],["type","number"],["plain"," "],["punct","{"]],
+    [["plain","  "],["kw","return"],["plain"," c"],["punct","."],["prop","laps"],["punct","."],["prop","length"],["plain"," "],["kw","as"],["plain"," "],["type","number"],["punct",";"]],
+    [["punct","}"]],
+    []
+  ] },
+  { "file": "sample.py", "lang": "python", "lines": [
+    [["meta","@dataclass"]],
+    [["kw","class"],["plain"," "],["type","Clock"],["punct",":"]],
+    [["plain","    "],["str","\"\"\"A lap timer.\"\"\""]],
+    [["plain","    start"],["punct",":"],["plain"," float "],["op","="],["plain"," "],["num","0.0"],["plain","  "],["com","# seconds"]],
+    [],
+    [["plain","    "],["kw","def"],["plain"," "],["fn","lap"],["punct","("],["plain","self"],["punct",","],["plain"," now"],["punct",")"],["plain"," "],["op","->"],["plain"," float"],["punct",":"]],
+    [["plain","        "],["kw","return"],["plain"," now "],["op","-"],["plain"," self"],["punct","."],["prop","start"],["plain"," "],["kw","if"],["plain"," now "],["kw","else"],["plain"," "],["lit","None"]],
+    [["fn","print"],["punct","("],["str","f\"{Clock().lap(3)}\""],["punct",","],["plain"," "],["num","0x10"],["punct",","],["plain"," "],["num","1_000j"],["punct",")"]],
+    [["plain","doc "],["op","="],["plain"," "],["str","\"\"\"a \\\"\"\" stays inside\"\"\""]],
+    []
+  ] },
+  { "file": "sample.sh", "lang": "shell", "lines": [
+    [["prompt","$"],["plain"," "],["cmd","./get-darnly.sh"],["plain"," "],["flag","--prefix"],["op","="],["var","$HOME"],["plain","/.local "],["flag","-y"]],
+    [["com","# install, then run"]],
+    [["kw","export"],["plain"," "],["var","PATH="],["str","\"$HOME/bin:$PATH\""]],
+    [["cmd","darnly"],["plain"," fix src/clock.ts "],["op","|"],["plain"," "],["cmd","tee"],["plain"," out.log "],["op","&&"],["plain"," "],["cmd","echo"],["plain"," "],["str","'done'"],["plain"," "],["op","2>&1"]],
+    [["kw","for"],["plain"," f "],["kw","in"],["plain"," *.ts"],["op",";"],["plain"," "],["kw","do"],["plain"," "],["cmd","wc"],["plain"," "],["flag","-l"],["plain"," "],["str","\"$f\""],["op",";"],["plain"," "],["kw","done"]],
+    [["cmd","darnly"],["plain"," fix src/clock.ts "],["op","\\"]],
+    [["plain","  "],["flag","--dry-run"],["plain"," "],["flag","--out"],["op","="],["plain","out.diff"]],
+    [["cmd","echo"],["plain"," "],["var","$HOME"],["plain","#x foo#bar "],["str","\"a\""],["plain","#b "],["com","# a comment"]],
+    [["kw","for"],["plain"," f "],["op","\\"]],
+    [["plain","  "],["kw","in"],["plain"," a.ts b.ts"],["op",";"],["plain"," "],["kw","do"],["plain"," "],["cmd","wc"],["plain"," "],["flag","-l"],["plain"," "],["str","\"$f\""],["op",";"],["plain"," "],["kw","done"]],
+    [["kw","case"],["plain"," "],["str","\"$1\""]],
+    [["kw","in"],["plain"," fix"],["op",")"],["plain"," "],["cmd","darnly"],["plain"," fix"],["op",";;"],["plain"," "],["kw","esac"]],
+    [["kw","case"],["plain"," "],["str","\"$1\""],["plain"," "],["kw","in"]],
+    [["plain","  log"],["op",")"],["plain"," "],["cmd","echo"],["plain"," esac"],["op",";;"]],
+    [["kw","esac"]],
+    []
+  ] },
+  { "file": "sample.json", "lang": "json", "lines": [
+    [["punct","{"]],
+    [["plain","  "],["prop","\"name\""],["punct",":"],["plain"," "],["str","\"mossgate\""],["punct",","]],
+    [["plain","  "],["prop","\"version\""],["punct",":"],["plain"," "],["str","\"0.4.2\""],["punct",","]],
+    [["plain","  "],["prop","\"private\""],["punct",":"],["plain"," "],["lit","true"],["punct",","]],
+    [["plain","  "],["prop","\"tags\""],["punct",":"],["plain"," "],["punct","["],["str","\"clock\""],["punct",","],["plain"," "],["num","3"],["punct",","],["plain"," "],["num","-1.5e2"],["punct",","],["plain"," "],["lit","null"],["punct","]"]],
+    [["punct","}"]],
+    []
+  ] },
+  { "file": "sample.diff", "lang": "diff", "lines": [
+    [["meta","diff --git a/src/clock.ts b/src/clock.ts"]],
+    [["meta","index 3f2a1c0..9b8e7d4 100644"]],
+    [["meta","--- a/src/clock.ts"]],
+    [["meta","+++ b/src/clock.ts"]],
+    [["hunk","@@ -14,3 +14,3 @@"],["ctx"," function lap(clock) {"]],
+    [["ctx","   const now = clock.read();"]],
+    [["del","-  const ms = now - clock.start + 1;"]],
+    [["add","+  const ms = now - clock.start;"]],
+    [["del","--- a removed line that starts with two dashes"]],
+    [["meta","\\ No newline at end of file"]],
+    [["meta","diff --git a/README.md b/README.md"]],
+    [["meta","--- a/README.md"]],
+    [["meta","+++ b/README.md"]],
+    []
+  ] }
+]

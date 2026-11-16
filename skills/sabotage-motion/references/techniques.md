@@ -2,7 +2,8 @@
 
 The craft lives in timing, not effects. Each entry says what it is, when to use it, and where a working
 implementation is: `T:` is `template/scene.js`, `R:` `examples/showreel/scene.js`, `E:`
-`examples/explainer-beat/scene.js`, `L:` `examples/lower-third/scene.js` (all under `${CLAUDE_SKILL_DIR}`).
+`examples/explainer-beat/scene.js`, `L:` `examples/lower-third/scene.js`, `D:` `examples/terminal-demo/scene.js` (all
+under `${CLAUDE_SKILL_DIR}`).
 
 ## Contents
 1. Timing and easing
@@ -151,6 +152,10 @@ implementation is: `T:` is `template/scene.js`, `R:` `examples/showreel/scene.js
   follows the head, a glowing head dot, and the value riding with it.
 - **Bars and rings** (R: `sData`): bars on a spring with a stagger; rings as arcs filling with `inOutCubic`.
 - **Callouts** (R: `callout`): a leader line draws from the anchor, then the label decodes in.
+- **Code, diffs and terminals** (D; `references/code.md`): `code.js` types code with a seeded cadence, lands a diff line
+  by line, plays a terminal session (typed commands, output on its own clock, a spinner, a progress bar) inside generic
+  window, browser and phone frames, colours it all from the look's tokens, and reports the visible lines as boxes.
+  Lift or fade the windows in place; the key ticks are thinned to 12 a second.
 - **Screen recordings and app mockups**, for a SaaS promo: cut the clip with `tools/frames.mjs` to the size you will
   draw it, `await loadSeq(name)` in `init`, draw `seqAt(name, t, t0)`; or draw a screenshot as an image. Animate a
   fake cursor along a spline with `swift`, zoom the camera onto the active control, and add a click ring (a circle
