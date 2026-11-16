@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Revision | 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 2.9 (2026-11-15): council round 9 folded; WCAG's fine-pattern exception not applied (23.9, 23.10, Q25). 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
-| Open questions | Q1-Q10 in section 20, Q11-Q18 in section 23.7 and Q19-Q24 in section 23.9, each with the default the build takes if nobody overrules it |
+| Open questions | Q1-Q10 in section 20, Q11-Q18 in section 23.7 and Q19-Q25 in section 23.9, each with the default the build takes if nobody overrules it |
 
 ## 1. What this is
 
@@ -1141,7 +1141,8 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   a certified photosensitivity test; `references/check.md` says so, and that a piece made for broadcast still goes
   through a certified tool (a Harding-type test). It runs in `check --file` on the decoded master
   (and in P10 on the decoded composite), so it sees exactly what a viewer sees, motion blur and grain included, at
-  the file's frame rate. Each frame is scaled so its longer side is 1024 px, by area averaging, and read as RGB;
+  the file's frame rate. Each frame is scaled so its longer side is 1024 px (down by area averaging, up bilinearly),
+  and read as RGB;
   relative luminance comes from linearised sRGB, as WCAG defines it. Flashes are found per pixel, as WCAG defines
   them, never on averages: an average hides a pattern whose halves swap, spreads a small flashing spot over a whole
   cell, and softens a real flash near the threshold below it. Each pixel's
@@ -1159,11 +1160,12 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   has more than seven transitions of one kind (four complete flashes, since a pixel's transitions alternate) dated
   within the half-open second (t - 1 s, t], compared in exact integer arithmetic on frame indices and the rational
   rate (a transition at frame i counts at frame f when (f - i) x denominator < numerator).
-  WCAG excepts a fine, balanced pattern (white noise, a checkerboard with squares under 0.1 degree, which is 3.4 px of
-  its 341 px field). A pixel's transition at a frame is not counted when every 4x4 px window that contains the pixel
-  also has a transition of the opposite direction, of the same kind, at that frame. A checkerboard of 3 px squares
-  or finer, and noise, are exempt; a checkerboard of 4 px squares is not (one 4x4 window lies inside a square), and
-  neither are bars or a patch that change together. Three
+  WCAG excepts a fine, balanced pattern (white noise, a checkerboard with squares under 0.1 degree). `flash` does not
+  apply that exception (Q25): every confirmed transition counts, so a fine pattern that flickers at full strength
+  fails. An average softens real flashes, and a neighbourhood test can be satisfied by a few counter-moving pixels
+  under a full-frame strobe (rounds 8 and 9), so the conservative side is the safe one for a safety net: a false
+  FAIL costs a change to the piece; a missed strobe costs a viewer. Grain and dithering stay under the 0.1 swing and
+  never count. Three
   flashes and then a lasting change, seven transitions, pass, as WCAG passes them. At each frame, the pixels flashing
   too fast form the area, whether or not they change at that very frame, so the result does not depend on the frame
   rate and a strobe split across columns or a sweeping band is seen whole. General and red are counted separately,
@@ -1192,22 +1194,22 @@ rate, ink type size and motion fall inside that preset's ranges and its `check` 
 an `extreme` board rendered at normal pace; `flash` FAILs: four general flashes in a second; four red flashes in a second between a saturated red and a purple
 0.22 apart in u'v' with less than 0.1 of luminance between them (so only the red rule can catch it), the same
 after an earlier colour within 0.2 of both, the same as a fade through a middle colour, and as a continuous ramp
-(six frames a cycle, and eight); a full-frame strobe reversing every frame at 30 and at 60 fps; an uneven strobe;
-a 4 Hz triangular ramp (0.10 to 0.38 at 60 fps, 0.04 a frame), the same with small reversals and with grain-sized
-noise; 8 px halves swapping eight times a second; a 4x4 px checkerboard inverting every frame, full-frame at 0.1
-and 0.5 and as a 256 px patch at 0.19 and 0.30; 6 px bars every 20 px rising and falling together by 0.125; a band
-25% of the frame wide crossing it four times a second, at 30 and at 60 fps; a strobe staggered across seven
-columns; one earlier transition and then four flashes; four 6-frame pulses within 0.9 s; eight transitions within
-0.968 s at 29.97 fps; a 65x341 px rectangle and a 341x65 px strip each flashing four times a second; a 32x256 px
-bar repeating its path 4.3 times a second (Q24); and a sub-frame flash that the motion-blurred master shows between
-the probe's samples. It passes: three general and three red flashes in a second (cut, faded, and as a ramp of ten
-frames a cycle); a red ramp that reaches only 0.164 from the red; three flashes and then a held rise; four 7-frame
-pulses spanning 1.03 s; eight transitions over 1.001 s at 29.97 fps, and eight whose first is exactly one second
-before the last at 30 fps; 8 px halves swapping four times a second; black-and-white checkerboards of 1 and 2 px
-and a 3 px checkerboard inverting every frame, and full-range noise every frame (WCAG's fine-pattern exception);
-a 6x6 px spot flashing in every 16x16 cell; the bar crossing once; a flicker between 0.85 and 1.0 (the darker end
-above 0.80); swings of 0.08 every frame; a general strip and a red strip next to each other, each under the area
-on its own; a slow fade up and down; and grain. `audio_spike` still warns on a click over the bed and passes the extreme card's hits only with the bed under them; the extreme
+(six frames a cycle, and eight); a full-frame strobe reversing every frame at 30 and at 60 fps; the same with a
+counter-moving pixel in every 4x4 block (at full and at 0.11 strength); an uneven strobe; a 4 Hz triangular ramp
+(0.10 to 0.38 at 60 fps, 0.04 a frame), the same with small reversals and with grain-sized noise; 8 px halves
+swapping eight times a second; checkerboards of 1, 2, 3 and 4 px inverting every frame and full-range noise every
+frame (Q25); 4x4 px checks at 0.19 and 0.30 in a 256 px patch; 6 px bars every 20 px rising and falling together
+by 0.125; a band 25% of the frame wide crossing it four times a second, at 30 and at 60 fps; a strobe staggered
+across seven columns; one earlier transition and then four flashes; four 6-frame pulses within 0.9 s; eight
+transitions within 0.968 s at 29.97 fps; a 65x341 px rectangle and a 341x65 px strip each flashing four times a
+second; a 32x256 px bar repeating its path 4.3 times a second (Q24); and a sub-frame flash that the motion-blurred
+master shows between the probe's samples. It passes: three general and three red flashes in a second (cut, faded,
+and as a ramp of ten frames a cycle); a red ramp that reaches only 0.164 from the red; three flashes and then a
+held rise; four 7-frame pulses spanning 1.03 s; eight transitions over 1.001 s at 29.97 fps, and eight whose first
+is exactly one second before the last at 30 fps; 8 px halves swapping four times a second; a 6x6 px spot flashing
+in every 16x16 cell; the bar crossing once; a flicker between 0.85 and 1.0 (the darker end above 0.80); swings of
+0.08 every frame; a general strip and a red strip next to each other, each under the area on its own; a slow fade
+up and down; and grain. `audio_spike` still warns on a click over the bed and passes the extreme card's hits only with the bed under them; the extreme
 card passes `audio_spike` with its bed under it; an unvoiced `--master-only` mix carries the generated bed on the
 beat grid; the bed is ducked under a voice
 in a voiced fixture; a fresh session P5's way, given one brief three times (asking for subtle, saying nothing, asking
@@ -1217,10 +1219,11 @@ and confirms they read as subtle, normal and extreme.
 | # | Question | Default |
 |---|---|---|
 | Q19 | Names and default | `subtle`, `normal`, `extreme`, as the owner put it; `normal` is the default. |
-| Q20 | The flash limit | WCAG 2.3.1 (three flashes) and its definitions, on the decoded master per pixel, with its fine-pattern exception as a balance test in 4x4 px windows: a pixel with more than seven counted transitions of a kind (four complete flashes) in a half-open second, in exact frame arithmetic, is flashing too fast; a frame fails when one kind's such pixels cover more than 21,824 px of a 341x256 window in either orientation, the frame scaled to 1024 px on its longer side; general and red counted separately. |
+| Q20 | The flash limit | WCAG 2.3.1 (three flashes) and its definitions, on the decoded master per pixel, without its fine-pattern exception (Q25): a pixel with more than seven counted transitions of a kind (four complete flashes) in a half-open second, in exact frame arithmetic, is flashing too fast; a frame fails when one kind's such pixels cover more than 21,824 px of a 341x256 window in either orientation, the frame scaled to 1024 px on its longer side; general and red counted separately. |
 | Q21 | Where energy is measured | From the frames: cuts the scene declares count only when the frames confirm them; type size from the ink of a text-off render; motion from the probe. |
 | Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo within 10% of its preset's. `energy_match` then judges the shot length against the preset's cut interval in beats at the board's own tempo (the seconds in the table are at the preset tempos). |
 | Q24 | A small shape that repeats its path fast | It fails when its path's area is over the limit, though at any one moment it covers less (each pixel on the path flashes too fast; a conservative reading of WCAG's area for content that may reach someone with photosensitive epilepsy). Round 4 had read it the other way; the owner may relax it. |
+| Q25 | WCAG's exception for fine balanced patterns | Not applied: fine patterns that flicker at full strength (pixel-scale checkerboards, full-range noise every frame) fail. Three attempts to apply it either hid real flashes or excused a strobe; a safety net errs toward failing. The owner may ask for it back with a certified-tool reference. |
 | Q23 | Motion floors | First values: subtle at most 10% of pixels changing per frame pair, normal at least 2%, extreme at least 6%; tuned on the calibration fixtures in P11. |
 
 ### 23.10 Council round 1 on 23.9 (2026-11-15, rev 1.9 at `d55c925`)
@@ -1282,6 +1285,13 @@ across columns pass at any rate; four 7-frame pulses dated at their ends slipped
 no pairing (more than six transitions in a half-open second), the area is every pixel flashing too fast at that moment,
 and the window is checked in either orientation. The main loop's simulation of rev 2.5 (red included) gets all
 twenty-four fixtures right.
+
+Round 9 (2026-11-15, rev 2.8 at `cd426b1`): codex, sonnet and grok all BLOCK. The balance test asked only for an
+opposite transition somewhere in each 4x4 window, so a full-frame strobe with one counter-moving pixel per 4x4 block
+(at full or at 0.11 strength) was excused, general and red; a fine checkerboard whose two phases confirm on
+alternate frames was not; the simulation's frame edge differed from the plan's. Rev 2.9 drops the exception (Q25):
+every transition counts. The simulation of rev 2.9 gets all fifty fixtures right, the fine patterns now among the
+FAILs and the round 9 lattices FAIL too.
 
 Round 8 (2026-11-15, rev 2.7 at `a53586b`): codex and grok BLOCK, sonnet SHIP-WITH-FIXES. The 3x3 average was wrong
 both ways: it softened real flashes near the threshold below it (4x4 px checks at 0.19 and 0.30; 6 px bars rising by
