@@ -57,8 +57,14 @@ lang)` splits the same into lines. Languages: `js`, `ts` (also `javascript`, `ty
 `kw`, `lit`, `str`, `num`, `com`, `fn`, `type`, `prop`, `punct`, `op`, `meta`, `var`, `flag`, `cmd`, `prompt`, `add`,
 `del`, `hunk`, `ctx`. It is a small scanner, not a parser:
 
-- js and ts: a template literal is one string, `${...}` included, and nests (a template literal inside `${}` does not
-  end the outer one). A regular expression literal reads as operators.
+- js and ts: a template literal is one string, `${...}` included, and nests: its `${...}` is read as code a token at
+  a time, so a quote, a brace or a backtick in a string, a regex or a template literal inside it never ends the outer
+  one. Inside `${}`, a `/` where an operand belongs (at its start, after an operator or an opening bracket, after a
+  keyword such as `return`, after the `)` of `if (...)` or `while (...)`) starts a regex literal, which runs to its
+  closing `/` outside a `[...]` class on the same line; after a name, a number, a closing bracket, a string or a
+  postfix `++` or `--` it divides. A string or a regex in `${}` that does not close on its line (or a template literal
+  that never closes) ends the literal at the next backtick instead, so the code after it keeps its colours. A regular
+  expression literal reads as operators outside `${}`.
 - python: escapes count inside triple-quoted strings (an escaped quote does not end one).
 - shell: a word starts a command at the start of a line, after `|`, `&&`, `||`, `;` or `(`, and after a case
   pattern's `)`; a `\` at the end of a line carries the command on to the next one. `#` starts a comment only at the

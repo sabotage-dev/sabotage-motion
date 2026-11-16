@@ -105,18 +105,17 @@ const NL = [/\n/y, (s, src, j, st) => { if (!st.cont) st.cmdPos = !(st.caseBody 
 const WS = [/[ \t\r]+/y, 'plain'];
 const DQ = /"(?:\\.|[^\\"\n])*"?/y, SQ = /'(?:\\.|[^\\'\n])*'?/y;
 
-// A template literal, from its backtick to the closing one, past every ${...} in it (which may hold strings, comments
-// and template literals of its own); the whole literal, ${...} included, is a string. When the ${...} scan cannot read
-// the code in it (a regular expression literal, whose quotes and braces are not code) or runs to the end of the source
-// without closing, the literal ends at the next unescaped backtick instead (plainEnd), so it never swallows the code
-// after it.
+// A template literal, from its backtick to the closing one, past every ${...} in it; the whole literal, ${...} included,
+// is a string. A ${...} is read as code a token at a time (names, numbers, brackets, strings, comments, regular
+// expression literals, template literals of its own), so a quote, a brace or a backtick inside a string or a regex
+// never ends it. When a string or a regex in it does not close on its line, or the literal never closes before the
+// source ends, the literal ends at the next unescaped backtick instead (plainEnd), so it never swallows the code after it.
 function plainEnd(s, i) {
   let j = i + 1;
   while (j < s.length) { if (s[j] === '\\') j += 2; else if (s[j] === '`') return j + 1; else j++; }
   return s.length;
 }
-// { end, closed }: closed is true only when the literal reached its own closing backtick; it is false when its ${...}
-// scan stopped at a regular expression literal, or when the source ended first.
+// { end, closed }: closed is true only when the literal reached its own closing backtick.
 function templateScan(s, i) {
   let j = i + 1;
   while (j < s.length) {
@@ -127,22 +126,59 @@ function templateScan(s, i) {
   }
   return { end: s.length, closed: false };
 }
+// Where a string that opens at i closes (just past its quote), or -1 when it does not close on its line. A backslash
+// escapes the next character, a newline included (a continued line).
+function stringEnd(s, i) {
+  for (let k = i + 1; k < s.length; k++) {
+    if (s[k] === '\\') k++;
+    else if (s[k] === s[i]) return k + 1;
+    else if (s[k] === '\n') return -1;
+  }
+  return -1;
+}
+// Where a regular expression literal that opens at i closes (past its flags), or -1 when it does not close on its line:
+// the first unescaped / outside a [...] class.
+function regexEnd(s, i) {
+  let cls = false;
+  for (let k = i + 1; k < s.length; k++) {
+    const c = s[k];
+    if (c === '\n') return -1;
+    if (c === '\\') { if (s[k + 1] === '\n') return -1; k++; } else if (cls) { if (c === ']') cls = false; } else if (c === '[') cls = true;
+    else if (c === '/') { k++; while (k < s.length && /[A-Za-z]/.test(s[k])) k++; return k; }
+  }
+  return -1;
+}
 // A / where an operand belongs starts a regular expression literal: at the start of the ${...}, after an operator or
-// an opening bracket, or after a keyword that takes an operand (return /x/).
+// an opening bracket, after a keyword that takes an operand (return /x/), and after the ) of if (...), while (...),
+// for (...) or with (...). After a name (a keyword after a dot is a name: o.in), a number, a closing bracket, a string,
+// a regex or a postfix ++ or -- it divides.
 const REGEX_PREV = new Set([...'(,=:[!&|?{};+-*%<>~^']), REGEX_AFTER = words('return typeof case do else in of instanceof new delete void throw yield await');
+const CONTROL = words('if while for with');
+const ID = /[A-Za-z_$][\w$]*/y, NUM = /\d[\w.]*/y;
 // The end of a ${...} (just past its closing brace, or the end of the source), or { stop: true } where the scan cannot
-// go on: at a regular expression literal (its quotes and braces would be misread as code), or after a template literal
-// inside that did not close.
+// go on: a string or a regex that does not close on its line, or a template literal inside that does not close.
 function exprScan(s, j) {
   let depth = 1, prev = '', word = '';
+  const parens = [];   // for each open (, whether it is a control statement's condition
   while (j < s.length) {
-    const c = s[j];
-    if (c === '/' && s[j + 1] !== '/' && s[j + 1] !== '*' && (!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))) return { end: j, stop: true };
-    if (c === '{') { depth++; j++; } else if (c === '}') { if (--depth === 0) return { end: j + 1 }; j++; } else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; j = e.end; }
-    else if (c === '"' || c === "'") { j++; while (j < s.length && s[j] !== c && s[j] !== '\n') j += s[j] === '\\' ? 2 : 1; j++; } else if (c === '/' && s[j + 1] === '/') { while (j < s.length && s[j] !== '\n') j++; } else if (c === '/' && s[j + 1] === '*') { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; } else j++;
-    if (/\s/.test(c)) continue;
-    word = /[\w$]/.test(c) ? (/[\w$]/.test(prev) ? word + c : c) : '';
-    prev = s[j - 1];   // the last character read: an operator, a bracket, a word's last letter, a string's quote
+    const c = s[j], n = s[j + 1];
+    if (/\s/.test(c)) { j++; continue; }
+    if (c === '/' && (n === '/' || n === '*')) {   // a comment: not a token, so what came before still counts
+      if (n === '/') { while (j < s.length && s[j] !== '\n') j++; } else { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; }
+      continue;
+    }
+    let next = j + 1, last = c, w = '';   // where the next token starts; what this one counts as for a / after it
+    if (/[A-Za-z_$]/.test(c)) { ID.lastIndex = j; w = ID.exec(s)[0]; next = j + w.length; last = 'a'; if (prev === '.') w = ''; }   // o.in is a name
+    else if (/\d/.test(c)) { NUM.lastIndex = j; next = j + NUM.exec(s)[0].length; last = '0'; }
+    else if (c === '{') depth++;
+    else if (c === '}') { if (--depth === 0) return { end: j + 1 }; }
+    else if (c === '(') parens.push(CONTROL.has(word));
+    else if (c === ')') { if (parens.pop()) last = ';'; }
+    else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; next = e.end; }
+    else if (c === '"' || c === "'") { next = stringEnd(s, j); if (next < 0) return { end: j, stop: true }; }
+    else if (c === '/' && (!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))) { next = regexEnd(s, j); if (next < 0) return { end: j, stop: true }; }
+    else if ((c === '+' || c === '-') && n === c) { next = j + 2; last = prev === 'a' || prev === ')' || prev === ']' ? ')' : c; }   // postfix ++ and -- leave an operand
+    prev = last; word = w; j = next;
   }
   return { end: s.length };
 }

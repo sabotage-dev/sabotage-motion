@@ -123,6 +123,9 @@ test('diff: with hunks: false a hunk that ends inside a comment does not colour 
     assert.equal(d.rows.some((r) => r.kind === 'hunk'), hunks);
   }
 });
+// A method whose return is a template literal holding `expr` in its ${}, then a statement with a template of its own.
+const inClass = (expr) => 'class A {\n  f(s) {\n    return `${ ' + expr + ' }`;\n  }\n}\nconst v = `w`;';
+const CLASS_KINDS = ['kw plain punct', 'plain fn punct plain punct plain punct', 'plain kw plain str punct', 'plain punct', 'punct', 'kw plain op plain str punct'];
 test('js: a regular expression in ${} does not carry the template past its closer; the next statement keeps its colours (R2-2)', () => {
   const ks = (src) => K.tokenize(src, 'js').map((t) => [t.k, t.s]);
   const after = (src) => K.tokenize(src, 'js').slice(-6).map((t) => t.k);
@@ -132,14 +135,13 @@ test('js: a regular expression in ${} does not carry the template past its close
   assert.deepEqual(ks('const t = `a ${s.replace(/\'/g, "")} b`; const m = 2;').slice(4, 6), [['str', '`a ${s.replace(/\'/g, "")} b`'], ['punct', ';']]);
   assert.deepEqual(after('const t = `a ${s.replace(/\'/g, "")} b`; const m = 2;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
   // in a method, a misread scan would not run out: it would close the ${} on the class's braces and end the template at
-  // the next backtick in the file. A quote in a regex at the start of the ${}, after an operator, after return, and in
-  // a template inside the ${}: the line after the class keeps its colours. The first three end on their own closer; the
-  // last falls back to round 1's rule, which ends the outer template at the next backtick (the inner one's opener).
-  for (const expr of ["/'/.test(s)", 's.replace(/\'/g, "")', "(() => { return /'/.test(s) })()", "`b ${ /'/.test(s) }`"]) {
-    const cls = `class A {\n  f(s) {\n    return \`\${ ${expr} }\`;\n  }\n}\nconst v = \`w\`;`;
-    const got = K.highlight(cls, 'js').map((l) => l.map((t) => t.k).join(' '));
-    assert.deepEqual([got[0], got[1], got[3], got[4], got[5]], ['kw plain punct', 'plain fn punct plain punct plain punct', 'plain punct', 'punct', 'kw plain op plain str punct'], expr);
-    if (expr[0] !== '`') assert.equal(got[2], 'plain kw plain str punct', expr);
+  // the next backtick in the file. A quote or a backtick in a regex at the start of the ${}, after an operator, after
+  // return, in a template inside the ${}, and after a control statement's condition: every template ends on its own
+  // closer, and the line after the class keeps its colours.
+  for (const q of ["'", '`']) {
+    for (const expr of [`/${q}/.test(s)`, `s.replace(/${q}/g, "")`, `(() => { return /${q}/.test(s) })()`, '`b ${ /' + q + '/.test(s) }`', `(() => { if (s) /${q}/.test(s); })()`]) {
+      assert.deepEqual(K.highlight(inClass(expr), 'js').map((l) => l.map((t) => t.k).join(' ')), CLASS_KINDS, expr);
+    }
   }
   // a template cut off inside ${} (a snippet), and a string inside ${} that never closes: each ends at its own closer
   assert.deepEqual(after('const s = `a ${ x(`; const n = 1;'), ['kw', 'plain', 'op', 'plain', 'num', 'punct']);
@@ -147,6 +149,75 @@ test('js: a regular expression in ${} does not carry the template past its close
   // what still nests: a template inside ${}, division, and a template over lines
   assert.deepEqual(ks('t = `a ${`b ${c}`} d ${x / y / z}`;')[3], ['str', '`a ${`b ${c}`} d ${x / y / z}`']);
   assert.deepEqual(K.highlight('h = `\n  ${items.map((x) => `<li>${x}</li>`).join("")}\n`;', 'js').map((l) => l.map((t) => t.k).join(' ')), ['plain op plain str', 'str', 'str punct']);
+});
+// Council round 3: the eight inputs, each with its template literal written out. Each literal must be one string from its
+// opener to its own closer, and the statement after it (const n = ...) must keep its colours.
+const R3 = [
+  ['1', 'const s = `${x++ / 2 + `/*`}`; const n = 1;', '`${x++ / 2 + `/*`}`'],
+  ['2', 'const s = `${ /x/.test(x) ? `/*` : `` }`; const n = 1;', '`${ /x/.test(x) ? `/*` : `` }`'],
+  ['3', 'const s = `found ${n++ / 2} in ${`file`} now`; const n = 1;', '`found ${n++ / 2} in ${`file`} now`'],
+  ['4', 'const s = `<ul>${items.filter((x) => /a/.test(x)).map((x) => `<li>${x}</li>`).join("")}</ul>`; const n = 1;', '`<ul>${items.filter((x) => /a/.test(x)).map((x) => `<li>${x}</li>`).join("")}</ul>`'],
+  ['5', 'const s = `head\n${/a/.test(x) ? `yes` : `no`}\ntail`; const n = 1;', '`head\n${/a/.test(x) ? `yes` : `no`}\ntail`'],
+  ['6', 'const s = `a ${"`"} ${/x/.test(s)} b`; const n = 1;', '`a ${"`"} ${/x/.test(s)} b`'],
+  ['7', "class A {\n  f(s) {\n    return `a ${ (() => { if (s) /'/.test(s); })() } b`;\n  }\n}\nconst n = `w`;", "`a ${ (() => { if (s) /'/.test(s); })() } b`"],
+  ['8a', 'const s = `${ /{/.test(x) }`; const n = 1;', '`${ /{/.test(x) }`'],
+  ['8b', 'const t = `a ${s.replace(/\'/g, "")} b`; const n = 1;', '`a ${s.replace(/\'/g, "")} b`'],
+];
+// The text of the str (and nl) tokens from where `lit` starts in `src`, as far as they run.
+function strFrom(src, lit) {
+  const at = src.indexOf(lit);
+  let pos = 0, text = '';
+  for (const t of K.tokenize(src, 'js')) {
+    if (pos >= at && (t.k === 'str' || t.k === 'nl')) text += t.s; else if (pos >= at && text) break;
+    pos += t.s.length;
+  }
+  return text.replace(/\n$/, '');
+}
+// The kinds of the tokens from `const n` to the end of the source.
+function afterKinds(src) {
+  const lines = K.highlight(src, 'js'), last = lines[lines.length - 1], i = last.map((t) => t.s).join('').lastIndexOf('const n');
+  let col = 0;
+  const out = [];
+  for (const t of last) { if (col >= i) out.push(t.k); col += t.s.length; }
+  return out.join(' ');
+}
+test('js: round 3\'s eight inputs: each template is one string to its own closer, and the code after it keeps its colours (R3)', () => {
+  for (const [id, src, lit] of R3) {
+    assert.ok(src.includes(lit), id);
+    assert.equal(strFrom(src, lit), lit, `input ${id}: the template literal`);
+    assert.equal(afterKinds(src), id === '7' ? 'kw plain op plain str punct' : 'kw plain op plain num punct', `input ${id}: the code after it`);
+  }
+});
+test('js: in ${}, a regex is a token: its quotes, braces, backticks and / in a [...] class never count; a / after postfix ++ or -- divides (R3)', () => {
+  const after = (src) => afterKinds(src);
+  // a backtick in a regex at the start of the ${}: read as code, it would open a template (no fallback rescues this)
+  assert.equal(strFrom('const s = `${ /`/.test(s) }`; const n = `w`;', '`${ /`/.test(s) }`'), '`${ /`/.test(s) }`');
+  assert.equal(after('const s = `${ /`/.test(s) }`; const n = `w`;'), 'kw plain op plain str punct');
+  // a / inside a [...] class does not close the regex
+  assert.equal(strFrom('const s = `${ /[/`]/.test(s) }`; const n = 1;', '`${ /[/`]/.test(s) }`'), '`${ /[/`]/.test(s) }`');
+  assert.equal(after('const s = `${ /[/`]/.test(s) }`; const n = 1;'), 'kw plain op plain num punct');
+  // postfix ++ and -- after a name, a ) and a ]: the / divides; prefix ++ leaves the / to its operand
+  for (const e of ['x++', 'x--', 'f()++', 'a[0]++', '++x']) {
+    const src = 'const s = `${' + e + ' / 2 + `/*`}`; const n = 1;';
+    assert.equal(strFrom(src, '`${' + e + ' / 2 + `/*`}`'), '`${' + e + ' / 2 + `/*`}`', e);
+    assert.equal(after(src), 'kw plain op plain num punct', e);
+  }
+  // a comment is not a token: a / after f( and a comment still starts a regex
+  assert.equal(after('const s = `${ f(/* c */ /`/.test(s)) }`; const n = `w`;'), 'kw plain op plain str punct');
+  // a keyword after a dot is a name: o.in / 2 divides
+  assert.equal(after('const s = `${ o.in / 2 + `/*` }`; const n = 1;'), 'kw plain op plain num punct');
+  // still division: after a name, a ), a ], a number
+  assert.equal(strFrom('t = `${x / y / z}${(a) / 2}${b[0] / 3}${4 / 2}`;', '`'), '`${x / y / z}${(a) / 2}${b[0] / 3}${4 / 2}`');
+});
+test('js: a string or a regex in ${} that does not close on its line ends the template at the next backtick, its last resort (R3)', () => {
+  // in a method a string or a regex that ran on past its line could close on a later line and on the class's braces
+  // (the last: a regex in a template inside the ${}: the inner template stops, and so must the outer one)
+  for (const expr of ['s.split(/,)', "s.split(',)", '`b ${ s.split(/,) }`']) {
+    const src = 'class A {\n  f(s) {\n    return `${ ' + expr + ' }`;\n  }\n  g(a, b) { return a / b; } // it\'s here\n}\nconst n = `w`;';
+    const got = K.highlight(src, 'js').map((l) => l.map((t) => t.k).join(' '));
+    if (expr[0] !== '`') assert.equal(got[2], 'plain kw plain str punct', expr);
+    assert.deepEqual(got.slice(3), ['plain punct', 'plain fn punct plain punct plain punct plain punct plain kw plain op plain punct plain punct plain com', 'punct', 'kw plain op plain str punct'], expr);
+  }
 });
 test('rules the goldens do not reach: a lower-case Python class, shell\'s in after for and case, a prompt only at a line\'s start', () => {
   assert.deepEqual(K.tokenize('class clock_face:', 'python').map((t) => [t.k, t.s]), [['kw', 'class'], ['plain', ' '], ['type', 'clock_face'], ['punct', ':']]);

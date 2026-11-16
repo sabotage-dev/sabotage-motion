@@ -183,7 +183,9 @@ test('references/code.md: every helper code.js exports is documented, and its la
   // the limits and rules a user meets (council round 1)
   assert.match(md, /one with a newline is an error that says so/, 'a command is one row');
   assert.match(md, /a template literal is one string, `\$\{\.\.\.\}` included, and nests/);
-  assert.match(md, /A regular expression literal reads as operators/);
+  assert.match(md, /A regular\s+expression literal reads as operators outside `\$\{\}`/);
+  assert.match(md, /Inside `\$\{\}`, a `\/` where an operand belongs/, 'R3: a regex inside ${} is read');
+  assert.match(md, /postfix `\+\+` or `--` it divides/);
   assert.match(md, /A heredoc reads as plain words/);
   assert.match(md, /its text is only the\s+characters that show there/);
   assert.match(md, /a drawn line number counts/);

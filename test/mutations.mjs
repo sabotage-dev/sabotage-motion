@@ -345,7 +345,7 @@ const M = [
   ["P8 fold 5: a header without counts counts none", T + "code.js", [["return m ? { old: m[1] != null ? +m[1] : 1, new: m[2] != null ? +m[2] : 1 } : null;", "return m ? { old: m[1] != null ? +m[1] : 0, new: m[2] != null ? +m[2] : 0 } : null;"]], CU],
   ["P8 fold 5: an added line counts on the old side", T + "code.js", [["if (st.hunk) useLine(st, kind === 'add' ? 0 : 1, kind === 'del' ? 0 : 1);", "if (st.hunk) useLine(st, 1, kind === 'del' ? 0 : 1);"]], CU],
   ["P8 fold 6: an escaped quote ends a triple-quoted string", T + "code.js", [["(?:\"\"\"(?:\\\\[\\s\\S]|[^\\\\])*?(?:\"\"\"|$)", "(?:\"\"\"[\\s\\S]*?(?:\"\"\"|$)"]], CU],
-  ["P8 fold 6: a template literal inside ${} ends the outer one", T + "code.js", [["} else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; j = e.end; }", "}"]], CU],
+  ["P8 fold 6: a template literal inside ${} ends the outer one", T + "code.js", [["    else if (c === '`') { const e = templateScan(s, j); if (!e.closed) return { end: e.end, stop: true }; next = e.end; }\n", ""]], CU],
   ["P8 fold 6: ${ not followed into", T + "code.js", [["    else if (c === '$' && s[j + 1] === '{') { const e = exprScan(s, j + 2); if (e.stop) return { end: e.end, closed: false }; j = e.end; } else j++;", "    else j++;"]], CU],
   ["P8 fold 7: diff lines coloured one by one", T + "code.js", [["for (const r of rows) if (r.kind !== 'hunk') { if (!pieces.has(r.piece)) pieces.set(r.piece, []); pieces.get(r.piece).push(r); }", "for (const r of rows) if (r.kind !== 'hunk') pieces.set(pieces.size, [r]);"]], CU],
   ["P8 fold 7: context coloured as the old file", T + "code.js", [["if (r.kind === mine || (mine === 'add' && r.kind === 'ctx')) r.toks = hl[i] || [];", "if (r.kind === mine || (mine === 'del' && r.kind === 'ctx')) r.toks = hl[i] || [];"]], CU],
@@ -361,17 +361,31 @@ const M = [
   // after return, in a template inside) stops the scan and the template ends at the next backtick, a template that runs
   // out is not closed, esac only where a command or a pattern starts, code.md's one account of a diff's colours.
   ["P8 R2 hunks: false joins its hunks for colouring", T + "code.js", [["    if (kind === 'hunk') piece++;", "    if (kind === 'hunk' && o.hunks !== false) piece++;"]], CU],
-  ["P8 R2 a regex in ${} read as code", T + "code.js", [["if (c === '/' && s[j + 1] !== '/' && s[j + 1] !== '*' && (!prev ||", "if (false && (!prev ||"]], CU],
+  ["P8 R2 a regex in ${} read as code", T + "code.js", [["    else if (c === '/' && (!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))) { next = regexEnd(s, j); if (next < 0) return { end: j, stop: true }; }\n", ""]], CU],
   ["P8 R2 a regex at the start of ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(REGEX_PREV.has(prev) || REGEX_AFTER.has(word))"]], CU],
   ["P8 R2 a regex after an operator in ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(!prev || REGEX_AFTER.has(word))"]], CU],
   ["P8 R2 a regex after return in ${} read as division", T + "code.js", [["(!prev || REGEX_PREV.has(prev) || REGEX_AFTER.has(word))", "(!prev || REGEX_PREV.has(prev))"]], CU],
-  ["P8 R2 a template inside ${} that stopped is read past", T + "code.js", [["if (!e.closed) return { end: e.end, stop: true }; j = e.end; }", "j = e.end; }"]], CU],
+  ["P8 R2 a template inside ${} that stopped is read past", T + "code.js", [["if (!e.closed) return { end: e.end, stop: true }; next = e.end; }", "next = e.end; }"]], CU],
   ["P8 R2 a template that runs out counts as closed", T + "code.js", [["  return { end: s.length, closed: false };\n}", "  return { end: s.length, closed: true };\n}"]], CU],
   ["P8 R2 no fallback to the next backtick", T + "code.js", [["return r.closed ? r.end : plainEnd(s, i);", "return r.end;"]], CU],
   ["P8 R2 esac as an argument ends the case", T + "code.js", [["st.caseBody && (st.cmdPos || st.casePat)) {", "st.caseBody) {"]], CU],
   ["P8 R2 esac where a pattern starts not a keyword", T + "code.js", [["st.caseBody && (st.cmdPos || st.casePat)) {", "st.caseBody && st.cmdPos) {"]], CU],
   ["P8 R2 code.md: context in the old file's colours", "skills/sabotage-motion/references/code.md", [["context lines take the new file's", "context lines take the old file's"]], DOCS],
   ["P8 R2 code.md: a hidden header joins the hunks", "skills/sabotage-motion/references/code.md", [["Each hunk starts afresh, whether its header shows or not.", "Hidden hunk headers join the hunks."]], DOCS],
+  // ---- P8 council round 3: a ${} read a token at a time: a regex is a token (its closing / outside a [...] class, on
+  // its line), a / after postfix ++ or -- (after a name, a ) or a ]) divides, a / after a control condition's ) starts a
+  // regex, a keyword after a dot is a name, a comment is not a token; a string or a regex not closed on its line falls back.
+  ["P8 R3 a regex that does not close on its line runs on", T + "code.js", [["    if (c === '\\n') return -1;\n    if (c === '\\\\') { if (s[k + 1] === '\\n') return -1; k++; }", "    if (c === '\\\\') { k++; }"]], CU],
+  ["P8 R3 a / in a [...] class closes the regex", T + "code.js", [["else if (c === '[') cls = true;", "else if (false) cls = true;"]], CU],
+  ["P8 R3 a / after postfix ++ starts a regex", T + "code.js", [["last = prev === 'a' || prev === ')' || prev === ']' ? ')' : c; }", "last = c; }"]], CU],
+  ["P8 R3 ++ after a ) is not postfix", T + "code.js", [["prev === 'a' || prev === ')' || prev === ']' ? ')' : c;", "prev === 'a' || prev === ']' ? ')' : c;"]], CU],
+  ["P8 R3 ++ after a ] is not postfix", T + "code.js", [["prev === 'a' || prev === ')' || prev === ']' ? ')' : c;", "prev === 'a' || prev === ')' ? ')' : c;"]], CU],
+  ["P8 R3 a / after a control condition divides", T + "code.js", [["else if (c === ')') { if (parens.pop()) last = ';'; }", "else if (c === ')') { parens.pop(); }"]], CU],
+  ["P8 R3 if, while, for and with not seen before (", T + "code.js", [["else if (c === '(') parens.push(CONTROL.has(word));", "else if (c === '(') parens.push(false);"]], CU],
+  ["P8 R3 a string that does not close on its line runs on", T + "code.js", [["    else if (s[k] === '\\n') return -1;\n", ""]], CU],
+  ["P8 R3 a keyword after a dot starts a regex", T + "code.js", [[" if (prev === '.') w = ''; }", " }"]], CU],
+  ["P8 R3 a comment counts as the token before a /", T + "code.js", [["      if (n === '/') { while (j < s.length && s[j] !== '\\n') j++; } else { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; }\n      continue;", "      if (n === '/') { while (j < s.length && s[j] !== '\\n') j++; } else { const e = s.indexOf('*/', j + 2); j = e < 0 ? s.length : e + 2; }\n      prev = '/'; continue;"]], CU],
+  ["P8 R3 code.md: a regex in ${} not named as read", "skills/sabotage-motion/references/code.md", [["Inside `${}`, a `/` where an operand belongs", "Inside a template, a `/` where an operand belongs"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);
