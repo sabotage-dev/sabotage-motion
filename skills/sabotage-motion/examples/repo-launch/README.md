@@ -55,6 +55,14 @@ node render.mjs check --file out/repo-launch-final.mp4  # the master: 0 FAIL, 0 
   (780x4284 px). The page does not move, so the scene pans the one image rather than holding a frame sequence.
 - **The board** was shown as slates (`node render.mjs board --slates`) before anything was animated.
 
+Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-15):
+
+| Check | Result |
+|---|---|
+| `check` (the source) | 0 FAIL, 0 WARN, 10 ok; `hook_long` not checked (no voice, so no `hookMax`) |
+| `palette` | pass: the kit's `bgA` and `bgB` take 95.93% of the probe's pixels, its `accent` 1.19%; the most any look takes is `paper`'s `bgB`, 0.07%, and no look's accent takes any. The fonts drawn: Snagwick Display, Snagwick Text and the template's MONO |
+| `check --file out/repo-launch-final.mp4` | 0 FAIL, 0 WARN, 14 ok; -14.0 LUFS, -2.2 dBTP; `hook_long` and `vo_delay` not checked (no voice) |
+
 `scene.js` reads the logo from `brand.json` and the screenshot from `assets/shots/app.png`, draws in the kit's colours
 and faces over the `product` look (quiet post, snap entrances, no glitch), and returns every text box from `boxes(t)`,
 the helpers' layout-only calls included, so `check` sees the terminal and the code as text.
