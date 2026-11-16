@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Revision | 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 1.9 (2026-11-16): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
-| Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 in section 23.7 (2026-11-15) |
-| Open questions | Q1-Q10 in section 20 and Q11-Q18 in section 23.7, each with the default the build takes if nobody overrules it |
+| Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7 (2026-11-15, 2026-11-16) |
+| Open questions | Q1-Q10 in section 20, Q11-Q18 in section 23.7 and Q19-Q22 in section 23.9, each with the default the build takes if nobody overrules it |
 
 ## 1. What this is
 
@@ -822,7 +822,8 @@ jobs people already bring to it (owner, 2026-11-15, D11). Five additions, each a
 round, in this order: P6 is docs only and goes first; P7 (looks and brand kit) and P8 (code and terminal motion)
 are what P9's launch video is built from; P10 (caption a clip) stands alone and closes the release. The README
 items for Linux speed and other coding agents stay out of 0.2. Council round 1 on this section (rev 1.6) is folded
-in rev 1.7 (23.8).
+in rev 1.7 (23.8). A sixth addition came later (owner, 2026-11-16, D12): P11, energy presets (23.9), built after P9
+and before P10, so caption styles follow the preset.
 
 ### 23.1 P6: the README shows motion
 
@@ -1007,7 +1008,7 @@ this", returns a master that passes `check --file`.
 
 ### 23.6 Release 0.2.0
 
-After P10: version 0.2.0 in `plugin.json`, `package.json` and the lockfile; the README's examples table and
+After P10 and P11: version 0.2.0 in `plugin.json`, `package.json` and the lockfile; the README's examples table and
 feature list updated; every install route re-run from `main` on a fresh home folder; tag `v0.2.0` (Q16); then the
 skills.sh listing (Q6): one `npx skills add sabotage-dev/sabotage-motion` with telemetry on.
 
@@ -1022,8 +1023,9 @@ skills.sh listing (Q6): one `npx skills add sabotage-dev/sabotage-motion` with t
 | Q13 | Code highlighting | Built in, for the five languages in 23.3; no dependency (D6). |
 | Q14 | Fonts for the looks | Up to four more open-licence families, Latin subsets, at most 400 KB together, in `looks/fonts/`. |
 | Q15 | How captions meet the clip | An alpha render on the clip's clock, composited by ffmpeg onto the original clip into an opaque picture with its own render record, then mixed; never the clip redrawn as a frame sequence. |
-| Q16 | Versions | P6 changes docs only and is not a release; 0.2.0 and its tag come after P10. |
+| Q16 | Versions | P6 changes docs only and is not a release; 0.2.0 and its tag come after P10 and P11. |
 | Q17 | Where `brand.json` lives | The project root; each piece keeps its own copy and the files it names. |
+| D12 | Energy presets (owner, 2026-11-16: the pieces were "pretty tame"; "Add some presets so we can go from subtle, normal, extreme, or something along those lines") | P11 (23.9). |
 | Q18 | How a clip is transcribed | whisper.cpp's `whisper-cli` when installed (optional, reported by `doctor`); otherwise the user's transcript (whisper.cpp or openai-whisper JSON, SRT, WebVTT). |
 
 ### 23.8 Council round 1 on section 23 (2026-11-15, rev 1.6 at `fcea224`)
@@ -1060,3 +1062,65 @@ findings were closed by all three seats. What was still open, verified and folde
 | A variable rate's target set was unstated; a clip of another size skipped `text_safe` silently | sonnet | 23.5 steps 1 and 6 |
 
 No round 3: what remains is how P7 and P10 implement these contracts, which their own code reviews check.
+
+### 23.9 P11: energy presets (owner, 2026-11-16, D12)
+
+The owner's verdict on the 0.2 pieces so far: "pretty tame". The engine can hit hard (the showreel does), but the
+skill steers away from it: the craft defaults say "stay subtle", `check` flags text near an edge but never a piece
+that does not move, the recipes have one shape, the examples are calm and agents copy them, and most pieces have no
+beat to cut on. P11 makes intensity a choice the board states, with the bolder setting as the default.
+
+- **The setting.** `energy` on the board, `--param energy=` or `CFG.ENERGY`: `subtle`, `normal` (the default) or
+  `extreme` (Q19). A look (23.2) is the style; energy is the intensity; any look takes any energy.
+- **What each preset sets** (`energy.js` in the template):
+
+  | | subtle | normal | extreme |
+  |---|---|---|---|
+  | Tempo of the beat grid and the bed (Q22) | 84 BPM | 116 BPM | 136 BPM |
+  | Mean shot length, the range the board snaps to | 2.5 to 4 s | 0.9 to 1.8 s | 0.35 to 0.8 s |
+  | Camera | a slow push, a drift | push-ins, a punch on each hit | punch-ins, whip pans, shake on impacts, zoom bounces |
+  | Transitions | crossfade, soft wipe | mask wipe, slide, whip | whip pan, glitch cut, flash frame, speed ramp |
+  | Largest line of type, share of frame height | 4 to 8% | 9 to 16% | 18 to 35%, word by word |
+  | Easing | gentle springs | snap, swift | overshoot, anticipation, whip |
+  | Post | low bloom and grain | medium | chromatic aberration and RGB split on hits, within the flash limit |
+  | Sound | a soft pad, few hits | a beat bed, whooshes on cuts, hits | a driving beat, impacts, risers and drops |
+
+- **The beat grid.** Beat durations snap to whole beats of the preset's tempo; cuts and hits land on beats; the
+  synthesized bed in `audio.js` plays the preset's pattern and is mixed under any voice as a bed is today.
+- **Helpers,** pure functions of `t` like everything else: a camera rig driven by a hit list (push, punch, seeded
+  shake, whip), transitions (`whip`, `wipe`, `mask`, `zoomPunch`, `glitchCut`, `flash`), and kinetic type (word-by-word
+  slams, scale and rotate in) with a layout-only call for `boxes(t)`, as in P8.
+- **Readable at every preset.** `check`'s minimum hold per word stands; extreme puts fewer words in each shot rather
+  than shortening the holds.
+- **Two checks, measured from the render, never from what the scene declares (Q21):**
+  - `energy_match` (WARN): the cut rate (shots counted from frame-difference spikes on the probe), the largest text
+    box's share of the frame height, and the motion energy (the mean share of changed pixels outside holds). It warns
+    when a `normal` or `extreme` piece measures calmer than its preset's floor, or a `subtle` piece busier than its
+    ceiling.
+  - `flash` (FAIL), at every preset: more than three general flashes or more than three red flashes in any one-second
+    window, with WCAG 2.3.1's definitions (Q20). A general flash is a pair of opposing changes in relative luminance
+    of 10% or more of the maximum, the darker state below 0.80. A red flash is a pair of opposing transitions where
+    one state is a saturated red (R/(R+G+B) of 0.8 or more) and the two differ by more than 0.2 in CIE 1976 u'v'.
+    A flash counts when its area is more than a quarter of a 10-degree visual field: WCAG's 341x256 window on a
+    1024x768 screen, so more than 21,824 px of any 341x256 window, measured on the frame scaled so its longer side
+    is 1024 px. Extreme's flash frames and glitch cuts must stay under it.
+- **Skill text and recipes.** The board names its energy and the agent says which it chose and why; `subtle` is a
+  choice, not the default. SKILL.md's craft defaults are rewritten per preset (the "post effects stay subtle" rule
+  becomes the subtle row). The launch recipe (P9) and the template's own card follow the preset.
+- **Examples.** The template card at all three presets side by side as README media (GIFs within P6's budgets); the
+  repo-launch example re-cut at `normal`.
+
+Acceptance: at each preset the template card's measured cut rate, type share and motion energy fall inside that
+preset's ranges; `energy_match` warns on a `normal` board rendered calm and on an `extreme` board rendered at normal
+pace, and passes each preset's own card; `flash` FAILs a fixture with four flashes in one second and passes one with
+three, for general and red flashes; every preset's card passes `check` with 0 FAIL and 0 WARN; a fresh session P5's
+way, given one brief three times (asking for subtle, saying nothing, asking for extreme), makes three pieces whose
+measurements fall in their presets' ranges; and the owner watches those three and confirms they read as subtle,
+normal and extreme.
+
+| # | Question | Default |
+|---|---|---|
+| Q19 | Names and default | `subtle`, `normal`, `extreme`, as the owner put it; `normal` is the default. |
+| Q20 | The flash limit | WCAG 2.3.1 (three flashes) and its definitions: no more than three general and no more than three red flashes in any one second; a flash counts over more than a quarter of a 10-degree field (21,824 px of a 341x256 window, the frame scaled to 1024 px on its longer side). |
+| Q21 | Where energy is measured | From the rendered frames (`check`'s probe), not from what the scene declares, so a scene cannot claim energy it does not show. |
+| Q22 | Tempos | 84, 116 and 136 BPM; a board may set its own tempo inside its preset's shot-length range. |
