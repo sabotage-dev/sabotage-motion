@@ -30,10 +30,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SEQ_DIR = path.join(ROOT, 'assets', 'seq'), MANIFEST = path.join(SEQ_DIR, 'manifest.json');
+export const SEQ_DIR = path.join(ROOT, 'assets', 'seq'), MANIFEST = path.join(SEQ_DIR, 'manifest.json');
 
 export class FramesError extends Error {}
-class UsageError extends Error {}
+export class UsageError extends Error {}
 const fmt = (x, d = 3) => Number(x).toFixed(d);
 
 function parseArgs(argv) {
@@ -61,8 +61,9 @@ const number = (o, k, { min = -Infinity, max = Infinity, int = false, def } = {}
   return x;
 };
 
-// The piece's fps, the way main.js picks it: --fps, then CFG.FPS, then the --target's fps, then 30.
-async function pieceFps(o) {
+// The piece's fps, the way main.js picks it: --fps, then CFG.FPS, then the --target's fps, then 30. tools/shots.mjs
+// uses it too.
+export async function pieceFps(o) {
   const fps = number(o, 'fps', { min: 1, max: 240 });
   if (fps) return { fps, from: '--fps' };
   const sceneFile = o.scene || 'scene.js';
@@ -96,6 +97,27 @@ function writeAtomic(file, data) {
   fs.renameSync(tmp, file);
 }
 
+// Puts a finished sequence in place: the frames in the folder `tmp` (inside assets/seq/) become assets/seq/<name>/,
+// and `entry` ({ frames, fps, w, h, ext, ... }) its record in assets/seq/manifest.json. The manifest is read before the
+// old frames go, so one that cannot be read refuses with the old sequence still in place. This sequence's entry is
+// dropped before the swap and written again after it: a crash in between leaves no entry (loadSeq then refuses the
+// name) rather than the old entry describing the new frames. tools/shots.mjs installs its sequences the same way.
+export function installSeq(name, tmp, entry) {
+  const out = path.join(SEQ_DIR, name);
+  let manifest = {};
+  if (fs.existsSync(MANIFEST)) {
+    try { manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8')); } catch (e) { throw new FramesError(`assets/seq/manifest.json is not JSON (${e.message}): fix or delete it`); }
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new FramesError('assets/seq/manifest.json is not an object of sequences: fix or delete it');
+  }
+  const save = () => writeAtomic(MANIFEST, JSON.stringify(Object.fromEntries(Object.keys(manifest).sort().map((k) => [k, manifest[k]])), null, 2) + '\n');
+  if (Object.prototype.hasOwnProperty.call(manifest, name)) { delete manifest[name]; save(); }
+  fs.rmSync(out, { recursive: true, force: true });
+  fs.renameSync(tmp, out);
+  manifest[name] = entry;
+  save();
+  return entry;
+}
+
 export async function cutFrames(argv, log = console.log) {
   const o = parseArgs(argv);
   if (o.help) { log('usage: node tools/frames.mjs <name> <src> --from s --dur s [--vf "<filter>"] [--q 4] [--fps N]  (see the header)'); return null; }
@@ -115,7 +137,7 @@ export async function cutFrames(argv, log = console.log) {
   // Cut into a fresh folder beside the old one, then swap, so a failed cut leaves the old sequence intact and
   // a shorter re-cut leaves no stale frames behind.
   fs.mkdirSync(SEQ_DIR, { recursive: true });
-  const out = path.join(SEQ_DIR, name), tmp = path.join(SEQ_DIR, `.${name}.tmp-${process.pid}`);
+  const tmp = path.join(SEQ_DIR, `.${name}.tmp-${process.pid}`);
   fs.rmSync(tmp, { recursive: true, force: true });
   fs.mkdirSync(tmp);
   try {
@@ -130,29 +152,15 @@ export async function cutFrames(argv, log = console.log) {
     }
     const { w, h } = probeSize(path.join(tmp, '000.jpg'));
 
-    // The manifest is read before the old frames go, so one that cannot be read refuses with the old sequence still
-    // in place. This sequence's entry is dropped before the swap and written again after it: a crash in between
-    // leaves no entry (loadSeq then refuses the name) rather than the old entry describing the new frames.
-    let manifest = {};
-    if (fs.existsSync(MANIFEST)) {
-      try { manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8')); } catch (e) { throw new FramesError(`assets/seq/manifest.json is not JSON (${e.message}): fix or delete it`); }
-      if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new FramesError('assets/seq/manifest.json is not an object of sequences: fix or delete it');
-    }
-    const save = () => writeAtomic(MANIFEST, JSON.stringify(Object.fromEntries(Object.keys(manifest).sort().map((k) => [k, manifest[k]])), null, 2) + '\n');
-    if (Object.prototype.hasOwnProperty.call(manifest, name)) { delete manifest[name]; save(); }
-    fs.rmSync(out, { recursive: true, force: true });
-    fs.renameSync(tmp, out);
-
     const srcRel = path.relative(ROOT, src);
-    manifest[name] = { frames: count, fps, w, h, ext: 'jpg', src: srcRel.startsWith('..') || path.isAbsolute(srcRel) ? path.basename(src) : srcRel,
-      from, dur, ...(o.vf ? { vf: o.vf } : {}), q };
-    save();
+    const entry = installSeq(name, tmp, { frames: count, fps, w, h, ext: 'jpg', src: srcRel.startsWith('..') || path.isAbsolute(srcRel) ? path.basename(src) : srcRel,
+      from, dur, ...(o.vf ? { vf: o.vf } : {}), q });
 
     const mb = (count * w * h * 4) / (1 << 20);
     log(`frames: ${name}: ${count} frames at ${fps} fps (${fpsFrom}), ${w}x${h}, from ${fmt(from, 2)} s for ${fmt(dur, 2)} s of ${path.basename(src)}`);
     log(`  held decoded in memory by loadSeq: about ${mb.toFixed(0)} MB${mb > 1024 ? ' (WARN: over 1 GB; crop and scale it smaller with --vf)' : ''}`);
     log(`wrote assets/seq/${name}/000.jpg ... ${String(count - 1).padStart(3, '0')}.jpg and assets/seq/manifest.json`);
-    return manifest[name];
+    return entry;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
