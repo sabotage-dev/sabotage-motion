@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 3.0 (2026-11-15): council round 10 on the flash rule folded (23.9, 23.10). 2.9 (2026-11-15): council round 9 folded; WCAG's fine-pattern exception not applied (23.9, 23.10, Q25). 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 3.1 (2026-11-15): council round 11 SHIP 3/3 on the flash rule; one wording note folded (23.9, 23.10). 3.0 (2026-11-15): council round 10 on the flash rule folded (23.9, 23.10). 2.9 (2026-11-15): council round 9 folded; WCAG's fine-pattern exception not applied (23.9, 23.10, Q25). 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
@@ -1172,7 +1172,8 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   rate and a strobe split across columns or a sweeping band is seen whole. General and red are counted separately,
   as WCAG counts them: a frame FAILs `flash` when one kind's too-fast pixels cover more than 21,824 px of some
   341x256 window, in either orientation (a phone is held either way), by a summed-area table over the scaled frame;
-  a frame shorter than the window on a side clips the window to it, so a full-bleed strobe on a wide strip still counts.
+  a frame shorter than the window on a side clips the window to it, so a full-bleed strobe on a wide strip still counts
+  (a strip under 22 px tall cannot hold 21,824 px and so never fails, as WCAG's own area would have it).
   A pattern whose halves swap four times a second (four transitions for each pixel, two flashes) passes; a small bright shape that keeps repeating its path more than three
   times a second makes its path's area flash too fast, and that area counts (Q24). Source
   `check` runs `flash` on `out/<name>.mp4` when that render's record matches the current source, and otherwise
@@ -1289,6 +1290,9 @@ across columns pass at any rate; four 7-frame pulses dated at their ends slipped
 no pairing (more than six transitions in a half-open second), the area is every pixel flashing too fast at that moment,
 and the window is checked in either orientation. The main loop's simulation of rev 2.5 (red included) gets all
 twenty-four fixtures right.
+
+Round 11 (2026-11-15, rev 3.0 at `f381148`): codex, sonnet and grok all SHIP. One wording note folded in rev 3.1 (a strip
+under 22 px tall cannot fail). The flash rule is settled.
 
 Round 10 (2026-11-15, rev 2.9 at `4f31999`): codex and sonnet SHIP-WITH-FIXES, grok BLOCK. The red ratio did not say
 stored or linear RGB (WCAG's R, G and B are the linear values of its relative-luminance definition; stored values
