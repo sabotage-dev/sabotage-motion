@@ -1137,7 +1137,9 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
     full-frame flash, a slow drift, a static card), never on the preset cards themselves, and recorded in
     `references/check.md` like the other thresholds. The fixtures include an A-B-A-B run at extreme's half-beat
     shot, a multi-line block of small type, and a punch-in on large type.
-- **`flash` (FAIL), on the delivered picture, at every preset (Q20).** It runs in `check --file` on the decoded master
+- **`flash` (FAIL), on the delivered picture, at every preset (Q20).** It is a safety net modelled on WCAG 2.3.1, not
+  a certified photosensitivity test; `references/check.md` says so, and that a piece made for broadcast still goes
+  through a certified tool (a Harding-type test). It runs in `check --file` on the decoded master
   (and in P10 on the decoded composite), so it sees exactly what a viewer sees, motion blur and grain included, at
   the file's frame rate. Each frame is scaled so its longer side is 1024 px, by area averaging, and read as RGB;
   relative luminance comes from linearised sRGB, as WCAG defines it. Flashes are found per pixel, as WCAG defines
