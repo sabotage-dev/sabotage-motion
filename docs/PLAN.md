@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Revision | 2.9 (2026-11-15): council round 9 folded; WCAG's fine-pattern exception not applied (23.9, 23.10, Q25). 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
+| Revision | 3.0 (2026-11-15): council round 10 on the flash rule folded (23.9, 23.10). 2.9 (2026-11-15): council round 9 folded; WCAG's fine-pattern exception not applied (23.9, 23.10, Q25). 2.8 (2026-11-15): council round 8 on the flash rule folded (23.9, 23.10). 2.7 (2026-11-15): council round 7 on the flash rule folded (23.9, 23.10). 2.6 (2026-11-15): council round 6 on the flash rule folded (23.9, 23.10). 2.5 (2026-11-15): council round 5 on the flash rule folded (23.9, 23.10, Q24). 2.4 (2026-11-15): the flash rule counts flashes per pixel (23.9, 23.10). 2.3 (2026-11-15): council round 4 on the flash rule folded (23.10). 2.2 (2026-11-15): council round 3 on 23.9 folded (23.10). 2.1 (2026-11-15): council round 2 on 23.9 folded (23.10). 2.0 (2026-11-15): council round 1 on 23.9 folded (23.10, Q23); 0.3 named (24, D13). 1.9 (2026-11-15): P11 energy presets (23.9, D12, Q19-Q22). 1.8 (2026-11-15): council round 2 on section 23 folded (23.8); Q6 ruled. 1.7 (2026-11-15): council round 1 on section 23 folded (23.8; Q8 amended, Q18). 1.6 (2026-11-15): version 0.2, five additions as phases P6-P10 (section 23, D11, Q11-Q17). 1.5 (2026-11-13): council rounds 1-3 folded (section 22); delivery tags (7.1, D9); the leak denylist checked before each push, not in CI (16, D10) |
 | Owner | Sabotage Development LLC, public repo `sabotage-dev/sabotage-motion` (D5), MIT |
 | Status | Plan cleared council round 3. P0 is built and merged (PR #1). P1 (storyboard, voice-driven timing, captions) is built and merged (PR #2). P2 (mix and master, footage) is built and merged (PR #3). P3 (`check` and safe zones) is built and merged (PR #4). P4 (the skill text and the three examples) is built and merged (PR #5). P5 released 0.1.0 (PR #6, tag `v0.1.0`). Version 0.2 is planned in section 23. |
 | Decisions | D1-D10 in section 19, ruled by the owner on 2026-11-12 and 2026-11-13; D11 and D12 in section 23.7, D13 in section 24 (2026-11-15, 2026-11-15) |
@@ -1152,7 +1152,8 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   stepped ramp) never end a transition, so a ramp counts as fully as a hard cut. Red is followed by the same kind of
   zig-zag on chromaticity (CIE 1976 u'v'): the *far end* of a pixel's current swing is the colour farthest from the
   end the swing left, and a *red transition* is confirmed when the colour is more than 0.2 back from that far end,
-  one of the two a saturated red (R/(R+G+B) of 0.8 or more), in the direction (into red or out of it) opposite to
+  one of the two a saturated red (R/(R+G+B) of 0.8 or more, on the linearised R, G and B of WCAG's relative-luminance
+  definition, not the stored sRGB values), in the direction (into red or out of it) opposite to
   the previous red transition; before the first one it is measured from either end of the swing so far. So a fade
   between red and another colour counts as fully as a cut, and no earlier colour anchors it. A transition is dated at
   the time of the frame that confirms it, the frame's index over the file's exact frame rate (30000/1001 for 29.97).
@@ -1170,7 +1171,8 @@ as the default. Rev 1.9's version of this section had council round 1 (23.10); r
   too fast form the area, whether or not they change at that very frame, so the result does not depend on the frame
   rate and a strobe split across columns or a sweeping band is seen whole. General and red are counted separately,
   as WCAG counts them: a frame FAILs `flash` when one kind's too-fast pixels cover more than 21,824 px of some
-  341x256 window, in either orientation (a phone is held either way), by a summed-area table over the scaled frame.
+  341x256 window, in either orientation (a phone is held either way), by a summed-area table over the scaled frame;
+  a frame shorter than the window on a side clips the window to it, so a full-bleed strobe on a wide strip still counts.
   A pattern whose halves swap four times a second (four transitions for each pixel, two flashes) passes; a small bright shape that keeps repeating its path more than three
   times a second makes its path's area flash too fast, and that area counts (Q24). Source
   `check` runs `flash` on `out/<name>.mp4` when that render's record matches the current source, and otherwise
@@ -1203,7 +1205,9 @@ by 0.125; a band 25% of the frame wide crossing it four times a second, at 30 an
 across seven columns; one earlier transition and then four flashes; four 6-frame pulses within 0.9 s; eight
 transitions within 0.968 s at 29.97 fps; a 65x341 px rectangle and a 341x65 px strip each flashing four times a
 second; a 32x256 px bar repeating its path 4.3 times a second (Q24); and a sub-frame flash that the motion-blurred
-master shows between the probe's samples. It passes: three general and three red flashes in a second (cut, faded,
+master shows between the probe's samples; red strobes that are saturated only on linear RGB (stored (0.8, 0.15, 0.15)
+against (0.2, 0, 1), and (230, 60, 60) against (0, 130, 0)); a full strobe on a 1024x200 px frame; eight transitions
+within one second at the exact rate 3000001/100000. It passes: three general and three red flashes in a second (cut, faded,
 and as a ramp of ten frames a cycle); a red ramp that reaches only 0.164 from the red; three flashes and then a
 held rise; four 7-frame pulses spanning 1.03 s; eight transitions over 1.001 s at 29.97 fps, and eight whose first
 is exactly one second before the last at 30 fps; 8 px halves swapping four times a second; a 6x6 px spot flashing
@@ -1285,6 +1289,12 @@ across columns pass at any rate; four 7-frame pulses dated at their ends slipped
 no pairing (more than six transitions in a half-open second), the area is every pixel flashing too fast at that moment,
 and the window is checked in either orientation. The main loop's simulation of rev 2.5 (red included) gets all
 twenty-four fixtures right.
+
+Round 10 (2026-11-15, rev 2.9 at `4f31999`): codex and sonnet SHIP-WITH-FIXES, grok BLOCK. The red ratio did not say
+stored or linear RGB (WCAG's R, G and B are the linear values of its relative-luminance definition; stored values
+missed red strobes); a frame shorter than 256 px held no full window; the simulation approximated unusual rates.
+Folded in rev 3.0: the ratio on linear RGB, the window clipped to a short frame, the exact rate. The simulation of
+rev 3.0 gets all fifty-five fixtures right.
 
 Round 9 (2026-11-15, rev 2.8 at `cd426b1`): codex, sonnet and grok all BLOCK. The balance test asked only for an
 opposite transition somewhere in each 4x4 window, so a full-frame strobe with one counter-moving pixel per 4x4 block
