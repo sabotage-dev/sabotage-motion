@@ -270,6 +270,26 @@ in the layout `tools/frames.mjs` writes, at the piece's fps, the scroll and the 
 over 1 GB decoded is refused. [references/launch.md](skills/sabotage-motion/references/launch.md) is the recipe, and the
 `repo-launch` example runs it on a made-up project.
 
+## Caption a clip
+
+A clip with speech (a talking head, a screen recording with narration) comes back with word-by-word captions inside the
+platform's safe area, its sound levelled and mastered to -14 LUFS, and checked like any other piece. The clip is never
+redrawn through the browser: the captions render with alpha on the clip's own clock, and ffmpeg lays them over it.
+
+```sh
+node tools/clip.mjs prepare talk.mp4 --transcript talk.srt --board   # the clip, its clock, its sound and the cues
+node render.mjs video --scene caption.js --alpha --out out/talk.mov  # the captions (--param style=pop|karaoke|boxed|minimal)
+node tools/clip.mjs composite talk                                   # laid over the clip: out/talk.mp4 and its record
+node tools/mix.mjs talk --no-sfx                                     # the clip's own sound, mastered
+node render.mjs check --file out/talk-final.mp4
+```
+
+The transcript is whisper.cpp's JSON (`whisper-cli`, optional; `doctor` says whether it is installed), openai-whisper's
+JSON, SRT or WebVTT. SRT and WebVTT give phrase times only, so their words are spread by length and marked estimated. A
+variable-frame-rate clip is converted to the nearest standard constant rate first, and `prepare` says so.
+[references/delivery.md](skills/sabotage-motion/references/delivery.md) section 8 is the recipe, and the
+`caption-clip` example runs it.
+
 ## Check and safe zones
 
 `node render.mjs check` measures the piece before you post it, and `--file` measures the master too. Run it in
@@ -326,7 +346,7 @@ checks.
 
 ## Examples
 
-Five examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
+Six examples sit in `skills/sabotage-motion/examples/`, each a full piece runnable from its folder, with its
 contact sheet and board sheet committed:
 
 | Example | What it shows | `check` |
@@ -336,6 +356,7 @@ contact sheet and board sheet committed:
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
 | `terminal-demo/` | 8 s, 9:16: a made-up command-line tool installed and run in a terminal (typed commands, a progress bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look | 0 FAIL, 0 WARN on the source and the master |
 | `repo-launch/` | 15 s, 9:16: a launch video for a made-up project kept in the example: its scan, the brand kit the scan drafted, the install in a terminal, its code, a full-page screenshot of its app panned in a phone, and an end card | `palette` passes; 0 FAIL, 0 WARN on the source and the master |
+| `caption-clip/` | 15 s, 9:16 at 540x960: a made-up screen recording (rendered by the engine, no person in it) with the explainer's voice as its sound, captioned word by word from its transcript: the captions rendered with alpha on the clip's clock, laid over the clip by ffmpeg, the clip's sound mastered | 0 FAIL, 0 WARN on the captions (as an overlay) and the master |
 
 Each example's README has its commands. `ASSETS.md` lists every binary file in the repo with its source and licence.
 
@@ -348,6 +369,7 @@ Each example's README has its commands. `ASSETS.md` lists every binary file in t
   `sidechaincompress` and `alimiter` filters (`brew install ffmpeg` on macOS; the distribution's ffmpeg on
   Ubuntu has them).
 - macOS or Linux. WebGL2 runs on the GPU through Metal on macOS, and in software (SwiftShader) on Linux.
+- Optional: whisper.cpp's `whisper-cli`, to transcribe a clip for its captions (without it, bring a transcript).
 
 `node render.mjs doctor`, run in a piece (or `npm run doctor` in this repo), checks all of it: it finds Chrome,
 opens a WebGL2 context and prints the renderer, checks each ffmpeg encoder and filter, loads every font the piece
@@ -384,6 +406,7 @@ npm run test:looks                         # looks and brand kits: precedence, f
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
 npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks
 npm run test:launch                        # a launch video for a repo: the scan, page shots and sequences, the example
+npm run test:clip                          # caption a clip: transcripts, the sync fixture through the whole path, the example
 npm run test:examples                      # the examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text
 ```

@@ -24,6 +24,8 @@ const DOCS = ['test/docs.test.mjs'], ASSETS = ['test/assets.test.mjs'];
 // P9: a launch video for a repo; RLC runs examples-check on the repo-launch example alone
 const RS = ['test/repo-scan.test.mjs'], SH = ['test/shots.test.mjs'], LE = ['test/launch-example.test.mjs'];
 const RLC = ['--test-name-pattern=repo-launch', 'test/examples-check.test.mjs'];
+// P10: caption a clip
+const CLU = ['test/clip-units.test.mjs'], CL = ['test/clip.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -528,6 +530,38 @@ const M = [
   ["P9 R3 title: any line starting with < allowed above it", T + "tools/repo-scan.mjs", [["(html[i] || /^\\s*($|!\\[|\\[!\\[)/.test(l)", "(html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l)"]], RS],
   // ---- P9 CI fix (round 4): the page's clock paused without install(), so its ticks start at 0 on a slow machine too.
   ["P9 R4 shots: the clock installed before it is paused", T + "tools/shots.mjs", [["  if (clock) await context.clock.pauseAt(CLOCK0);", "  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"]], SH],
+  // ---- P10: caption a clip (plan 23.5). Unit: the adapters, the estimate flag, the rates, the clip's cues, the styles,
+  // the scaled zones, the composite's provenance, the decoded probe. Whole path: the sync fixture, the frame count, the
+  // stale overlay, the replayed settings, the decoded picture checks, the variable rate, doctor.
+  ["P10 srt: spread words not marked estimated", T + "tools/cues.mjs", [["if (spans.some(([a, b]) => w.start >= a - 1e-6 && w.start < b + 1e-6)) { w.est = true; n++; }", "if (spans.some(([a, b]) => w.start >= a - 1e-6 && w.start < b + 1e-6)) { n++; }"]], CLU],
+  ["P10 spread: by word count, not length", T + "tools/cues.mjs", [["const weight = (w) => Math.max(1, normWord(w).length);", "const weight = () => 1;"]], CLU],
+  ["P10 whispercpp: special tokens kept as words", T + "tools/cues.mjs", [["seg.tokens.filter((t) => !/^\\s*(\\[_[^\\]]*\\]|<\\|[^|]*\\|>)\\s*$/.test(String(t.text)))", "seg.tokens"]], CLU],
+  ["P10 whispercpp: a one-word segment estimated", T + "tools/cues.mjs", [["est: text.split(/\\s+/).length > 1 });", "est: true });"]], CLU],
+  ["P10 vtt: markup left in the words", T + "tools/cues.mjs", [[".join(' ').replace(/<[^>]*>/g, '')", ".join(' ')"]], CLU],
+  ["P10 vtt: a file without WEBVTT read", T + "tools/cues.mjs", [["  if (!/^\\uFEFF?WEBVTT/.test(String(text))) throw new CueError('vtt: a WebVTT file starts with WEBVTT');\n", ""]], CLU],
+  ["P10 styles: extreme gets pop", T + "lib.js", [["normal: 'pop', extreme: 'karaoke' });", "normal: 'pop', extreme: 'pop' });"]], CLU],
+  ["P10 styles: subtle by default", T + "lib.js", [["const e = energy == null || energy === '' ? 'normal' : String(energy);", "const e = energy == null || energy === '' ? 'subtle' : String(energy);"]], CLU],
+  ["P10 zones: another shape scaled too", T + "lib.js", [["if (!(W > 0 && H > 0) || Math.abs(W / H - T.w / T.h) > 0.005 * (T.w / T.h)) return null;", "if (!(W > 0 && H > 0)) return null;"]], CLU],
+  ["P10 rate: variable only past 60% off the median", T + "tools/clip.mjs", [["Math.abs(x - median) > 0.25 * median", "Math.abs(x - median) > 0.6 * median"]], CLU],
+  ["P10 rate: variable at 20% off the median", T + "tools/clip.mjs", [["Math.abs(x - median) > 0.25 * median", "Math.abs(x - median) > 0.2 * median"]], CLU],
+  ["P10 rate: 29.97 not a standard rate", T + "tools/clip.mjs", [["[30000 / 1001, '30000/1001'], ", ""]], CLU],
+  ["P10 cues: the clip's words given an offset", T + "tools/clip.mjs", [["return { VO_OFFSET: 0, CUE: {}, TAKE:", "return { VO_OFFSET: 0.1, CUE: {}, TAKE:"]], CLU],
+  ["P10 cues: the estimate flag dropped", T + "tools/clip.mjs", [["end: r6(w.end), ...(w.est ? { est: true } : {}) }));", "end: r6(w.end) }));"]], CLU],
+  ["P10 composite provenance: stale overlay passes", T + "check.mjs", [["if (!rec.source || !f.sourceNow || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the overlay", "if (!rec.source) probs.push(`the piece's source changed since the overlay"]], CLU],
+  ["P10 composite provenance: overlay record hash not compared", T + "check.mjs", [["else if (f.overlayShaNow !== f.overlaySha) probs.push", "else if (false) probs.push"]], CLU],
+  ["P10 composite provenance: an opaque overlay passes", T + "check.mjs", [["    if (!rec.alpha) probs.push(`${f.overlayFile} is not an alpha render", "    if (false) probs.push(`${f.overlayFile} is not an alpha render"]], CLU],
+  ["P10 composite provenance: the clip not compared", T + "check.mjs", [["else if (f.clipShaNow !== f.clipSha) probs.push", "else if (false) probs.push"]], CLU],
+  ["P10 decoded probe: Rec. 601 luma", T + "check.mjs", [["luma[j] = Math.round(0.2126 * rgb[i] + 0.7152 * rgb[i + 1] + 0.0722 * rgb[i + 2]);", "luma[j] = Math.round(0.299 * rgb[i] + 0.587 * rgb[i + 1] + 0.114 * rgb[i + 2]);"]], CLU],
+  ["P10 sync: the captions two frames late in the composite", T + "tools/clip.mjs", [["[1:v]setpts=N/(${fr})/TB[o]", "[1:v]setpts=(N+2)/(${fr})/TB[o]"]], CL],
+  ["P10 composite: a frame short of the clip", T + "tools/clip.mjs", [["'-frames:v', String(CLIP.frames),", "'-frames:v', String(CLIP.frames - 1),"]], CL],
+  ["P10 composite: a stale overlay composited", T + "tools/clip.mjs", [["      if (!rec.source || rec.source.hash !== now.hash) problems.push", "      if (false) problems.push"]], CL],
+  ["P10 check: the overlay not bound", T + "render.mjs", [["      if (prov.rec && prov.rec.kind === 'composite') prov = compositeBind(prov, push);   // P10: a captioned clip\n", ""]], CL],
+  ["P10 check: the overlay's settings not replayed", T + "render.mjs", [["      if (prov.overlayRec) settings = { ...settings, alpha: prov.overlayRec.alpha || null, sub: prov.overlayRec.sub };   // P10: the overlay's settings\n", ""]], CL],
+  ["P10 check: the picture checks on the page, not the composite", T + "render.mjs", [["const needProbe = !compositeFile && (want('motion_dead') || want('first_frame_empty'));", "const needProbe = want('motion_dead') || want('first_frame_empty');"]], CL],
+  ["P10 check: the zones not scaled to a clip", T + "render.mjs", [["    else if (INFOc && lib.CLIP && (z.w !== INFOc.W || z.h !== INFOc.H) && lib.scaleTarget(z, INFOc.W, INFOc.H)) {", "    else if (false) {"]], CL],
+  ["P10 prepare: a variable rate clip not converted", T + "tools/clip.mjs", [["const conv = c0.vfr ? nearestRate(c0.avgFps) : null;", "const conv = null;"]], CL],
+  ["P10 doctor: whisper-cli not reported", T + "render.mjs", [["  doctorWhisper(line);   // P10\n", ""]], CL],
+  ["P10 docs: SKILL.md without the caption-a-clip branch", "skills/sabotage-motion/SKILL.md", [["**Caption a clip** the person brings", "Captioning a clip someone brings"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

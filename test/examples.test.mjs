@@ -17,7 +17,10 @@ const OWN = {
   'lower-third': ['scene.js', 'board.js', '.gitignore'],
   'terminal-demo': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
   'repo-launch': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
+  'caption-clip': ['board.js', '.gitignore'],
 };
+// The source clip an example commits (plan 23.5: the caption example's clip is its input, not an output).
+const SOURCE_CLIPS = { 'caption-clip': ['clip.mp4'] };
 // The template's files as the repo publishes them (tracked, or new and not ignored), so render outputs and other
 // ignored files in the template folder (CI renders a benchmark there) are not part of the comparison.
 const templateFiles = () => {
@@ -45,7 +48,7 @@ for (const ex of EXAMPLES) {
     const prefix = path.relative(repoRoot, dir).split(path.sep).join('/') + '/';
     const files = repoFiles().filter((f) => f.startsWith(prefix)).map((f) => f.slice(prefix.length));
     for (const f of ['contact.png', 'board.png']) assert.ok(files.includes(f), `${f} is not in the repo (is it ignored?)`);
-    const outputs = files.filter((f) => /^(out|stills)\//.test(f) || f === 'board.md' || f === 'vo.wav' || /\.(mp4|mov|webm|mkv)$/i.test(f) || f.endsWith('.render.json') || f.endsWith('.master.json'));
+    const outputs = files.filter((f) => !(SOURCE_CLIPS[ex] || []).includes(f)).filter((f) => /^(out|stills)\//.test(f) || f === 'board.md' || f === 'vo.wav' || /\.(mp4|mov|webm|mkv)$/i.test(f) || f.endsWith('.render.json') || f.endsWith('.master.json'));
     assert.deepEqual(outputs, [], 'outputs that should not be committed');
     const ign = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
     for (const p of ['out/', 'stills/', 'board.md', 'node_modules/', '.env']) assert.match(ign, new RegExp(`^${p.replace('.', '\\.')}$`, 'm'), `.gitignore should keep ignoring ${p}`);
@@ -65,13 +68,14 @@ test('explainer-beat: its cues.js was made from its board and its take (the wind
   assert.ok(fs.existsSync(path.join(dir, 'bed.mp3')), 'bed.mp3, the bed');
 });
 
-test('explainer-beat: VOICE.md names the engine, the voice, a licence that allows redistribution and its URL, matching take.json (Q2)', () => {
-  const dir = path.join(examplesDir, 'explainer-beat');
+for (const ex of ['explainer-beat', 'caption-clip']) test(`${ex}: VOICE.md names the engine, the voice, a licence that allows redistribution and its URL, matching take.json (Q2)`, () => {
+  const dir = path.join(examplesDir, ex);
+  const takeDir = path.join(examplesDir, 'explainer-beat');   // caption-clip's sound is explainer-beat's take
   const md = fs.readFileSync(path.join(dir, 'VOICE.md'), 'utf8');
   const row = (k) => { const m = md.match(new RegExp(`^\\|\\s*${k}\\s*\\|(.*)\\|\\s*$`, 'm')); return m ? m[1].trim() : null; };
   const engine = row('Engine'), voice = row('Voice'), licence = row('Licence'), url = row('Licence URL'), src = row('`take.json` source');
   for (const [k, v] of Object.entries({ engine, voice, licence, url, src })) assert.ok(v, `VOICE.md has no ${k} row`);
-  const take = JSON.parse(fs.readFileSync(path.join(dir, 'take.json'), 'utf8'));
+  const take = JSON.parse(fs.readFileSync(path.join(takeDir, 'take.json'), 'utf8'));
   assert.ok(take.source, 'take.json has a source');
   assert.ok(engine.toLowerCase().includes(String(take.source).toLowerCase()), `VOICE.md's engine (${engine}) is not take.json's source (${take.source})`);
   assert.ok(src.includes(take.source), `VOICE.md's take.json source row (${src}) does not name ${take.source}`);

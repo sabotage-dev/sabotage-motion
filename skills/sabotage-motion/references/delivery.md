@@ -8,6 +8,7 @@
 5. Audio: mixing, mastering, loudness
 6. Footage in a piece
 7. Sending previews
+8. Caption a clip
 
 ## 1. Sizes, frame rates and safe areas
 `--target <name>` takes the canvas size, frame rate and safe area from `safezones.json` in the piece; `CFG.W`,
@@ -133,3 +134,52 @@ The tool prints the total and warns over 1 GB. The clip's own sound goes into th
 - For review, a contact sheet (`node render.mjs contact`), the board sheet (`node render.mjs board`) and two or
   three stills are often faster for the person than a video, and they are what you should look at yourself before
   rendering the full thing.
+
+## 8. Caption a clip
+A clip with speech the person brings (a talking head, a screen recording with narration) comes back with word-by-word
+captions inside the platform's safe area, its own sound levelled and mastered, checked like any other piece. The clip
+is never redrawn as a frame sequence: the captions render with alpha on the clip's clock, ffmpeg lays them over the
+clip, and the mixer masters the clip's sound under that picture. Start from a fresh copy of the template:
+
+```sh
+node tools/clip.mjs probe talk.mov                                   # size after rotation, frame rate, frames, length, sound
+node tools/clip.mjs prepare talk.mov --transcript talk.srt --board   # writes the files below
+node render.mjs check --scene caption.js --alpha                     # the captions as an overlay
+node render.mjs video --scene caption.js --alpha --out out/talk.mov  # the captions, transparent, on the clip's clock
+node tools/clip.mjs composite talk                                   # out/talk.mp4 (opaque yuv420p) and its render record
+node tools/mix.mjs talk --no-sfx                                     # vo.wav (the clip's sound) as the voice, -14 LUFS
+node render.mjs check --file out/talk-final.mp4                      # the master
+```
+
+- **What `prepare` writes**: the clip in the piece (`clip.<ext>`); `clip.js` (`CLIP`: the display size after rotation,
+  the constant frame rate, the frame count and the length, frames / fps); `vo.wav`, the clip's sound from its first
+  video frame to its last; `cues.js` and `cues.json`, the transcript's words at the clip's own times (`VO_OFFSET` 0, no
+  gaps: it does not go through `tools/cues.mjs`); and with `--board` a `board.js` of one silent beat the clip's length,
+  so the board adds no lead or tail. Its target comes from `--target`, else the clip's shape (9:16 `tiktok`, 16:9
+  `youtube`, 1:1 `square`, 4:5 `feed45`, else `none`). Without `--board`, the piece's board must already be that one beat.
+- **The transcript**: whisper.cpp's JSON when `whisper-cli` is installed (`node render.mjs doctor` reports it; it is
+  optional): `ffmpeg -i talk.mov -ar 16000 -ac 1 talk.wav`, then `whisper-cli -m <model> -f talk.wav -oj -ml 1 -sow`
+  (one word a segment), or `-ojf` (token times). Without it, ask the person for a transcript: openai-whisper's JSON,
+  SRT, WebVTT or the generic words format. **SRT and WebVTT carry phrase times only**: each phrase's words are spread
+  over it by their length and marked estimated (`est: true` in `cues.js`), and `prepare` says how many; tell the person
+  a word may light up a little early or late.
+- **A variable frame rate clip** (phones record them) is converted to a constant rate first: its average rate, rounded
+  to the nearest of 23.976, 24, 25, 29.97, 30, 50, 59.94 and 60, written as `clip.mp4`. `prepare` prints it; tell the
+  person the master is at that rate.
+- **The style**: `caption.js` draws the captions with the `captions` helper in one of four styles: `pop` (the spoken
+  word pops in the accent), `karaoke` (the accent wipes across each word as it is said), `boxed` (each line on a dark
+  box), `minimal` (smaller type, a soft shadow, no highlight). `--param style=<name>` picks one, or the board's
+  `captionStyle`; else the energy's default (`--param energy=subtle|normal|extreme`, or `CFG.ENERGY`: `minimal`, `pop`,
+  `karaoke`; normal by default). `--param emphasis=word,word` (or the board's `emphasis`) marks words in `accent2`
+  with a bar under them. The styles have no sound, so the mix is `--no-sfx`.
+- **Safe zones**: a clip of its target's shape but another size (a 720x1280 phone clip on `tiktok`) gets the target's
+  zones scaled to it, in the scene and in `check`. A clip of any other shape (a 4:3 clip on a 9:16 target) has
+  `text_safe` reported as not checked: say so, or pick a target of its shape with `--target`.
+- **Every `render.mjs` command in the piece names the scene**, `--scene caption.js` (`doctor` too): the template's
+  `scene.js`, the title card, reads beats a clip's board does not have.
+- **`composite`** refuses an overlay whose record is missing or does not match it, is not alpha, is not on the clip's
+  clock (fps, frames, size at scale 1) or was rendered from another source (a stale overlay: render it again), a clip
+  that changed since `prepare`, and a `vo.wav` that is not the clip's sound. Its record has `kind: "composite"` and
+  names the overlay's record and the clip by SHA-256, so `check --file` binds the master to both
+  (`references/check.md` section 3).
+- The `caption-clip` example runs this on a clip made in code.

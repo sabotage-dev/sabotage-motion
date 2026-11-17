@@ -730,3 +730,58 @@ export function formatLine(x) {
 // The JSON form (plan 11): { id, scope, level, t?, detail, measured, threshold }.
 export const toJson = (results) => results.map((x) => ({ id: x.id, scope: x.scope, level: x.level, ...(x.t != null ? { t: x.t } : {}),
   detail: x.detail, measured: x.measured ?? null, threshold: x.threshold ?? null }));
+
+// ---------------------------------------------------------------- P10: a captioned clip (plan 23.5)
+// A clip's captions are an alpha overlay, rendered on the clip's clock and laid over the clip by tools/clip.mjs
+// composite into an opaque out/<name>.mp4, whose render record has kind: "composite", `overlay` (the SHA-256 of the
+// overlay's render record, at `overlayFile`) and `clip` (the clip's SHA-256, at `clipFile`). check --file on its
+// master binds the master to that record as for any render (provenance above), then here to the overlay: the overlay
+// record must exist, match its hash and bind to the current source, and the clip must be the one composited.
+// facts: { overlayFile, overlaySha, overlayExists, overlayShaNow, overlayRec, overlayRecError, sourceNow, clipFile, clipSha,
+// clipExists, clipShaNow }. Returns { result, overlayRec, bound }.
+export function compositeProvenance(f) {
+  const P = (level, detail) => r('provenance', 'file', level, detail);
+  const probs = [];
+  let rec = null;
+  if (!f.overlayFile || !f.overlaySha) probs.push('the composite\'s render record names no overlay record (overlay, overlayFile): composite it again with tools/clip.mjs');
+  else if (!f.overlayExists) probs.push(`the overlay record ${f.overlayFile} that the composite names is missing: render the captions and composite again`);
+  else if (f.overlayShaNow !== f.overlaySha) probs.push(`the overlay record ${f.overlayFile} changed after the composite (another render since): composite and mix again`);
+  else if (f.overlayRecError) probs.push(`${f.overlayFile} is not readable: ${f.overlayRecError}`);
+  else {
+    rec = f.overlayRec;
+    if (!rec.alpha) probs.push(`${f.overlayFile} is not an alpha render: render the captions with --alpha`);
+    if (!rec.source || !f.sourceNow || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the overlay was rendered (${f.overlayFile}): the overlay is stale, render it, composite and mix again`);
+  }
+  if (!f.clipFile || !f.clipSha) probs.push('the composite\'s render record names no clip (clip, clipFile)');
+  else if (!f.clipExists) probs.push(`the clip ${f.clipFile} is missing`);
+  else if (f.clipShaNow !== f.clipSha) probs.push(`the clip ${f.clipFile} is not the one composited (its SHA-256 differs): prepare, render, composite and mix again`);
+  if (probs.length) return { result: P('FAIL', probs.join('; ')), overlayRec: rec, bound: false };
+  return { result: P('OK', `the composite's overlay ${f.overlayFile} (${rec.scene}, alpha ${rec.alpha}) is bound to the current source, over the clip ${f.clipFile}`), overlayRec: rec, bound: true };
+}
+// The decoded picture's probe (P10: a composite is never replayed in the page, its frames are decoded with ffmpeg):
+// frames at the probe size as RGB bytes -> the same measurements the page's checkScan gives for its probe: the luma
+// (Rec. 709, 0-255) difference histogram of each consecutive pair and the first frame's luma mean and standard
+// deviation. add(rgb) takes one frame; done() returns { frames, pairs, first }.
+export function lumaScan({ firstOnly = false } = {}) {
+  let prev = null, n = 0, first = null;
+  const pairs = firstOnly ? null : [];
+  return {
+    add(rgb, w, h) {
+      const luma = new Uint8Array(w * h);
+      for (let i = 0, j = 0; j < luma.length; i += 3, j++) luma[j] = Math.round(0.2126 * rgb[i] + 0.7152 * rgb[i + 1] + 0.0722 * rgb[i + 2]);
+      if (!n) {
+        let sum = 0, sq = 0;
+        for (const v of luma) { sum += v; sq += v * v; }
+        const mean = sum / luma.length;
+        first = { mean, std: Math.sqrt(Math.max(0, sq / luma.length - mean * mean)), w, h };
+      } else if (pairs) {
+        const hist = {};
+        for (let i = 0; i < luma.length; i++) { const d = Math.abs(luma[i] - prev[i]); if (d) hist[d] = (hist[d] || 0) + 1; }
+        pairs.push(hist);
+      }
+      prev = firstOnly ? null : luma;
+      n++;
+    },
+    done: () => ({ frames: n, pairs, first }),
+  };
+}

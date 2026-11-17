@@ -1,0 +1,13 @@
+# Render outputs; the source is everything else. This example commits its source clip (clip.mp4), its transcript and
+# its review sheets (board.png and contact.png), and leaves out vo.wav: tools/clip.mjs prepare makes it from clip.mp4.
+out/
+stills/
+board.md
+brand.png
+vo.wav
+node_modules/
+
+# Secrets: an --env-file kept in the piece (API keys) must never be committed.
+.env
+*.env
+.env.*

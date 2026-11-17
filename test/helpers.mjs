@@ -87,4 +87,4 @@ export function repoFiles() {
 
 // The examples (plan sections 15, 23.3 and 23.4), each a full piece in the skill's examples/ folder.
 export const examplesDir = path.join(repoRoot, 'skills', 'sabotage-motion', 'examples');
-export const EXAMPLES = ['showreel', 'explainer-beat', 'lower-third', 'terminal-demo', 'repo-launch'];
+export const EXAMPLES = ['showreel', 'explainer-beat', 'lower-third', 'terminal-demo', 'repo-launch', 'caption-clip'];
