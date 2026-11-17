@@ -444,7 +444,7 @@ const M = [
   ["P9 shots: the last frame short of the scroll's end", T + "tools/shots.mjs", [["ease(n > 1 ? i / (n - 1) : 1)", "ease(n > 1 ? i / n : 1)"]], SH],
   ["P9 shots: the scroll not rounded to a pixel", T + "tools/shots.mjs", [["=> Math.round(from + (to - from) * ease(", "=> (from + (to - from) * ease("]], SH],
   ["P9 shots: the page's clock not run", T + "tools/shots.mjs", [["    if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));\n", ""]], SH],
-  ["P9 shots: the page's own clock", T + "tools/shots.mjs", [["  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }", "  if (false) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"], ["    if (i > 0) await page.clock.runFor(", "    if (false) await page.clock.runFor("]], SH],
+  ["P9 shots: the page's own clock", T + "tools/shots.mjs", [["  if (clock) await context.clock.pauseAt(CLOCK0);", "  if (false) await context.clock.pauseAt(CLOCK0);"], ["    if (i > 0) await page.clock.runFor(", "    if (false) await page.clock.runFor("]], SH],
   ["P9 shots: CSS animations not set to their time", T + "tools/shots.mjs", [["        a.currentTime = (t - seen.get(a)) * 1000;\n", ""]], SH],
   ["P9 shots: scroll-driven animations seeked", T + "tools/shots.mjs", [["        if (a.timeline !== document.timeline) continue;", "        if (false) continue;"]], SH],
   ["P9 shots: a page that is not local taken", T + "tools/shots.mjs", [["const LOCAL_HOSTS = (h) => h === 'localhost'", "const LOCAL_HOSTS = (h) => true || h === 'localhost'"]], SH],
@@ -526,6 +526,8 @@ const M = [
   ["P9 R3 HTML: a tag inside prose opens a block", T + "tools/repo-scan.mjs", [["    if (!open.length && !HTML_OPENER.test(text.slice(starts[lineOf(m.index)], m.index + m[0].length))) continue;\n", ""]], RS],
   ["P9 R3 HTML: an autolink opens a block", T + "tools/repo-scan.mjs", [["const HTML_OPENER = /^ {0,3}(<\\/?[A-Za-z][\\w-]*(\\s|\\/?>|$)|<!--)/;", "const HTML_OPENER = /^ {0,3}(<\\/?[A-Za-z]|<!--)/;"]], RS],
   ["P9 R3 title: any line starting with < allowed above it", T + "tools/repo-scan.mjs", [["(html[i] || /^\\s*($|!\\[|\\[!\\[)/.test(l)", "(html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l)"]], RS],
+  // ---- P9 CI fix (round 4): the page's clock paused without install(), so its ticks start at 0 on a slow machine too.
+  ["P9 R4 shots: the clock installed before it is paused", T + "tools/shots.mjs", [["  if (clock) await context.clock.pauseAt(CLOCK0);", "  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"]], SH],
 ];
 
 const argv = process.argv.slice(2);

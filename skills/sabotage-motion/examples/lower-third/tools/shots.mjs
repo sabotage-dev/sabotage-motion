@@ -22,9 +22,8 @@
 //       whole pixel (Chrome scrolls by whole pixels). The page's clock is Playwright's (timers, requestAnimationFrame,
 //       Date, performance.now), stopped before the page opens and run forward a frame at a time (i / fps at frame i,
 //       to the millisecond), and every CSS animation and transition is paused and set to its time since the frame it
-//       first appeared in, so the same page gives the same frames on every run. One exception, Playwright's: a page
-//       that reads performance.now() or Date.now() while it loads, outside a timer or a requestAnimationFrame
-//       callback, can read it a millisecond apart from run to run.
+//       first appeared in, so the same page gives the same frames on every run: at frame 0, performance.now() reads 0
+//       and Date.now() CLOCK0 (1 s past the epoch), on a fast machine or a slow one.
 //       In the scene: await loadSeq('<name>') in init, ctx.drawImage(seqAt('<name>', t, t0), x, y, w, h).
 //
 // loadSeq holds every frame decoded (w x h x 4 bytes), so a sequence over 1 GB decoded (frames x w x h x 4 bytes,
@@ -145,10 +144,12 @@ async function withChrome(work, cleanup) {
 // pageSteps and frameSteps below, so a test can drive each refusal with a stand-in for Playwright's browser and page.
 export async function open(browser, src, vp, dpr, { clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: dpr });
-  // the page's clock, installed on the context and paused before the page exists, at a time ahead of any setup, so the
-  // page opens on a stopped clock (installed on the page, or paused at a time already passed, it starts each capture a
-  // few real milliseconds apart)
-  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }
+  // the page's clock: paused on the context before the page exists, so the page opens on a stopped clock whose ticks
+  // (performance.now(), and the 16 ms grid requestAnimationFrame fires on) start at 0. pauseAt alone installs it. The
+  // page replays the clock calls logged with the real time each was made, and an install() before the pause would
+  // advance the ticks by the real milliseconds between the two calls (more on a busy machine), so a frame near a 16 ms
+  // boundary would catch one requestAnimationFrame more on one run than on another
+  if (clock) await context.clock.pauseAt(CLOCK0);
   const page = await context.newPage();
   await page.goto(src.url, { waitUntil: src.http ? 'networkidle' : 'load' });
   stillLocal(page, src);

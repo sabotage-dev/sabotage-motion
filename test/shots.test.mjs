@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -20,21 +21,26 @@ const lib = await import(pathToFileURL(path.join(templateDir, 'lib.js')).href);
 const P = (dir, f) => path.join(dir, f);
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 // Every child is bounded (60 s; a capture here takes a few): one that leaves Chrome open never exits, and the test fails.
-// Each runs with a TMPDIR of its piece's own, so a Chrome a killed child leaves behind is found by that path and killed.
-const childTmp = (dir) => { const t = path.join(dir, '.chrome-tmp'); fs.mkdirSync(t, { recursive: true }); return t; };
+// Each runs with a TMPDIR of its own, short and in the system's temp folder (Chrome on Linux puts its singleton socket
+// under it, and a socket path over about 107 bytes stops Chrome at launch), so a Chrome a killed child leaves behind is
+// found by that path and killed; the folder is removed after the child.
+const childTmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sm-'));
 const reap = (tmp) => spawnSync('pkill', ['-f', tmp]);
+const done = (tmp) => fs.rmSync(tmp, { recursive: true, force: true });
 const shots = (dir, args) => {
-  const tmp = childTmp(dir);
-  const r = spawnSync(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000, killSignal: 'SIGKILL', env: { ...process.env, TMPDIR: tmp + path.sep } });
-  if (r.signal) reap(tmp);
-  return { status: r.signal ? `killed (${r.signal})` : r.status, out: (r.stdout || '') + (r.stderr || '') };
+  const tmp = childTmp();
+  try {
+    const r = spawnSync(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000, killSignal: 'SIGKILL', env: { ...process.env, TMPDIR: tmp + path.sep } });
+    if (r.signal) reap(tmp);
+    return { status: r.signal ? `killed (${r.signal})` : r.status, out: (r.stdout || '') + (r.stderr || '') };
+  } finally { done(tmp); }
 };
 const spawnBounded = (dir, args) => new Promise((ok) => {
-  const tmp = childTmp(dir);
+  const tmp = childTmp();
   const p = spawn(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, env: { ...process.env, TMPDIR: tmp + path.sep } }); let s = '';
   const t = setTimeout(() => p.kill('SIGKILL'), 60000);
   p.stdout.on('data', (d) => (s += d)); p.stderr.on('data', (d) => (s += d));
-  p.on('close', (c, sig) => { clearTimeout(t); if (sig) reap(tmp); ok({ c: sig ? `killed (${sig})` : c, s }); });
+  p.on('close', (c, sig) => { clearTimeout(t); if (sig) reap(tmp); done(tmp); ok({ c: sig ? `killed (${sig})` : c, s }); });
 });
 const VP = ['--viewport', '135x240', '--dpr', '2'];
 const PAGE_H = 3000, VIEW_H = 240, DPR = 2, LANDMARKS = Array.from({ length: 14 }, (_, k) => ({ k, top: 200 * (k + 1), w: 8 + 6 * k }));
@@ -214,19 +220,18 @@ test('refusals: a page that is not local, a scroll past the page\'s end, a viewp
 });
 
 // ---------------------------------------------------------------- council round 1 (items 1 to 3)
-import os from 'node:os';
 // shots() called in a child that catches its error, as a caller does: the child exits only when no Chrome is left open.
 // Its TMPDIR is its own, so any Chrome it leaves is found (and killed) by that path.
 function inProcess(dir, args, pre = '') {
-  const tmp = P(dir, '.chrome-tmp');
-  fs.mkdirSync(tmp, { recursive: true });
+  const tmp = childTmp();
   const code = `import fs from 'node:fs'; import { shots } from './tools/shots.mjs'; ${pre}
 try { await shots(${JSON.stringify(args)}, () => {}); console.log('DONE'); } catch (e) { console.log('ERR ' + String(e.message).split('\\n')[0]); }`;
   const t0 = Date.now();
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: dir, encoding: 'utf8', timeout: 30000, killSignal: 'SIGKILL', env: { ...process.env, TMPDIR: tmp + path.sep } });
   const left = () => execFileSync('ps', ['-ax', '-o', 'command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(tmp)).length;
   const out = { status: r.status, signal: r.signal, out: (r.stdout || '') + (r.stderr || ''), ms: Date.now() - t0, chrome: left() };
-  if (out.chrome) spawnSync('pkill', ['-f', tmp]);
+  if (out.chrome) reap(tmp);
+  done(tmp);
   return out;
 }
 
@@ -378,4 +383,33 @@ test('R3-T3 a refusal about the page checks first that it is still here: gone an
   await refusedAway(SH.frameSteps(p, SRC, { ...SEQ, from: 50 }, 1, '/nowhere'), p);
   const scrolled = stubPage({ clock: (q) => { q.y = 0; } });
   await assert.rejects(SH.frameSteps(scrolled, SRC, { ...SEQ, from: 50 }, 1, '/nowhere'), /moved its own scroll to 0 px when its clock ran/);
+});
+
+// ---------------------------------------------------------------- CI (round 4): Linux sockets, and the clock on a slow machine
+test('R4 a child\'s TMPDIR leaves room for Chrome\'s singleton socket (its longest path under 100 bytes)', () => {
+  const tmp = childTmp();
+  try {
+    const longest = path.join(tmp, 'com.google.Chrome.XXXXXX', 'SingletonSocket');
+    assert.ok(Buffer.byteLength(longest) < 100, `${Buffer.byteLength(longest)} bytes: ${longest}`);
+  } finally { done(tmp); }
+});
+
+// A machine slow between two clock calls, played on purpose: the context's clock calls each take 25 ms longer. The page
+// replays the clock calls logged with the real time each was made, so an install() before the pause would start its ticks
+// 25 ms late, and requestAnimationFrame (on a 16 ms grid of those ticks) would fire at other times than on a fast machine.
+test('R4 on a slow machine too, the page\'s clock starts at 0: performance.now(), requestAnimationFrame\'s 16 ms grid, Date', async () => {
+  const dir = path.join(templateDir, '..', '..', '..', 'test', '.work', 'shots-r4');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'clock.html');
+  fs.writeFileSync(file, '<!doctype html><script>window.__first = performance.now(); window.__ts = []; const f = (t) => { window.__ts.push(t); requestAnimationFrame(f); }; requestAnimationFrame(f);</script>');
+  const { chromium } = await import('playwright-core');
+  const browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), headless: true });
+  const late = (target) => new Proxy(target, { get(t, k) { const v = t[k]; return typeof v === 'function' ? async (...a) => { const r = await v.apply(t, a); await new Promise((ok) => setTimeout(ok, 25)); return r; } : v; } });
+  const slow = { newContext: async (o) => { const c = await browser.newContext(o); return new Proxy(c, { get(t, k) { if (k === 'clock') return late(t.clock); const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; } }); } };
+  try {
+    const page = await SH.open(slow, { url: pathToFileURL(file).href, label: 'clock.html', http: false }, { w: 100, h: 100 }, 1, { clock: true });
+    await page.clock.runFor(100);
+    const [first, ts, date, now] = await page.evaluate(() => [window.__first, window.__ts, Date.now(), performance.now()]);
+    assert.deepEqual({ first, ts, date, now }, { first: 0, ts: [16, 32, 48, 64, 80, 96], date: SH.CLOCK0 + 100, now: 100 });
+  } finally { await browser.close(); }
 });
