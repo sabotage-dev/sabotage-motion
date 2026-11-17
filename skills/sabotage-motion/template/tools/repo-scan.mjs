@@ -392,10 +392,11 @@ export function readme(text, file, { names = [] } = {}) {
   // else the first that sits under an Install-like heading (any heading it is under: ## Installation > ### npm counts)
   const want = [...names, title && title.text].filter(Boolean).map((n) => String(n).toLowerCase());
   // the headings line i sits under: the nearest above it with a level under `level` (any, for a line; a heading's own
-  // level, for a heading), then each one above that with a smaller level
+  // level, for a heading), then each one above that with a smaller level. The title is the project's name, not a
+  // section, so it is never one of them (# Setup Wizard does not make every command an install command)
   const enclosing = (i, level = Infinity) => {
     const out = [];
-    for (let k = heads.length - 1, lvl = level; k >= 0; k--) if (heads[k].line - 1 < i && heads[k].level < lvl) { out.push(heads[k]); lvl = heads[k].level; }
+    for (let k = heads.length - 1, lvl = level; k >= 0; k--) if (heads[k] !== title && heads[k].line - 1 < i && heads[k].level < lvl) { out.push(heads[k]); lvl = heads[k].level; }
     return out;
   };
   let underHeading = null;

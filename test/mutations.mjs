@@ -512,6 +512,7 @@ const M = [
   ["P9 R2 M2 features: a sibling heading read as the section", T + "tools/repo-scan.mjs", [["enclosing(h.line - 1, h.level)", "enclosing(h.line - 1)"]], RS],
   ["P9 R2 M1 docs: launch.md's install row names a global flag again", "skills/sabotage-motion/references/launch.md", [["that names this package; else the first that sits under", "that names this package or installs globally; else the first that sits under"]], DOCS],
   ["P9 R2 M3 docs: SKILL.md lets repo-launch be copied", "skills/sabotage-motion/SKILL.md", [["(`cp -R`, then `chmod -R u+w`), except\n`repo-launch/`: it is a reference only, and a launch piece starts from the template (`references/launch.md`).", "(`cp -R`, then `chmod -R u+w`)."]], DOCS],
+  ["P9 R2 T: the title is a heading a command or a section sits under", T + "tools/repo-scan.mjs", [["if (heads[k] !== title && heads[k].line - 1 < i", "if (heads[k].line - 1 < i"]], RS],
 ];
 
 const argv = process.argv.slice(2);

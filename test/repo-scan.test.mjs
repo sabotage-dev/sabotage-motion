@@ -467,3 +467,16 @@ test('R2-M2 a heading inside a boilerplate or Install-like section is not a feat
   // Installation and License are boilerplate; Set up is not (so it is listed, as before) but it is Install-like, so Docker is not
   assert.deepEqual(r.features.map((f) => f.text), ['How it works', 'The scanner', 'Set up']);
 });
+
+test('R2-T the README\'s title is never a heading a command or a section sits under (# Setup Wizard, # Examples)', () => {
+  const body = '\n\nIt does things.\n\n## Development\n\n```sh\nnpm install\n```\n\n## How it works\n\n### The engine\n';
+  const pkg = '{ "name": "wizard" }';
+  const setup = scan(project('t-setup', { 'package.json': pkg, 'README.md': '# Setup Wizard' + body })).json;
+  assert.deepEqual(setup.install, { value: 'npm install wizard', file: 'package.json', line: 1, derived: true });
+  assert.deepEqual(setup.features.map((f) => f.text), ['How it works', 'The engine']);
+  const control = scan(project('t-control', { 'package.json': pkg, 'README.md': '# Snagwick' + body })).json;
+  assert.deepEqual([control.install, control.features.map((f) => f.text)], [setup.install, setup.features.map((f) => f.text)], 'the same as a title that is no section word');
+  const examples = scan(project('t-examples', { 'README.md': '# Examples\n\nA set of examples.\n\n## Basic usage\n\n## Advanced\n\n### Plugins\n' })).json;
+  assert.deepEqual(examples.name, { value: 'Examples', file: 'README.md', line: 1 });
+  assert.deepEqual(examples.features.map((f) => f.text), ['Basic usage', 'Advanced', 'Plugins']);
+});
