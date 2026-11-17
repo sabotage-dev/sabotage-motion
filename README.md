@@ -277,7 +277,8 @@ platform's safe area, its sound levelled and mastered to -14 LUFS, and checked l
 redrawn through the browser: the captions render with alpha on the clip's own clock, and ffmpeg lays them over it.
 
 ```sh
-node tools/clip.mjs prepare talk.mp4 --transcript talk.srt --board   # the clip, its clock, its sound and the cues
+node tools/clip.mjs prepare talk.mp4 --board                         # the clip, its clock, vo.wav (its sound on that clock)
+node tools/clip.mjs cues --transcript talk.srt                       # the transcript's words on the clip's clock
 node render.mjs video --scene caption.js --alpha --out out/talk.mov  # the captions (--param style=pop|karaoke|boxed|minimal)
 node tools/clip.mjs composite talk                                   # laid over the clip: out/talk.mp4 and its record
 node tools/mix.mjs talk --no-sfx                                     # the clip's own sound, mastered
@@ -286,7 +287,9 @@ node render.mjs check --file out/talk-final.mp4
 
 The transcript is whisper.cpp's JSON (`whisper-cli`, optional; `doctor` says whether it is installed), openai-whisper's
 JSON, SRT or WebVTT. SRT and WebVTT give phrase times only, so their words are spread by length and marked estimated. A
-variable-frame-rate clip is converted to the nearest standard constant rate first, and `prepare` says so.
+variable-frame-rate clip is converted to the nearest standard constant rate first, a clip with non-square pixels to square
+pixels at its display size, and `prepare` says so. A transcript made with whisper-cli comes from `out/vo16k.wav`, so it
+is on the clip's clock; `--audio <n>` picks one of several audio tracks.
 [references/delivery.md](skills/sabotage-motion/references/delivery.md) section 8 is the recipe, and the
 `caption-clip` example runs it.
 

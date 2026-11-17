@@ -67,28 +67,72 @@ test('prepare: the clip, clip.js on its clock, the cues at the clip\'s own times
   assert.equal(vo.length, 3 * 48000);
 });
 
-test('sync: in the master, the tone\'s onset, the white frame and the caption\'s first visible frame are each within one frame of frame 45', () => {
-  const master = path.join(dir, 'out/sync-final.mp4'), clip = path.join(dir, 'clip.mp4');
+// In a master on the clip's clock: the white frame, the tone's onset and the first frame (from frame 42) a caption shows
+// where the clip's own picture has none. Returns { white, onset (frames), first }.
+function syncOf(master, clip, { band = [520, 720], quietAt = 43 } = {}) {
   // the white frame: the one frame whose mean luma is near white
   const small = gray(master, 54, 96), mean = (f) => f.reduce((s, v) => s + v, 0) / f.length;
   const white = small.map((f, i) => [i, mean(f)]).filter(([, m]) => m > 200).map(([i]) => i);
-  assert.deepEqual(white, [FLASH], 'the flash is still on its frame');
   // the tone: the first sample after 1 s louder than half the tone's peak
   const s = monoSamples(master), sr = 48000;
   let peak = 0;
   for (let i = sr; i < 2 * sr; i++) peak = Math.max(peak, Math.abs(s[i]));
   let onset = -1;
   for (let i = sr; i < 2 * sr; i++) if (Math.abs(s[i]) > 0.5 * peak) { onset = i / sr; break; }
-  assert.ok(Math.abs(onset * FPS - FLASH) <= 1, `the tone starts at ${onset.toFixed(4)} s = frame ${(onset * FPS).toFixed(2)}`);
   // the caption: frames where the master's caption band differs from the clip's own picture
   const m = gray(master, W, H), c = gray(clip, W, H);
   assert.equal(m.length, c.length);
-  const inked = (i) => { let n = 0; for (let y = 520; y < 720; y++) for (let x = 0; x < W; x++) { const k = y * W + x; if (Math.abs(m[i][k] - c[i][k]) > 60) n++; } return n; };
-  assert.ok(inked(20) > 300, 'the first caption ("Ready, set...") shows at 0.67 s');
-  assert.ok(inked(43) < 50, `no caption between the phrases (frame 43: ${inked(43)} pixels)`);
+  const inked = (i) => { let n = 0; for (let y = band[0]; y < band[1]; y++) for (let x = 0; x < W; x++) { const k = y * W + x; if (Math.abs(m[i][k] - c[i][k]) > 60) n++; } return n; };
   let first = -1;
   for (let i = 42; i < 60; i++) if (inked(i) > 300) { first = i; break; }
-  assert.ok(Math.abs(first - FLASH) <= 1, `"Now" first shows on frame ${first}`);
+  return { white, onset: onset * FPS, first, inked };
+}
+test('sync: in the master, the tone\'s onset, the white frame and the caption\'s first visible frame are each within one frame of frame 45', () => {
+  const r = syncOf(path.join(dir, 'out/sync-final.mp4'), path.join(dir, 'clip.mp4'));
+  assert.deepEqual(r.white, [FLASH], 'the flash is still on its frame');
+  assert.ok(Math.abs(r.onset - FLASH) <= 1, `the tone starts on frame ${r.onset.toFixed(2)}`);
+  assert.ok(r.inked(20) > 300, 'the first caption ("Ready, set...") shows at 0.67 s');
+  assert.ok(r.inked(43) < 50, `no caption between the phrases (frame 43: ${r.inked(43)} pixels)`);
+  assert.ok(Math.abs(r.first - FLASH) <= 1, `"Now" first shows on frame ${r.first}`);
+});
+
+test('P10 R1 B1 one clock: a clip whose sound starts 0.5 s after its picture, transcribed from its raw track and moved with --raw-track: tone, flash and highlight within one frame', () => {
+  const d = piece('clip-offset');
+  const at = FLASH / FPS;
+  ff(['-f', 'lavfi', '-i', `testsrc2=s=${W}x${H}:r=${FPS}:d=3`, '-vf', `drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='eq(n,${FLASH})'`,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(d, 'v.mp4')]);
+  // the sound's own clock: the tone at 1.0 s; muxed to start 0.5 s into the picture, so it plays at 1.5 s, frame 45
+  ff(['-f', 'lavfi', '-i', `aevalsrc='if(gte(t,${at - 0.5})*lt(t,${at - 0.3}),0.5*sin(2*PI*1000*t),0.02*sin(2*PI*220*t))':s=48000:d=2.5`, path.join(d, 'a.wav')]);
+  ff(['-i', path.join(d, 'v.mp4'), '-itsoffset', '0.5', '-i', path.join(d, 'a.wav'), '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', path.join(d, 'src.mp4')]);
+  // a transcript of the raw audio track: "Now" with the tone, at 1.0 s of the sound's own clock
+  fs.writeFileSync(path.join(d, 'raw.json'), JSON.stringify({ words: [{ text: 'Now', start: 1.0, end: 1.4 }, { text: 'go.', start: 1.7, end: 2.0 }] }));
+  const pr = ok(tool(d, ['probe', 'src.mp4']));
+  assert.match(pr.out, /starting 0\.4\d+ s after the picture/);
+  const p = ok(tool(d, ['prepare', 'src.mp4', '--board']));
+  assert.match(p.out, /note: the clip's sound starts 0\.4\d+ s after its first frame\. vo\.wav \(and the mix\) is aligned to the picture/);
+  assert.match(p.out, /must be moved \+0\.4\d+ s: --raw-track/);
+  assert.match(p.out, /wrote clip\.mp4, clip\.js, vo\.wav, out\/vo16k\.wav, board\.js/);
+  assert.ok(!fs.existsSync(path.join(d, 'cues.js')), 'no transcript yet, so no cues');
+  // vo.wav and its 16 kHz copy for whisper-cli are on the picture's clock: the tone at 1.5 s
+  for (const [f, sr] of [['vo.wav', 48000], ['out/vo16k.wav', 16000]]) {
+    const b = execFileSync('ffmpeg', ['-v', 'error', '-i', path.join(d, f), '-ac', '1', '-f', 'f32le', '-']), x = new Float32Array(b.buffer, b.byteOffset, b.length / 4);
+    const i = x.findIndex((v) => Math.abs(v) > 0.25);
+    assert.ok(Math.abs((i / sr) * FPS - FLASH) <= 1, `${f}: the tone at ${(i / sr).toFixed(4)} s`);
+  }
+  const c = ok(tool(d, ['cues', '--transcript', 'raw.json', '--raw-track']));
+  assert.match(c.out, /moved \+0\.4\d+ s onto the clip's clock \(--raw-track/);
+  const cues = JSON.parse(fs.readFileSync(path.join(d, 'cues.json'), 'utf8'));
+  assert.ok(Math.abs(cues.WORDS[0].start - 1.5) < 0.03, `"Now" at ${cues.WORDS[0].start} s on the clip's clock`);
+  assert.match(tool(d, ['cues', '--transcript', 'raw.json', '--raw-track', '--transcript-offset', '1']).out, /give one/);
+  render(d, ['video', '--scene', 'caption.js', '--alpha', '--sub', '2', '--out', 'out/off.mov']);
+  ok(tool(d, ['composite', 'off']));
+  mix(d, ['off', '--no-sfx']);
+  const r = syncOf(path.join(d, 'out/off-final.mp4'), path.join(d, 'clip.mp4'));
+  assert.deepEqual(r.white, [FLASH], 'the flash on its frame');
+  assert.ok(Math.abs(r.onset - FLASH) <= 1, `the tone starts on frame ${r.onset.toFixed(2)}`);
+  assert.ok(r.inked(40) < 50, 'nothing captioned before "Now"');
+  assert.ok(Math.abs(r.first - FLASH) <= 1, `"Now" first shows on frame ${r.first}`);
+  assert.equal(runCheck(d, ['--file', 'out/off-final.mp4']).status, 0);
 });
 
 test('the master has the clip\'s frame count and length, and check --file passes it: both provenances bound, zones scaled, picture checks on the composite', () => {
@@ -147,21 +191,82 @@ test('a stale overlay FAILs check --file: re-rendered after the composite, or re
   } finally { fs.writeFileSync(b, src); }
 });
 
-test('composite refuses an overlay off the clip\'s clock or size, and a vo.wav that is not the clip\'s sound', () => {
+test('composite refuses an overlay off the clip\'s clock or size', () => {
   render(dir, ['video', '--scene', 'caption.js', '--alpha', '--sub', '1', '--scale', '0.5', '--to', '1', '--out', 'out/half.mov']);
   const r = tool(dir, ['composite', 'half']);
   assert.equal(r.status, 1);
   assert.match(r.out, /the overlay has 30 frames, the clip 90/);
   assert.match(r.out, /the overlay is 270x480, the clip 540x960: render it at scale 1/);
-  const vo = path.join(dir, 'vo.wav'), keep = fs.readFileSync(vo);
+});
+
+test('P10 R1 B1 a clip whose sound starts 0.3 s before its picture: vo.wav is cut to the first frame, the tone on its frame', () => {
+  const d = piece('clip-early');
+  ff(['-f', 'lavfi', '-i', `testsrc2=s=320x568:r=${FPS}:d=2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(d, 'v.mp4')]);
+  // the sound's own clock: the tone at 1.3 s; the picture muxed to start 0.3 s after the sound, so the tone plays at 1.0 s
+  ff(['-f', 'lavfi', '-i', "aevalsrc='if(gte(t,1.3)*lt(t,1.5),0.5*sin(2*PI*1000*t),0.02*sin(2*PI*220*t))':s=48000:d=2.3", path.join(d, 'a.wav')]);
+  ff(['-itsoffset', '0.3', '-i', path.join(d, 'v.mp4'), '-i', path.join(d, 'a.wav'), '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', path.join(d, 'src.mp4')]);
+  const p = ok(tool(d, ['prepare', 'src.mp4', '--board']));
+  assert.match(p.out, /starts 0\.\d+ s before its first frame/);
+  const vo = monoSamples(path.join(d, 'vo.wav')), i = vo.findIndex((v) => Math.abs(v) > 0.25);
+  assert.ok(Math.abs((i / 48000) * FPS - 30) <= 1, `the tone at ${(i / 48000).toFixed(4)} s in vo.wav, frame 30 of the picture`);
+});
+
+test('P10 R1 B4 composite refuses a vo.wav that is not the clip\'s sound, with a current overlay (so the comparison itself is reached)', () => {
+  const vo = path.join(dir, 'vo.wav'), keep = fs.readFileSync(vo), mov = path.join(dir, 'out/sync.mov'), rec = mov + '.render.json';
+  const keepMov = fs.readFileSync(mov), keepRec = fs.readFileSync(rec);
   try {
-    fs.writeFileSync(vo, keep.subarray(0, keep.length - 4000));
-    // vo.wav is part of the source, so the overlay is stale too; the composite names both
-    const r2 = tool(dir, ['composite', 'sync']);
-    assert.equal(r2.status, 1);
-    assert.match(r2.out, /stale/);
-  } finally { fs.writeFileSync(vo, keep); }
+    // another sound under the same name: the clip's sound with its last 1000 samples silenced
+    const b = Buffer.from(keep);
+    b.fill(0, b.length - 4000);
+    fs.writeFileSync(vo, b);
+    // the overlay rendered again from this source, so it is current and only vo.wav is wrong
+    render(dir, ['video', '--scene', 'caption.js', '--alpha', '--sub', '1', '--out', 'out/sync.mov']);
+    const r = tool(dir, ['composite', 'sync']);
+    assert.equal(r.status, 1);
+    assert.match(r.out, /vo\.wav is not the clip's sound: run prepare again/);
+    assert.doesNotMatch(r.out, /stale/);
+  } finally { fs.writeFileSync(vo, keep); fs.writeFileSync(mov, keepMov); fs.writeFileSync(rec, keepRec); }
   assert.equal(tool(dir, ['composite', 'sync']).status, 0, 'composited again once restored');
+});
+
+test('P10 R1 B2 a clip with two audio tracks: probe lists both, prepare --audio picks one and says so, vo.wav is that track', async () => {
+  const d = piece('clip-tracks');
+  // track 0: a quiet hum; track 1: a loud tone from 1.0 s
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x568:r=30:d=2', '-f', 'lavfi', '-i', 'sine=f=220:d=2:sample_rate=48000', '-f', 'lavfi', '-i', "aevalsrc='if(gte(t,1),0.5*sin(2*PI*1000*t),0)':s=48000:d=2",
+    '-map', '0:v', '-map', '1:a', '-map', '2:a', '-filter:a:0', 'volume=0.05', '-metadata:s:a:0', 'language=eng', '-metadata:s:a:1', 'language=fra',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(d, 'two.mp4')]);
+  const pr = ok(tool(d, ['probe', 'two.mp4']));
+  assert.match(pr.out, /2 audio streams \(prepare --audio <n> picks one; 0 by default\)/);
+  assert.match(pr.out, /audio 0: aac 48000 Hz, 1 channel, eng/);
+  assert.match(pr.out, /audio 1: aac 48000 Hz, 1 channel, fra/);
+  assert.match(tool(d, ['prepare', 'two.mp4', '--audio', '2', '--board']).out, /--audio 2 is not one of them/);
+  const p = ok(tool(d, ['prepare', 'two.mp4', '--audio', '1', '--board']));
+  assert.match(p.out, /sound: audio stream 1 of 2 \(--audio 1\)/);
+  const clip = (await import(path.join(d, 'clip.js') + '?b2')).CLIP;
+  assert.equal(clip.audio.index, 1);
+  assert.equal(clip.from.audio, 1);
+  const vo = monoSamples(path.join(d, 'vo.wav'));
+  const peak = (a, b) => { let m = 0; for (let i = Math.round(a * 48000); i < Math.round(b * 48000); i++) m = Math.max(m, Math.abs(vo[i])); return m; };
+  assert.ok(peak(1.1, 1.9) > 0.3, 'vo.wav is track 1 (the tone)');
+  assert.ok(peak(0.1, 0.9) < 0.01, 'and not track 0 (the hum)');
+});
+
+test('P10 R1 B3 a clip with non-square pixels (720x576, 64:45) is converted to square pixels at its display size, and prepare says so', async () => {
+  const d = piece('clip-sar');
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=720x576:r=25:d=1', '-f', 'lavfi', '-i', 'sine=f=440:d=1:sample_rate=48000', '-vf', 'setsar=64/45',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', path.join(d, 'pal.mp4')]);
+  const pr = ok(tool(d, ['probe', 'pal.mp4']));
+  assert.match(pr.out, /1024x576 \(stored 720x576, pixels 64:45, not square\)/);
+  assert.match(pr.out, /prepare converts it to square pixels at its display size first \(1024x576\)/);
+  const p = ok(tool(d, ['prepare', 'pal.mp4', '--board']));
+  assert.match(p.out, /non-square pixels \(64:45\): converting to square pixels at the display size, 1024x576/);
+  assert.match(p.out, /note: the clip's pixels were not square \(64:45\); clip\.mp4 is 1024x576 with square pixels/);
+  const v = videoStream(ffprobe(path.join(d, 'clip.mp4')));
+  assert.deepEqual([v.width, v.height], [1024, 576]);
+  assert.ok(!v.sample_aspect_ratio || v.sample_aspect_ratio === '1:1', `square pixels (${v.sample_aspect_ratio})`);
+  const clip = (await import(path.join(d, 'clip.js') + '?b3')).CLIP;
+  assert.deepEqual([clip.w, clip.h, clip.frames, clip.from.sar], [1024, 576, 25, '64:45']);
+  assert.match(fs.readFileSync(path.join(d, 'board.js'), 'utf8'), /target: "youtube"/, '16:9 as displayed');
 });
 
 test('a variable frame rate clip is converted to the nearest standard constant rate, and prepare says so', async () => {
@@ -183,8 +288,8 @@ test('a variable frame rate clip is converted to the nearest standard constant r
   assert.equal(clip.frames, 50);
   const again = ok(tool(d, ['probe', 'clip.mp4']));
   assert.match(again.out, /25 fps constant \(25\/1\), 50 frames, 2\.0\d\d s/);   // the container's length: 2.005 s on Linux's ffmpeg (AAC padding)
-  // refusals: no transcript, a clip with no sound
-  assert.match(tool(d, ['prepare', 'vfr.mp4']).out, /needs --transcript/);
+  // refusals: a bad --audio, a clip with no sound
+  assert.match(tool(d, ['prepare', 'vfr.mp4', '--audio', 'x']).out, /--audio x: an audio stream's number/);
   ff(['-f', 'lavfi', '-i', 'testsrc2=s=64x64:r=30:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(d, 'mute.mp4')]);
   assert.match(tool(d, ['prepare', 'mute.mp4', '--transcript', 't.srt', '--board']).out, /has no sound/);
 });

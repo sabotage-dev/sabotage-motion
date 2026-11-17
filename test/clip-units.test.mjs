@@ -194,3 +194,28 @@ test('the decoded-picture probe measures what the page\'s probe does: Rec. 709 l
   assert.equal(f.done().pairs, null);
   assert.equal(f.done().first.mean, 10);
 });
+
+test('P10 R1 B3 display geometry: pixels\' aspect and rotation give the display size; a clip needs converting for a variable rate or non-square pixels', () => {
+  assert.deepEqual(K.displaySize(720, 576, [64, 45], 0), [1024, 576]);
+  assert.deepEqual(K.displaySize(720, 576, [16, 15], 0), [768, 576]);
+  assert.deepEqual(K.displaySize(1920, 1080, null, 90), [1080, 1920]);
+  assert.deepEqual(K.displaySize(720, 576, [64, 45], 270), [576, 1024]);
+  assert.deepEqual(K.sarOf({ sample_aspect_ratio: '64:45' }), [64, 45]);
+  for (const x of ['1:1', '0:1', 'N/A', undefined]) assert.equal(K.sarOf({ sample_aspect_ratio: x }), null, String(x));
+  assert.equal(K.normalizePlan({ vfr: false, sar: null }), null);
+  assert.deepEqual(K.normalizePlan({ vfr: false, sar: [64, 45], w: 1024, h: 576 }), { rate: null, size: [1024, 576] });
+  assert.deepEqual(K.normalizePlan({ vfr: false, sar: [10, 11], w: 655, h: 480 }).size, [656, 480], 'made even for yuv420p');
+  assert.deepEqual(K.normalizePlan({ vfr: true, avgFps: 29.6, sar: null }), { rate: [30000 / 1001, '30000/1001'], size: null });
+});
+
+test('P10 R1 B1 a transcript moved onto the clip\'s clock: every word by the shift; a word moved before the first frame is refused', () => {
+  const board = K.clipBoard({ dur: 3, target: 'tiktok', title: 'x' });
+  const take = { words: [{ text: 'Now', start: 1.0, end: 1.4 }, { text: 'go.', start: 1.7, end: 2.0 }] };
+  const c = K.clipCues(take, { dur: 3, board, shift: 0.5 });
+  assert.deepEqual(c.WORDS.map((w) => [w.start, w.end]), [[1.5, 1.9], [2.2, 2.5]]);
+  assert.equal(c.VO_OFFSET, 0, 'the shift is in the words, never in VO_OFFSET');
+  assert.equal(c.TAKE.lastWordEnd, 2.5);
+  assert.deepEqual(K.clipCues(take, { dur: 3, board }).WORDS[0].start, 1.0, 'no shift by default');
+  assert.throws(() => K.clipCues(take, { dur: 3, board, shift: -1.2 }), /before the clip's first frame after the -1\.200 s shift/);
+  assert.throws(() => K.clipCues(take, { dur: 3, board, shift: 1.5 }), /at or after the clip's end/);
+});

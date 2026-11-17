@@ -142,8 +142,10 @@ is never redrawn as a frame sequence: the captions render with alpha on the clip
 clip, and the mixer masters the clip's sound under that picture. Start from a fresh copy of the template:
 
 ```sh
-node tools/clip.mjs probe talk.mov                                   # size after rotation, frame rate, frames, length, sound
-node tools/clip.mjs prepare talk.mov --transcript talk.srt --board   # writes the files below
+node tools/clip.mjs probe talk.mov                                   # display size, frame rate, frames, length, every audio stream
+node tools/clip.mjs prepare talk.mov --board                         # the clip, clip.js, vo.wav, out/vo16k.wav, board.js
+whisper-cli -m <model> -f out/vo16k.wav -oj -ml 1 -sow -of out/vo16k # optional: transcribe vo.wav (else bring a transcript)
+node tools/clip.mjs cues --transcript out/vo16k.json                 # cues.js and cues.json on the clip's clock
 node render.mjs check --scene caption.js --alpha                     # the captions as an overlay
 node render.mjs video --scene caption.js --alpha --out out/talk.mov  # the captions, transparent, on the clip's clock
 node tools/clip.mjs composite talk                                   # out/talk.mp4 (opaque yuv420p) and its render record
@@ -151,21 +153,39 @@ node tools/mix.mjs talk --no-sfx                                     # vo.wav (t
 node render.mjs check --file out/talk-final.mp4                      # the master
 ```
 
-- **What `prepare` writes**: the clip in the piece (`clip.<ext>`); `clip.js` (`CLIP`: the display size after rotation,
-  the constant frame rate, the frame count and the length, frames / fps); `vo.wav`, the clip's sound from its first
-  video frame to its last; `cues.js` and `cues.json`, the transcript's words at the clip's own times (`VO_OFFSET` 0, no
-  gaps: it does not go through `tools/cues.mjs`); and with `--board` a `board.js` of one silent beat the clip's length,
+- **One clock.** The clip's first video frame is time 0 for the picture, `vo.wav`, the captions and the master.
+  - **What `prepare` writes**: the clip in the piece (`clip.<ext>`); `clip.js` (`CLIP`: the display size, the constant
+  frame rate, the frame count and the length, frames / fps, and which audio stream is its sound); `vo.wav`, that sound
+  from the first video frame to the last (sound that starts after the picture is delayed by as much, sound that starts
+  before it is cut); `out/vo16k.wav`, the same at 16 kHz mono for `whisper-cli`; with `--transcript` (or later with
+  `node tools/clip.mjs cues --transcript <file>`) `cues.js` and `cues.json`, the transcript's words on the clip's clock
+  (`VO_OFFSET` 0, no gaps: it does not go through `tools/cues.mjs`); and with `--board` a `board.js` of one silent beat the clip's length,
   so the board adds no lead or tail. Its target comes from `--target`, else the clip's shape (9:16 `tiktok`, 16:9
   `youtube`, 1:1 `square`, 4:5 `feed45`, else `none`). Without `--board`, the piece's board must already be that one beat.
 - **The transcript**: whisper.cpp's JSON when `whisper-cli` is installed (`node render.mjs doctor` reports it; it is
-  optional): `ffmpeg -i talk.mov -ar 16000 -ac 1 talk.wav`, then `whisper-cli -m <model> -f talk.wav -oj -ml 1 -sow`
-  (one word a segment), or `-ojf` (token times). Without it, ask the person for a transcript: openai-whisper's JSON,
+  optional), made from `out/vo16k.wav`, so it is on the clip's clock already: `whisper-cli -m <model> -f out/vo16k.wav
+  -oj -ml 1 -sow -of out/vo16k` (one word a segment), or `-ojf` (token times). Never transcribe a separate extract of
+  the clip's audio: it can start at another time, or be another track. Without whisper-cli, ask the person for a
+  transcript: openai-whisper's JSON,
   SRT, WebVTT or the generic words format. **SRT and WebVTT carry phrase times only**: each phrase's words are spread
   over it by their length and marked estimated (`est: true` in `cues.js`), and `prepare` says how many; tell the person
   a word may light up a little early or late.
+- **A transcript timed to something else.** One timed to the picture (an editor's SRT) needs nothing. When the sound
+  starts more than a frame away from the first video frame, `probe` and `prepare` say so, and a transcript made from
+  the clip's raw audio track (its 0 is the sound's first sample) must be moved by that offset: `--raw-track` on
+  `prepare` or `cues` does it, or `--transcript-offset <s>` moves it by any amount.
+- **Several audio tracks** (a phone's two microphones, a second language): `probe` lists every audio stream, and
+  `prepare --audio <n>` picks the clip's sound (0, the first, by default); it says which it used. `vo.wav`, the
+  transcript and the master all use that one.
+- **Non-square pixels** (a 720x576 clip with pixels 64:45 displays at 1024x576): `prepare` converts the clip to square
+  pixels at its display size (`clip.mp4`) and says so; the captions are laid out, and the target chosen, on that size.
 - **A variable frame rate clip** (phones record them) is converted to a constant rate first: its average rate, rounded
   to the nearest of 23.976, 24, 25, 29.97, 30, 50, 59.94 and 60, written as `clip.mp4`. `prepare` prints it; tell the
   person the master is at that rate.
+- **Sync, word by word**: a caption group shows its words together when it opens (its first word's start), and each
+  word is highlighted (popped, filled or coloured, by style) from its own start. Sync is measured on each word's
+  highlight onset: it lands within a frame of the word in the sound, on the clip's clock (`test/clip.test.mjs`, with a
+  clip whose sound starts 0.5 s after its picture as well as one whose sound starts with it).
 - **The style**: `caption.js` draws the captions with the `captions` helper in one of four styles: `pop` (the spoken
   word pops in the accent), `karaoke` (the accent wipes across each word as it is said), `boxed` (each line on a dark
   box), `minimal` (smaller type, a soft shadow, no highlight). `--param style=<name>` picks one, or the board's

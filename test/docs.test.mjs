@@ -319,12 +319,13 @@ test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its too
   const at = md.indexOf('**Caption a clip**');
   assert.ok(at > 0, 'SKILL.md has the caption-a-clip branch');
   const branch = md.slice(at, md.indexOf('Both sheets', at));
-  for (const x of ['references/delivery.md` section 8', 'node tools/clip.mjs prepare', '--scene caption.js --alpha', 'node tools/clip.mjs composite', 'node tools/mix.mjs <name> --no-sfx', 'check --file', 'whisper-cli', 'estimated']) assert.ok(branch.includes(x), `the branch: ${x}`);
+  for (const x of ['references/delivery.md` section 8', 'node tools/clip.mjs prepare', 'out/vo16k.wav', 'node tools/clip.mjs cues --transcript', '--scene caption.js --alpha', 'node tools/clip.mjs composite', 'node tools/mix.mjs <name> --no-sfx', 'check --file', 'whisper-cli', 'estimated']) assert.ok(branch.includes(x), `the branch: ${x}`);
   assert.match(md, /- \*\*a captioned clip\*\*: the branch above/);
   assert.match(md, /`clip\.mjs` \(caption a clip/);
   const del = read('references/delivery.md');
   assert.match(del, /^## 8\. Caption a clip$/m);
-  for (const x of ['23.976, 24, 25, 29.97, 30, 50, 59.94 and 60', 'phrase times only', '`text_safe` reported as not checked', 'scaled to it', '--scene caption.js']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
+  for (const x of ['23.976, 24, 25, 29.97, 30, 50, 59.94 and 60', 'phrase times only', '`text_safe` reported as not checked', 'scaled to it', '--scene caption.js',
+    '-f out/vo16k.wav', 'Never transcribe a separate extract', '--raw-track', '`prepare --audio <n>`', 'square pixels at its display size', 'Sync is measured on each word\'s highlight onset']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
   // the rounding list in the docs is the tool's
   const K = RATES_TOOL.RATES.map((r) => +r[0].toFixed(3)).map((x) => String(x)).join(', ');
   assert.equal(K, '23.976, 24, 25, 29.97, 30, 50, 59.94, 60');

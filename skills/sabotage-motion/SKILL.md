@@ -93,10 +93,14 @@ is a reference only, never a starting point. Every file the work makes stays ins
 **Caption a clip** the person brings (a talking head, a screen recording with narration; "add captions to this")
 follows `references/delivery.md` section 8 instead of the steps below. The clip is never redrawn: the captions render
 with alpha on the clip's own clock and ffmpeg lays them over it; unlike an overlay, the result is mixed and mastered.
-1. **Transcript**: with `whisper-cli` installed (`doctor` says), transcribe the clip; otherwise ask for a transcript
-   (SRT, WebVTT, whisper.cpp or openai-whisper JSON). SRT and WebVTT words are estimated within their phrase: say so.
-2. **Prepare**: `node tools/clip.mjs prepare <clip> --transcript <file> --board` (it converts a variable frame rate
-   clip to a constant rate, and says so: tell the person).
+1. **Prepare**: `node tools/clip.mjs prepare <clip> --board` (`--audio <n>` when `probe` lists several audio streams).
+   It writes `vo.wav`, the clip's sound on the picture's clock, and converts a variable frame rate or non-square pixels;
+   tell the person what it converted.
+2. **Transcript, on the clip's clock**: with `whisper-cli` installed (`doctor` says), transcribe `out/vo16k.wav` (never
+   a separate extract of the clip); otherwise ask for a transcript (SRT, WebVTT, whisper.cpp or openai-whisper JSON).
+   Then `node tools/clip.mjs cues --transcript <file>`; `--raw-track` when `prepare` says the sound starts away from
+   the first frame and the transcript was made from the raw audio track. SRT and WebVTT words are estimated within
+   their phrase: say so.
 3. **Captions, composite, mix, check**: `node render.mjs check --scene caption.js --alpha`, then
    `node render.mjs video --scene caption.js --alpha --out out/<name>.mov` (`--param style=` for another style),
    `node tools/clip.mjs composite <name>`, `node tools/mix.mjs <name> --no-sfx`, and

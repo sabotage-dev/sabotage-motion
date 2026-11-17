@@ -10,16 +10,21 @@ export const CLIP = {
  "frames": 450,
  "dur": 15,
  "audio": {
+  "index": 0,
   "codec": "aac",
   "rate": 48000,
   "channels": 1,
+  "language": null,
+  "title": null,
   "start": 0,
   "offset": 0
  },
  "from": {
   "file": "source.mp4",
   "vfr": false,
-  "avgFps": 29.999999
+  "avgFps": 29.999999,
+  "audio": 0,
+  "audioOffset": 0
  },
  "transcript": {
   "file": "transcript.json",

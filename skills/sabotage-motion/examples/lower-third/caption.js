@@ -1,7 +1,8 @@
 // A CLIP'S CAPTIONS (plan 23.5): word-by-word captions for a clip with speech, rendered with alpha on the clip's own
 // clock, then laid over the clip by ffmpeg (tools/clip.mjs composite). The clip is never redrawn here: this scene draws
 // the captions alone. The recipe is in references/delivery.md ("Caption a clip"):
-//   node tools/clip.mjs prepare <clip> --transcript <file> --board    clip, clip.js, vo.wav, cues.js, cues.json, board.js
+//   node tools/clip.mjs prepare <clip> --board                        clip, clip.js, vo.wav, out/vo16k.wav, board.js
+//   node tools/clip.mjs cues --transcript <file>                      cues.js, cues.json (transcribe out/vo16k.wav, or bring one)
 //   node render.mjs video --scene caption.js --alpha --out out/<name>.mov
 //   node tools/clip.mjs composite <name>                                out/<name>.mp4 and its render record
 //   node tools/mix.mjs <name> --no-sfx                                  the clip's sound, levelled and mastered
@@ -26,7 +27,7 @@ const WORDS = CUES ? CUES.WORDS : [];
 
 export async function init({ ctx: c, scale, params, target, style }) {
   ctx = c;
-  if (!CLIP) throw new Error('caption.js captions a clip: run node tools/clip.mjs prepare <clip> --transcript <file> first (it writes clip.js)');
+  if (!CLIP) throw new Error('caption.js captions a clip: run node tools/clip.mjs prepare <clip> --board first (it writes clip.js)');
   const name = params.style || (BOARD && BOARD.captionStyle) || captionStyleFor(params.energy || CFG.ENERGY);
   const k = CFG.W / 1080;   // sizes are given at 1080 wide and scale with the clip
   const T = scaleTarget(await sceneTarget(target), CFG.W, CFG.H);
