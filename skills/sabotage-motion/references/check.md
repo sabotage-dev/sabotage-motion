@@ -25,6 +25,7 @@ The colour match against a brand kit is its own mode, `node render.mjs palette`,
 4. Thresholds and the measurements that set them
 5. Blind spots: when to look and listen yourself
 6. The examples' results
+7. Flashes: `flash`
 
 ## 1. Source checks
 Run on the piece as it is now, at half size with one subframe and grain off (the probe), and on the scene's text
@@ -43,6 +44,7 @@ boxes at every subframe time the render uses.
 | `text_safe` | FAIL, or WARN on an estimate | Each text box, mapped through the camera `frame(t)` returns at every subframe sample, is outside the safe area (or inside an `exclude` rectangle). More than 0.25 s of exposure in one beat is a FAIL on a measured target; less (a slam, a whip) is a WARN. On an estimate target it is always a WARN. Needs `boxes(t)`. | `deco: true` on a box that is decoration, not reading text. |
 | `text_overlap` | WARN | Two boxes from different groups overlap by more than 2% of the smaller one's area, at the same sample. | Put text that is meant to touch in one `group`, or mark decoration `deco: true`. |
 | `audio_spike` | WARN | The loudest 50 ms window of the effects stem peaks more than 18 dB above the 90th percentile of the windows that are not silent (peak above -60 dBFS): a click, or a gain envelope that starts after its source. | Fix the envelope (`envGain` in `audio.js` starts at 0 for this reason); section 5 has its blind spot. |
+| `flash` | FAIL | Run on the piece's current render: the newest `video` or `full` render in `out/` of the whole piece, with the scene, params and frame rate being checked, whose render record still matches the file and the source. Something flashes more than three times a second over too large an area (section 7). With no such render (none yet, only part of the piece, or the source changed since), it is not checked and says to render. An `--alpha` check is not checked: an overlay's flashes depend on what it is laid over. | Nothing: keep it to three flashes a second or fewer, make the flashing area smaller, or lower its contrast. |
 
 `boxes(t)` is the scene's list of the text on screen at `t`: `[{ id, text, x, y, w, h, group?, deco? }]`, one box per
 drawn run of text, in design pixels before the camera, cut to any clip mask, and only while the text's alpha is
@@ -59,6 +61,7 @@ A master is only as good as the source it came from, so these first prove which 
 | `faststart` | WARN | In an `.mp4`, the `moov` atom comes before `mdat`, so playback starts before the download ends. |
 | `loudness` | FAIL | Integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). Without either, not checked. |
 | `vo_delay` | FAIL | A voiced master's voice delay equals `cues.js`'s `VO_OFFSET`. `--master-only` and `--sting` masters skip it. |
+| `flash` | FAIL | The rule of section 7 on the file itself, decoded, whatever its provenance (with `--plain` too): what is delivered is what is measured. A file with an alpha plane (an overlay) is not checked. |
 
 The source hash covers every file in the piece except `out/`, `stills/`, `node_modules/`, the review sheets and
 render records. Any edit after the render (a scene, a board, `cues.js`, a font) makes the master stale; re-render
@@ -102,6 +105,9 @@ on purpose to prove a test notices.
 | a hit | 10 ms more than 12 dB over the 100 ms before it | The plan's value; a sustained sound fails it, a click passes. |
 | spike | 18 dB over the 90th percentile of the non-silent 50 ms windows | Tuned in P3: silence is left out of the percentile, because a stem with sound in under a tenth of its windows otherwise compared every sound with silence. Measured: the check fixture's effects 7.9 dB, the template's 11.9 dB (P3); the explainer's 14.1 dB and the showreel's 2.8 dB (P4). |
 | loudness | within 1 LU; true peak at or under -1.0 dBTP | AAC adds about 0.5 dB of true peak, which is why the mixer aims at -2.0 dBTP (-3.0 for stings). |
+| flash: a transition | General: 0.1 of relative luminance from the pixel's last turning point, the darker end under 0.80. Red: more than 0.2 in CIE 1976 u'v' back from the far end of the swing, one end a saturated red (R/(R+G+B) of 0.8 or more on linear RGB) | WCAG 2.3.1's definitions of a general flash and a red flash, applied to each pixel (section 7). |
+| flash: too fast | more than 7 transitions of one kind (four complete flashes) in a half-open second | WCAG 2.3.1: no more than three flashes in any one-second period. Counted in whole frames on the file's exact rate, so 29.97 fps is 30000/1001, never 30. |
+| flash: area | more than 21,824 px of a 341x256 window, either way round, at 1024 px on the longer side | WCAG's area: a 341x256 px rectangle at 1024x768 stands for 10 degrees of the visual field, and a flash may cover a quarter of it (21,824 px). A phone is held either way, so the window is tried both ways; a frame smaller than the window clips it. |
 | captions | lines fill the safe width / 1.165; between words, a space or the pop's growth plus half a space and the stroke, whichever is larger | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). A popped long word used to touch its neighbours, and a word wider than the line was drawn whole, past the safe edge or into an `exclude` rectangle; both are fixed (P4, council round 1): the gap grows beside long words, and an oversized word is scaled to fit the line. |
 
 The organic safe zones (`tiktok`, `reels`, `shorts`) are estimates, so `text_safe` only warns on them; the ad
@@ -123,17 +129,68 @@ zones are measured from the platforms' templates and fail. `references/delivery.
 - **`vo_delay` and `hook_long` trust the mix's recorded delay**; a `VO_OFFSET` past the end of the picture passes
   and plays no voice (`references/voice.md`, section 10). Listen to every master once.
 - **Loudness is not balance.** `loudness` passes a master whose bed drowns the voice. Listen.
+- **`flash` is a safety net, not a certified test** (section 7). It also needs a picture: without `--file` it reads
+  the newest current render in `out/`, so render the whole piece before you trust a source check's `flash` line.
 
 ## 6. The examples' results
-Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-14), on the masters each example's README
-names:
+Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-17), on fresh renders and masters made the way
+each example's README names them:
 
 | Example | `check` (source) | `check --file` | Kept on purpose |
 |---|---|---|---|
-| `explainer-beat` | 11 ok, 0 WARN | 16 ok, 0 WARN | none |
-| `lower-third` (`--alpha`) | 7 ok, 4 not checked (silent, no hook, an overlay's first frame) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok | none |
-| `showreel` | 0 FAIL, 1 WARN, 5 not checked | 0 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. |
+| `explainer-beat` | 12 ok, 0 WARN | 17 ok, 0 WARN | none |
+| `lower-third` (`--alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
+| `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and not changed yet: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
+| `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
+| `repo-launch` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 
-The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad`. CI runs every source
-check except the two probe checks on all three examples on macOS and Linux; the probe checks and the masters run on
-a Mac before a release.
+The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad` (`flash` is not checked
+until it is rendered). CI runs every source check except the two probe checks and `flash` on the examples on macOS
+and Linux; the probe checks, `flash` and the masters run on a Mac before a release.
+
+## 7. Flashes: `flash`
+`flash` is a safety net modelled on WCAG 2.3.1 (three flashes or below threshold). It is not a certified
+photosensitivity test: a piece made for broadcast still goes through a certified tool (a Harding-type test) before it
+airs.
+
+It reads the delivered picture: every frame of the file, decoded by ffmpeg at the file's own frame rate, scaled so its
+longer side is 1024 px (area averaging down, bilinear up), as RGB. So it sees what a viewer sees, motion blur and grain
+included, at every energy and look, and it sees a flash that lands between the probe's samples (the probe draws one
+subframe a frame; the render blurs them all).
+
+- **Every pixel on its own**, never an average: an average hides a pattern whose halves swap, spreads a small
+  flashing spot over a whole cell, and softens a real flash near the threshold below it.
+- **A general transition**: the pixel's relative luminance (linearised sRGB, as WCAG defines it) has moved 0.1 or more
+  from its last turning point, the opposite way to its last transition, with the darker of the two under 0.80. Smaller
+  wobbles (grain, dithering, a stepped ramp) never end a transition, so a fade up and down counts as fully as a cut,
+  and a flicker between two bright levels (0.85 and 1.0) never counts.
+- **A red transition**, on chromaticity (CIE 1976 u'v'): the far end of a swing is the colour farthest from the end
+  the swing left, and a transition is the colour coming back more than 0.2 from that far end, into a saturated red or
+  out of one (R/(R+G+B) of 0.8 or more on linear RGB, not the stored values), opposite to the last. A fade between red
+  and another colour counts as fully as a cut, and no earlier colour anchors it.
+- **Too fast**: more than seven transitions of one kind (four complete flashes) dated within a half-open second
+  (t - 1 s, t], in whole frames on the file's exact rate. Three flashes and then a lasting change (seven transitions)
+  pass, as WCAG passes them.
+- **The area**: at each frame, every pixel flashing too fast counts, whether or not it changes at that frame, so a
+  strobe split across columns or a band sweeping the frame is seen whole. A frame fails when one kind's too-fast
+  pixels cover more than 21,824 px of some 341x256 window, either way round. General and red are counted separately.
+- **On purpose, the cautious side** (plan Q24 and Q25, kept by the owner on 2026-11-16: three flashes a second or
+  fewer are fine): WCAG's exception for fine, balanced patterns is not applied, so a checkerboard or full-range noise
+  that inverts every frame fails; and a small shape that repeats its path more than three times a second makes its
+  whole path flash too fast. A false FAIL costs a change to the piece; a missed strobe costs a viewer.
+- **Cuts count.** Cuts between dark and light shots are a flash sequence: eight such cuts within a second fail like
+  any strobe.
+
+The result names the first frame over the limit (its time, the window and its area, general or red), how many frames
+are over it and the last one. An OK line names the largest too-fast area it saw. Measured on an Apple-silicon Mac
+(2026-11-17): 6 s for a 15 s, 1080x1920, 30 fps master; 22 s for a 20 s, 1920x1080, 60 fps one.
+
+What the tests hold it to (`test/flash-units.test.mjs`, frames built in code): it fails four general flashes in a
+second, four red ones between a saturated red and a purple 0.22 apart in u'v' with less than 0.1 of luminance between
+them (cut, faded through a middle colour, and as a ramp), a strobe reversing every frame (with or without a
+counter-moving pixel in every 4x4 block), a 4 Hz ramp of 0.04 a frame (with small reversals or grain-sized noise),
+fine checkerboards and noise inverting every frame, a band sweeping the frame four times a second, a 65x341 px
+rectangle and a 341x65 px strip flashing four times a second, and eight transitions in 0.968 s at 29.97 fps. It passes
+three flashes a second (cut, faded, or ramped), four 7-frame pulses spanning 1.03 s, eight transitions over 1.001 s at
+29.97 fps, 8 px halves swapping four times a second, a 6x6 px spot flashing in every 16x16 cell, a bar crossing the
+frame once, swings of 0.08, a slow fade, and grain.

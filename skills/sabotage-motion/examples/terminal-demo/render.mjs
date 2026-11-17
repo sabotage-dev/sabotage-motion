@@ -22,8 +22,9 @@
 // contact --safe: the same safe-area shading on every panel. Both say "(estimate)" while the target's
 //         numbers in safezones.json are not measured.
 // check: the piece's source checks (fonts, board, hook, copy, sound notes, motion, first frame, text in the
-//         safe area, overlapping text, audio spikes), plus with --file the artifact checks on a master
-//         (provenance, file spec, faststart, loudness, voice delay). One line per result; exit 1 on any
+//         safe area, overlapping text, audio spikes) and flash on its current render in out/ (not checked when
+//         there is none, or its source changed), plus with --file the artifact checks on a master (provenance,
+//         flash on the file itself, file spec, faststart, loudness, voice delay). One line per result; exit 1 on any
 //         FAIL (with --strict, on any WARN too); --json prints the results as JSON instead. With --file,
 //         the source checks replay the scene, params, fps, subframes and alpha mode of the render the
 //         master came from (its render.json). --plain checks a file from elsewhere as a plain file
@@ -508,6 +509,38 @@ function recordSkips(rec) {
   }
   return skip;
 }
+// flash on the piece's current render (plan 23.9): the newest `video` or `full` render in out/ of the whole piece, with
+// this scene, params, fps and length, whose record still describes its file and the source as it is now. Without one,
+// flash is not checked and the line says to render.
+async function flashOnRender(settings, INFOc) {
+  const skip = (why) => ({ id: 'flash', scope: 'source', level: 'SKIP', detail: `not checked: ${why}` });
+  if (settings.alpha) return skip('an alpha render is an overlay, and what it flashes depends on the picture under it: check the video it is laid over');
+  if (!INFOc) return skip('the scene did not load');
+  const dir = path.join(root, 'out'), found = [];
+  for (const n of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => x.endsWith('.render.json')) : []) {
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch { continue; }
+    if (!rec || !['video', 'full'].includes(rec.mode) || rec.alpha || !rec.file) continue;
+    if (C.soundDiff(rec, { scene: settings.scene, params: settings.params, fps: INFOc.FPS, dur: INFOc.DUR }).length) continue;
+    if (!(rec.from === 0 && Math.abs(rec.to - INFOc.DUR) < 1e-6)) continue;   // a render of part of the piece speaks for that part only
+    found.push({ rec, file: path.resolve(root, rec.file) });
+  }
+  const render = `render it (node render.mjs full), then check again`;
+  if (!found.length) return skip(`no render of the whole piece with these settings in out/ to look for flashes in: ${render}`);
+  found.sort((a, b) => String(b.rec.created).localeCompare(String(a.rec.created)));
+  const why = (x) => (!fs.existsSync(x.file) ? 'is missing' : C.sha256File(x.file) !== x.rec.sha256 ? 'is not the file its render record describes'
+    : !x.rec.source || x.rec.source.hash !== sourceHash(recordSkips(x.rec)).hash ? 'was rendered from an older source' : null);
+  const cur = found.find((x) => !why(x));
+  if (!cur) return skip(`${relRoot(found[0].file)} ${why(found[0])}: ${render}`);
+  return C.flashResult(await C.measureFlash(cur.file), { scope: 'source', what: relRoot(cur.file) });
+}
+// flash on a --file: the file itself, as delivered, whatever its provenance. An overlay (alpha) is not checked.
+async function flashOnFile(file, rec) {
+  if (alphaKind || (rec && rec.alpha) || C.hasAlpha(C.flashProbe(file).pixFmt)) {
+    return { id: 'flash', scope: 'file', level: 'SKIP', detail: 'not checked: an overlay with alpha, and what it flashes depends on the picture under it: check the video it is laid over' };
+  }
+  return C.flashResult(await C.measureFlash(file), { scope: 'file', what: relRoot(file) });
+}
 async function importPiece(name) {
   const f = path.join(root, name);
   if (!fs.existsSync(f)) return { mod: null };
@@ -693,9 +726,13 @@ async function check() {
   }
   for (const m of pageErrors) sceneFail(`page error: ${m}`);
 
+  // ---- flash (plan 23.9), on the picture: without --file, the piece's current render; with it, the file (below)
+  if (!file && want('flash')) push(await flashOnRender(settings, INFOc));
+
   // ---- artifact checks (11.2)
   if (file) {
     const rec = prov && prov.rec, mj = prov && prov.mj;
+    if (want('flash')) push(await flashOnFile(file, rec));
     if (rec && rec.render && rec.fps) {
       push(C.fileSpec(C.probeFile(file), { w: rec.render[0], h: rec.render[1], fps: rec.fps, dur: rec.dur, alpha: rec.alpha, silent: rec.silent }, `its render record ${mj.render.file}`));
     } else if (INFOc) {
@@ -722,7 +759,7 @@ async function check() {
     fs.writeFileSync(df, JSON.stringify(dump) + '\n');
     say(`check: wrote the measurements to ${opt('dump')}`);
   }
-  const order = ['scene', 'provenance', ...C.SOURCE_IDS, 'file_spec', 'faststart', 'loudness', 'vo_delay'];
+  const order = ['scene', 'provenance', ...C.SOURCE_IDS, ...C.PICTURE_IDS, 'file_spec', 'faststart', 'loudness', 'vo_delay'];
   results.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id) || (a.t ?? -1) - (b.t ?? -1));
   const { n, exit } = C.summarize(results, { strict });
   if (jsonOut) console.log(JSON.stringify(C.toJson(results), null, 2));

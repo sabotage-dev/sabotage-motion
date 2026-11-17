@@ -311,3 +311,21 @@ test('R2-M1 references/launch.md and repo-scan.mjs: a global flag alone is not a
   assert.doesNotMatch(src.slice(0, src.indexOf('import ')), /installs globally|--global/, 'the header no longer names a global flag');
   assert.match(md, /do not sit inside an Install-like section or one that never holds features, such as License, Contributing, Development or Changelog \(`## Installation` > `### npm` is not a feature; `## Usage` > `### Incremental scanning` is\)/);
 });
+
+test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets them, and that it is not a certified test', async () => {
+  const md = read('references/check.md'), { T } = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  const F = T.flash, sec = md.slice(md.indexOf('## 7. Flashes: `flash`'));
+  assert.ok(md.includes('7. Flashes: `flash`\n') && sec.length > 1000, 'section 7, listed in the contents');
+  assert.match(sec, /`flash` is a safety net modelled on WCAG 2\.3\.1 \(three flashes or below threshold\)\. It is not a certified\s+photosensitivity test: a piece made for broadcast still goes through a certified tool \(a Harding-type test\)/);
+  const n = (x) => x.toLocaleString('en-US');
+  for (const want of [`longer side is ${F.side} px`, `moved ${F.swing} or more`, `under ${F.dark.toFixed(2)}`, `more than ${F.uv} from that far end`,
+    `R/(R+G+B) of ${F.red} or more on linear RGB`, `more than seven transitions of one kind`, `more than ${n(F.area)} px of some ${F.win[0]}x${F.win[1]} window, either way round`]) {
+    assert.ok(sec.replace(/\s+/g, ' ').includes(want), `section 7 says "${want}"`);
+  }
+  assert.equal(F.count, 7, 'seven, as section 7 spells it');
+  const rows = md.split('\n').filter((l) => l.startsWith('| flash: '));
+  assert.equal(rows.length, 3, 'three threshold rows');
+  assert.ok(rows[2].includes(`more than ${n(F.area)} px of a ${F.win[0]}x${F.win[1]} window, either way round, at ${F.side} px on the longer side`), rows[2]);
+  assert.ok(rows[1].includes(`more than ${F.count} transitions of one kind`), rows[1]);
+  assert.ok(md.includes('| `flash` | FAIL | Run on the piece\'s current render') && md.includes('| `flash` | FAIL | The rule of section 7 on the file itself'), 'a row in the source and the artifact tables');
+});

@@ -300,6 +300,7 @@ checks.
 | `text_safe` | FAIL / WARN | Text outside the safe area for more than 0.25 s in a beat is a FAIL; less (a slam, a whip) is a WARN. Only a WARN while the target's zones are estimates. |
 | `text_overlap` | WARN | Two pieces of text from different groups overlap by more than 2%. |
 | `audio_spike` | WARN | The loudest 50 ms of the effects is more than 18 dB over the rest: a click. |
+| `flash` | FAIL | More than three flashes a second over too large an area, per pixel, on the decoded picture: the current render in `out/`, or the `--file` itself. A safety net modelled on WCAG 2.3.1, not a certified photosensitivity test (`references/check.md` section 7). |
 | `provenance` | FAIL | The file is the master `master.json` records, mixed from the render `render.json` records, and the piece's source has not changed since. Then the checks above replay that render's scene, params, fps and subframes. |
 | `file_spec` | FAIL | Size, fps, pixel format, frame count `round(DUR x FPS)`, duration, and an audio stream. |
 | `faststart` | WARN | In an .mp4, the index comes before the media, so playback starts before the download ends. |

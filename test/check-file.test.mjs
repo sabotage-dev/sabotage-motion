@@ -31,8 +31,10 @@ test('a voiced master: provenance binds it; file spec, faststart, loudness and v
   assert.equal(mj.master.video.hash, rec.video.hash);
   const r = runCheck(dir, ['--file', 'out/piece-final.mp4', '--target', 'fixture']);
   const L = levelsOf(r.results.filter((x) => x.scope === 'file'));
-  assert.deepEqual(L, { provenance: 'OK', file_spec: 'OK', faststart: 'OK', loudness: 'OK', vo_delay: 'OK' }, r.out);
+  assert.deepEqual(L, { provenance: 'OK', flash: 'OK', file_spec: 'OK', faststart: 'OK', loudness: 'OK', vo_delay: 'OK' }, r.out);
   assert.match(one(r.results, 'provenance').detail, /mixed from out\/piece\.mp4\.render\.json \(scene\.js\)/);
+  // flash on the master itself (plan 23.9), decoded and scaled to 1024 px on its longer side
+  assert.match(one(r.results, 'flash').detail, /^out\/piece-final\.mp4: nothing flashes more than three times a second .*\(576 frames at 576x1024/);
   assert.equal(one(r.results, 'hook_long').level, 'OK');
   assert.match(one(r.results, 'hook_long').detail, /ends at 2\.700 s/);
   // render.json's sub (1) replays, not the command line's default 8: the subframe-edge text is not seen at the
@@ -155,7 +157,7 @@ test('clean: a render of the alternate --scene, checked through its render.json,
   assert.match(r.stderr, /check: scene alt\.js/);
   assert.deepEqual(r.results.filter((x) => x.level === 'FAIL' || x.level === 'WARN'), []);
   assert.deepEqual(r.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['audio_spike', 'board_sfx_missing'], 'alt.js is silent');
-  for (const id of ['provenance', 'file_spec', 'faststart', 'loudness', 'vo_delay', 'motion_dead', 'first_frame_empty', 'text_safe', 'text_overlap', 'board_copy_missing', 'board_copy_unread', 'hook_long', 'board_order', 'fonts']) {
+  for (const id of ['provenance', 'flash', 'file_spec', 'faststart', 'loudness', 'vo_delay', 'motion_dead', 'first_frame_empty', 'text_safe', 'text_overlap', 'board_copy_missing', 'board_copy_unread', 'hook_long', 'board_order', 'fonts']) {
     assert.equal(one(r.results, id).level, 'OK', id);
   }
 });
@@ -164,7 +166,7 @@ test('--plain checks a file from elsewhere as a plain file: file spec at --scale
   const r = runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--lufs', '-14', '--scale', '0.25']);
   assert.equal(r.status, 0, r.out);
   const L = levelsOf(r.results.filter((x) => x.scope === 'file'));
-  assert.deepEqual(L, { provenance: 'SKIP', file_spec: 'OK', faststart: 'OK', loudness: 'OK', vo_delay: 'SKIP' });
+  assert.deepEqual(L, { provenance: 'SKIP', flash: 'OK', file_spec: 'OK', faststart: 'OK', loudness: 'OK', vo_delay: 'SKIP' });
   assert.ok(r.results.filter((x) => x.scope === 'source').every((x) => x.level === 'SKIP' && /--plain/.test(x.detail)));
   assert.match(one(runCheck(dir, ['--file', 'out/piece-final.mp4', '--plain', '--scale', '0.25']).results, 'loudness').detail, /--plain needs --lufs/);
   // --dump under --plain writes the file results (it used to write nothing and say nothing; owner check, P5)

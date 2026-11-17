@@ -277,6 +277,8 @@ for (const look of SHEET.LOOK_NAMES) {
     assert.equal(c.status, 0);
     const fonts = c.results.find((x) => x.id === 'fonts');
     for (const r of LK.ROLES) assert.ok(fonts.detail.includes(LK.LOOKS[look].fonts[r].family), `${fonts.detail} names ${LK.LOOKS[look].fonts[r].family}`);
-    assert.equal(c.results.filter((x) => x.level === 'SKIP').length, 1, 'only hook_long is not checked (the card has no voice)');
+    // only hook_long (the card has no voice) and flash (it reads a render, and the card is checked before any) are not checked
+    assert.deepEqual(c.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['flash', 'hook_long']);
+    assert.match(c.results.find((x) => x.id === 'flash').detail, /not checked: no render of the whole piece/);
   });
 }

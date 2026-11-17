@@ -24,6 +24,8 @@ const DOCS = ['test/docs.test.mjs'], ASSETS = ['test/assets.test.mjs'];
 // P9: a launch video for a repo; RLC runs examples-check on the repo-launch example alone
 const RS = ['test/repo-scan.test.mjs'], SH = ['test/shots.test.mjs'], LE = ['test/launch-example.test.mjs'];
 const RLC = ['--test-name-pattern=repo-launch', 'test/examples-check.test.mjs'];
+// P11a: the flash check; FLU the rule on frames built in code, FLE files and the wiring in render.mjs
+const FLU = ['test/flash-units.test.mjs'], FLE = ['test/flash.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -528,6 +530,38 @@ const M = [
   ["P9 R3 title: any line starting with < allowed above it", T + "tools/repo-scan.mjs", [["(html[i] || /^\\s*($|!\\[|\\[!\\[)/.test(l)", "(html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l)"]], RS],
   // ---- P9 CI fix (round 4): the page's clock paused without install(), so its ticks start at 0 on a slow machine too.
   ["P9 R4 shots: the clock installed before it is paused", T + "tools/shots.mjs", [["  if (clock) await context.clock.pauseAt(CLOCK0);", "  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"]], SH],
+  // ---- P11a: the flash check (plan 23.9). The rule's thresholds and each of its parts, against the fixtures; the decode;
+  // the wiring in render.mjs (the current render, the file, overlays); references/check.md's section 7.
+  ["P11a flash (general): the darker end may be up to 0.86, not 0.80", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.86, red: 0.8, uv: 0.2, count: 7, area: 21824"]], FLU],
+  ["P11a flash (general): the darker end not required", T + 'check.mjs', [["const up = d !== 1 && x - a >= SW && a < DK;", "const up = d !== 1 && x - a >= SW;"], ["const dn = d !== -1 && b - x >= SW && x < DK;", "const dn = d !== -1 && b - x >= SW;"]], FLU],
+  ["P11a flash (general): a swing of 0.12, not 0.1", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.12, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824"]], FLU],
+  ["P11a flash (red): the ratio on the stored values, not linear RGB", T + 'check.mjs', [["RD[p] = Rl / (Rl + Gl + Bl + 1e-12) >= F.red ? 1 : 0;", "RD[p] = r / (r + g + b + 1e-12) >= F.red ? 1 : 0;"]], FLU],
+  ["P11a flash (red): saturated at 0.75, not 0.8", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.75, uv: 0.2, count: 7, area: 21824"]], FLU],
+  ["P11a flash (red): saturated at 0.85, not 0.8", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.85, uv: 0.2, count: 7, area: 21824"]], FLU],
+  ["P11a flash (red): 0.23 apart in u'v', not 0.2", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.23, count: 7, area: 21824"]], FLU],
+  ["P11a flash (red): the far end stays where the swing turned", T + 'check.mjs', [["} else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {", "} else if (false) {"]], FLU],
+  ["P11a flash (red): measured from the previous frame, not the far end", T + 'check.mjs', [["} else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {", "} else if (true) {"]], FLU],
+  ["P11a flash (red): anchored at the clip's first colour", T + 'check.mjs', [["tu[p] = cu; tv[p] = cv; tr[p] = c; rd[p] = c ? 1 : -1;", "rd[p] = c ? 1 : -1;"], ["} else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {", "} else if (false) {"]], FLU],
+  ["P11a flash (time): the second closed, not half-open", T + 'check.mjs', [["Number((BigInt(num) - 1n) / BigInt(den))", "Number(BigInt(num) / BigInt(den))"]], FLU],
+  ["P11a flash (time): a rounded rate, not the exact fraction", T + 'check.mjs', [["gap = flashGap(R), K", "gap = Math.round(R.num / R.den) - 1, K"]], FLU],
+  ["P11a flash (time): more than six transitions, not seven", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 6, area: 21824"]], FLU],
+  ["P11a flash (time): more than eight transitions, not seven", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 8, area: 21824"]], FLU],
+  ["P11a flash (area): the landscape window only", T + 'check.mjs', [["for (const [a, b] of [[F.win[0], F.win[1]], [F.win[1], F.win[0]]]) {", "for (const [a, b] of [[F.win[0], F.win[1]]]) {"]], FLU],
+  ["P11a flash (area): the portrait window only", T + 'check.mjs', [["for (const [a, b] of [[F.win[0], F.win[1]], [F.win[1], F.win[0]]]) {", "for (const [a, b] of [[F.win[1], F.win[0]]]) {"]], FLU],
+  ["P11a flash (area): the window not clipped to a short frame", T + 'check.mjs', [["const ww = Math.min(a, w), wh = Math.min(b, h);", "const ww = a, wh = b;"]], FLU],
+  ["P11a flash (area): 22,200 px, not 21,824", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 22200"]], FLU],
+  ["P11a flash (area): general and red areas added together", T + 'check.mjs', [["if (ringR[p * K + ptrR[p]] >= since) { maskR[p] = 1; cr++; } else maskR[p] = 0;", "if (ringR[p * K + ptrR[p]] >= since) { maskR[p] = 1; cr++; if (!maskG[p]) { maskG[p] = 1; cg++; } } else maskR[p] = 0;"]], FLU],
+  ["P11a flash (area): general and red transitions in one count per pixel", T + 'check.mjs', [["const k = ptrR[p];\n          ringR[p * K + k] = f; ptrR[p] = k + 1 === K ? 0 : k + 1;", "const k = ptrG[p];\n          ringG[p * K + k] = f; ptrG[p] = k + 1 === K ? 0 : k + 1;"]], FLU],
+  ["P11a decode: frames measured at their own size, not 1024 px", T + 'check.mjs', [["const [sw, sh] = flashSize(p.width, p.height);", "const [sw, sh] = [p.width, p.height];"]], FLE],
+  ["P11a decode: scaled down bilinearly, not by area averaging", T + 'check.mjs', [["flags=${sw < p.width ? 'area' : 'bilinear'}", "flags=${sw < p.width ? 'bilinear' : 'bilinear'}"]], FLE],
+  ["P11a render.mjs: flash not run on the current render", T + 'render.mjs', [["if (!file && want('flash')) push(await flashOnRender(settings, INFOc));", "if (false) push(await flashOnRender(settings, INFOc));"]], FLE],
+  ["P11a render.mjs: flash not run on --file", T + 'render.mjs', [["if (want('flash')) push(await flashOnFile(file, rec));", "if (false) push(await flashOnFile(file, rec));"]], FLE],
+  ["P11a render.mjs: a render from an older source checked", T + 'render.mjs', [["    : !x.rec.source || x.rec.source.hash !== sourceHash(recordSkips(x.rec)).hash ? 'was rendered from an older source' : null);", "    : null);"]], FLE],
+  ["P11a render.mjs: a render of part of the piece taken", T + 'render.mjs', [["    if (!(rec.from === 0 && Math.abs(rec.to - INFOc.DUR) < 1e-6)) continue;   // a render of part of the piece speaks for that part only\n", ""]], FLE],
+  ["P11a render.mjs: an --alpha source check measured", T + 'render.mjs', [["if (settings.alpha) return skip(", "if (false) return skip("]], FLE],
+  ["P11a render.mjs: a file with alpha measured", T + 'render.mjs', [["if (alphaKind || (rec && rec.alpha) || C.hasAlpha(C.flashProbe(file).pixFmt)) {", "if (alphaKind || (rec && rec.alpha)) {"]], FLE],
+  ["P11a docs: check.md's flash window drifts", 'skills/sabotage-motion/references/check.md', [["more than 21,824 px of some 341x256 window, either way round", "more than 21,824 px of some 341x341 window, either way round"]], DOCS],
+  ["P11a docs: check.md drops the certified tool", 'skills/sabotage-motion/references/check.md', [["still goes through a certified tool (a Harding-type test) before it", "still goes through a review before it"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);
