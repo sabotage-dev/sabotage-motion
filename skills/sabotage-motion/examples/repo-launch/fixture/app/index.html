@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- Snagwick's board, as the made-up app would show it for a made-up project. tools/shots.mjs captures it. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snagwick</title><link rel="icon" href="../assets/logo.svg"><link rel="stylesheet" href="styles.css"></head>
+<body>
+<header><img src="../assets/logo.svg" alt=""><h1>Snagwick</h1></header>
+<p class="sub"><b>15 snags</b> in 7 files of <code>~/mossgate</code></p>
+<div class="chips"><span class="chip on">All 15</span><span class="chip">TODO 10</span><span class="chip">FIXME 3</span><span class="chip">HACK 2</span></div>
+<section><h2>session.ts <code>src/auth/session.ts</code></h2>
+  <div class="card"><span class="tag todo">TODO</span><p>Rotate the signing key on deploy</p><div class="meta">line 42 · ana</div></div>
+  <div class="card"><span class="tag fixme">FIXME</span><p>Expired tokens still pass the check</p><div class="meta">line 88 · ben</div></div>
+  <div class="card"><span class="tag todo">TODO</span><p>Rate-limit failed logins</p><div class="meta">line 120 · ana</div></div>
+</section>
+<section><h2>orders.ts <code>src/api/orders.ts</code></h2>
+  <div class="card"><span class="tag hack">HACK</span><p>Retry twice until the queue is fixed</p><div class="meta">line 17 · kit</div></div>
+  <div class="card"><span class="tag todo">TODO</span><p>Paginate the order list</p><div class="meta">line 64 · ben</div></div>
+</section>
+<section><h2>Table.tsx <code>src/ui/Table.tsx</code></h2>
+  <div class="card"><span class="tag todo">TODO</span><p>Keep the sort when the page reloads</p><div class="meta">line 9 · mo</div></div>
+  <div class="card"><span class="tag fixme">FIXME</span><p>Header jumps on narrow screens</p><div class="meta">line 51 · mo</div></div>
+  <div class="card"><span class="tag todo">TODO</span><p>Empty state copy</p><div class="meta">line 133 · ana</div></div>
+</section>
+<section><h2>release.sh <code>scripts/release.sh</code></h2>
+  <div class="card"><span class="tag todo">TODO</span><p>Sign the tarball</p><div class="meta">line 23 · kit</div></div>
+  <div class="card"><span class="tag hack">HACK</span><p>Skip the flaky smoke test</p><div class="meta">line 31 · kit</div></div>
+</section>
+<section><h2>migrate.ts <code>src/db/migrate.ts</code></h2>
+  <div class="card"><span class="tag fixme">FIXME</span><p>Lock the table during a migration</p><div class="meta">line 77 · ben</div></div>
+  <div class="card"><span class="tag todo">TODO</span><p>Log how long each step took</p><div class="meta">line 102 · mo</div></div>
+</section>
+<section><h2>digest.ts <code>src/jobs/digest.ts</code></h2>
+  <div class="card"><span class="tag todo">TODO</span><p>Send the weekly digest in the reader's time zone</p><div class="meta">line 15 · ana</div></div>
+  <div class="card"><span class="tag todo">TODO</span><p>Batch the emails</p><div class="meta">line 58 · ben</div></div>
+</section>
+<section><h2>setup.md <code>docs/setup.md</code></h2>
+  <div class="card"><span class="tag todo">TODO</span><p>Explain the local database</p><div class="meta">line 4 · mo</div></div>
+</section>
+</body></html>

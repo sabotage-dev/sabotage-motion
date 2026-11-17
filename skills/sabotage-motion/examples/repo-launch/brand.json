@@ -1,0 +1,25 @@
+{
+  "name": "Snagwick",
+  "colors": {
+    "bgA": "#5E2404",
+    "bgB": "#6E2C02",
+    "ink": "#FAEBDC",
+    "muted": "#D9A98A",
+    "accent": "#98BC0C",
+    "accent2": "#E88090"
+  },
+  "fonts": {
+    "display": {
+      "family": "Snagwick Display",
+      "file": "fixture/fonts/snagwick-display.woff2"
+    },
+    "body": {
+      "family": "Snagwick Text",
+      "file": "fixture/fonts/snagwick-text.woff2"
+    }
+  },
+  "logo": {
+    "onDark": "fixture/assets/logo.svg",
+    "onLight": "fixture/assets/logo.svg"
+  }
+}

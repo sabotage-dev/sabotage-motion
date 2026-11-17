@@ -16,6 +16,7 @@ const OWN = {
   'explainer-beat': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
   'lower-third': ['scene.js', 'board.js', '.gitignore'],
   'terminal-demo': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
+  'repo-launch': ['scene.js', 'board.js', 'audio.js', '.gitignore'],
 };
 // The template's files as the repo publishes them (tracked, or new and not ignored), so render outputs and other
 // ignored files in the template folder (CI renders a benchmark there) are not part of the comparison.

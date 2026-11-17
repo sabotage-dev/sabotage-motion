@@ -202,3 +202,112 @@ test('README: the terminal-demo row and the code suite', () => {
   assert.match(pkg.scripts['test:code'], /code-units\.test\.mjs.*code\.test\.mjs.*code-example\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:code/);
 });
+
+// ---------------------------------------------------------------- a launch video for a repo (plan 23.4)
+const SHOTS = await import(pathToFileURL(path.join(templateDir, 'tools', 'shots.mjs')).href);
+const SCAN = await import(pathToFileURL(path.join(templateDir, 'tools', 'repo-scan.mjs')).href);
+test('SKILL.md: the launch branch, in its order (scan, the kit shown, the board, the board shown, render and check), and its tools', () => {
+  const md = read('SKILL.md');
+  const at = md.indexOf('**A launch video for a repo**');
+  assert.ok(at > md.indexOf('## Workflow') && at < md.indexOf('1. **Pin the brief.**'), 'the branch opens the workflow');
+  const branch = md.slice(at, md.indexOf('1. **Pin the brief.**'));
+  const steps = ['**Scan**', '**Write `brand.json` from what the scan found**', '**show it**', '**Write the board**', '**Show the board**', '**Render, mix, `palette` and `check`**'];
+  const pos = steps.map((x) => branch.indexOf(x));
+  assert.ok(pos.every((p) => p >= 0), `the branch names ${steps.filter((_, i) => pos[i] < 0).join(', ')}`);
+  assert.deepEqual([...pos].sort((a, b) => a - b), pos, 'in that order');
+  for (const x of ['node tools/repo-scan.mjs', '`references/launch.md`', 'node tools/shots.mjs', 'a hook, the install in a terminal', 'an end card with the logo and the\n   install command']) assert.ok(branch.includes(x), `the branch: ${x}`);
+  for (const x of ['`repo-scan.mjs`', '`shots.mjs`', '`repo-launch/`', 'launch videos for a code repo']) assert.ok(md.includes(x), `SKILL.md names ${x}`);
+});
+test('references/launch.md: its numbers and lists are the tools\' (1 GB, the bytes a frame, the skipped folders, the token names)', () => {
+  const md = read('references/launch.md');
+  assert.equal(SHOTS.SEQ_MAX_BYTES, 1024 ** 3);
+  assert.match(md, /a sequence over 1 GB decoded \(frames x width x height x\s+4 bytes, in device pixels\) is refused before anything is captured/);
+  // the worked numbers: a 390x844 viewport at dpr 2, 3 s and 8 s at 30 fps, and 8 s at dpr 1
+  const gb = (frames, dpr) => SHOTS.seqBytes({ frames, w: 390 * dpr, h: 844 * dpr }) / SHOTS.SEQ_MAX_BYTES;
+  assert.ok(md.includes(`is ${(SHOTS.seqBytes({ frames: 1, w: 780, h: 1688 }) / (1 << 20)).toFixed(1)} MB a frame decoded`));
+  assert.ok(md.includes(`3 s at 30 fps holds ${gb(90, 2).toFixed(2)} GB`) && md.includes(`(${gb(240, 2).toFixed(2)} GB) is refused`) && md.includes(`8 s holds ${gb(240, 1).toFixed(2)} GB`));
+  assert.ok(SHOTS.seqTooBig({ frames: 240, w: 780, h: 1688 }) && !SHOTS.seqTooBig({ frames: 90, w: 780, h: 1688 }), 'the refused one is refused');
+  for (const d of ['node_modules', 'vendor', '.venv', 'dist', 'build', 'out', 'target', '.next', 'coverage', '.git']) {
+    assert.ok(SCAN.SKIP_DIRS.includes(d), `${d} is skipped`); assert.ok(md.includes(`\`${d}\``), `launch.md names ${d}`);
+  }
+  const names = { bg: 'bgA', background: 'bgA', page: 'bgA', surface: 'bgB', card: 'bgB', panel: 'bgB', 'bg-2': 'bgB', 'bg-alt': 'bgB', text: 'ink', fg: 'ink', foreground: 'ink',
+    muted: 'muted', subtle: 'muted', accent: 'accent', primary: 'accent', brand: 'accent', secondary: 'accent2', 'accent-2': 'accent2', link: 'accent2' };
+  for (const [n, tok] of Object.entries(names)) { assert.equal(SCAN.tokenFor(n), tok, n); assert.ok(md.includes(`\`${n}\``), `launch.md names ${n}`); }
+  for (const x of ['never touches the network', 'never runs the project\'s code', 'never\noverwrites one', 'show it', 'examples/repo-launch/']) assert.ok(md.includes(x) || md.replace(/\n/g, ' ').includes(x.replace(/\n/g, ' ')), `launch.md: ${x}`);
+  assert.match(read('references/techniques.md'), /`tools\/shots\.mjs`/);
+});
+test('README: the launch section, the repo-launch row and the launch suite; CI runs it', () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(md, /^## A launch video for a repo$/m);
+  assert.match(md, /^\| `repo-launch\/` \|.*`palette` passes; 0 FAIL, 0 WARN on the source and the master \|$/m);
+  assert.match(md, /^npm run test:launch /m);
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['test:launch'], /repo-scan\.test\.mjs.*shots\.test\.mjs.*launch-example\.test\.mjs/);
+  assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:launch/);
+});
+
+// ---------------------------------------------------------------- council round 1 on P9 (items 8, 10, 11, the example's commands)
+test('R1-8 references/launch.md: its token table is repo-scan\'s exact names and words, every alias, and the names that are never tokens', () => {
+  const md = read('references/launch.md');
+  const rows = new Map([...md.matchAll(/^\| `(\w+)` \| ([^|]+)\| ([^|]+)\|$/gm)].map((m) => [m[1], [m[2], m[3]]]));
+  const ticks = (x) => [...x.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const W = SCAN.TOKEN_WORDS;
+  for (const tok of ['bgA', 'bgB', 'ink', 'muted', 'accent', 'accent2']) {
+    assert.ok(rows.has(tok), `no row for ${tok}`);
+    const [exact, also] = rows.get(tok);
+    assert.deepEqual(ticks(exact), SCAN.TOKEN_EXACT[tok], `${tok}: the exact names`);
+    for (const w of W[tok]) assert.ok(ticks(also).includes(w), `${tok}: the word ${w} is not in the table`);
+  }
+  for (const w of W.second) assert.ok(ticks(rows.get('bgB')[1]).includes(w), `bgB: the second-background word ${w}`);
+  const never = md.slice(md.indexOf('A name holding `border`'), md.indexOf('is never a token'));
+  assert.deepEqual(ticks(never), W.never, 'the names that are never tokens');
+  assert.match(md, /A colour whose whole name \(after a leading `--` and `color-`\) is one of\s+a token's exact names wins/);
+});
+test('R1-10 the kit sheet and the board sheet are always rendered before the full render, and named in the reply', () => {
+  const md = read('references/launch.md'), sk = read('SKILL.md');
+  const order = md.slice(md.indexOf('## 1. The order'), md.indexOf('## 2.'));
+  const at = (x) => order.indexOf(x);
+  assert.ok(at('**render the kit sheet** (`node render.mjs brand`)') > 0, 'the order renders the kit sheet');
+  assert.ok(at('**Render the board sheet before rendering** (`node render.mjs board --slates`)') > at('`node render.mjs brand`'), 'then the board sheet');
+  assert.ok(at('**Render, mix, then `palette` and `check`**') > at('`node render.mjs board --slates`'), 'then the render');
+  assert.match(order, /\*\*The two sheets always come before the full render\*\*: `brand\.png` \(`node render\.mjs brand`\) and `board\.png`\s+\(`node render\.mjs board --slates`\), even when nobody can approve them now/);
+  assert.match(order, /name both sheets in your reply/);
+  const branch = sk.slice(sk.indexOf('**A launch video for a repo**'), sk.indexOf('1. **Pin the brief.**'));
+  assert.match(branch, /render the kit\s+sheet \(`node render\.mjs brand`\)/);
+  assert.match(branch, /render the board sheet \(`node render\.mjs board --slates`\) before rendering/);
+  assert.match(branch, /Both sheets, `brand\.png` and `board\.png`, are always rendered before the full render, even when nobody can approve them\s+now/);
+  assert.match(branch, /name both in your reply/);
+});
+test('R1-11 a launch piece starts from the template, the example is a reference only, and every file stays inside the piece', () => {
+  const md = read('references/launch.md'), sk = read('SKILL.md');
+  const order = md.slice(md.indexOf('## 1. The order'), md.indexOf('## 2.'));
+  assert.match(order, /^0\. \*\*Start the piece from the template\*\*, in the project: `cp -R "\$\{CLAUDE_SKILL_DIR\}\/template" <project>\/motion\/<piece>`/m);
+  assert.match(order, /Not from the example: it is a reference only/);
+  assert.match(order, /Every file\s+the work makes stays inside the piece, temporary ones included/);
+  assert.match(order, /never move or write a file outside the project, to `\/tmp` or anywhere else/);
+  assert.match(md, /read it as a\s+reference, never copy it as a starting point/);
+  const branch = sk.slice(sk.indexOf('**A launch video for a repo**'), sk.indexOf('1. **Scan**'));
+  assert.match(branch, /Start the piece from the template, inside the project; the `repo-launch` example\s+is a reference only, never a starting point\. Every file the work makes stays inside the piece \(temporary ones too\)\./);
+});
+test('R1 examples/repo-launch/README.md: its commands are the ones run, in their order (doctor, the kit sheet, the board as slates)', () => {
+  const md = fs.readFileSync(path.join(examplesDir, 'repo-launch', 'README.md'), 'utf8');
+  const block = md.slice(md.indexOf('```sh'), md.indexOf('```', md.indexOf('```sh') + 5));
+  const cmds = [...block.matchAll(/^(node \S+ \S+(?: --slates)?)/gm)].map((m) => m[1]);
+  assert.deepEqual(cmds, ['node tools/repo-scan.mjs fixture', 'node render.mjs doctor', 'node render.mjs brand', 'node tools/shots.mjs page', 'node render.mjs board --slates',
+    'node render.mjs board', 'node render.mjs contact', 'node render.mjs check', 'node render.mjs palette', 'node render.mjs full', 'node tools/mix.mjs repo-launch', 'node render.mjs check']);
+});
+
+test('R2-M3 SKILL.md: the examples are starting points except repo-launch, a reference only (start a launch piece from the template)', () => {
+  const md = read('SKILL.md');
+  const ex = md.slice(md.indexOf('## Examples'), md.indexOf('- `showreel/`'));
+  assert.match(ex, /Copy one as a starting point the same way as the template \(`cp -R`, then `chmod -R u\+w`\), except\s+`repo-launch\/`: it is a reference only, and a launch piece starts from the template \(`references\/launch\.md`\)\./);
+});
+test('R2-M1 references/launch.md and repo-scan.mjs: a global flag alone is not an install command for this package', () => {
+  const md = read('references/launch.md'), src = fs.readFileSync(path.join(templateDir, 'tools', 'repo-scan.mjs'), 'utf8');
+  const row = md.match(/^\| `install` \|(.+)\|$/m)[1];
+  assert.match(row, /that names this package; else the first that sits under an Install-like heading at any level above it/);
+  assert.match(row, /another tool's `npm i -g pnpm` from a Development section is never taken/);
+  assert.doesNotMatch(row, /installs globally/);
+  assert.doesNotMatch(src.slice(0, src.indexOf('import ')), /installs globally|--global/, 'the header no longer names a global flag');
+  assert.match(md, /do not sit inside an Install-like section or one that never holds features, such as License, Contributing, Development or Changelog \(`## Installation` > `### npm` is not a feature; `## Usage` > `### Incremental scanning` is\)/);
+});

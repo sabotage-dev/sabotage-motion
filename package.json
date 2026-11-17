@@ -17,6 +17,7 @@
     "test:examples": "node --test --test-concurrency=1 test/examples.test.mjs test/examples-check.test.mjs",
     "test:looks": "node --test --test-concurrency=1 test/looks-units.test.mjs test/looks.test.mjs",
     "test:code": "node --test --test-concurrency=1 test/code-units.test.mjs test/code.test.mjs test/code-example.test.mjs",
+    "test:launch": "node --test --test-concurrency=1 test/repo-scan.test.mjs test/shots.test.mjs test/launch-example.test.mjs",
     "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs test/docs.test.mjs",
     "hooks": "node scripts/leak.mjs install"
   },
