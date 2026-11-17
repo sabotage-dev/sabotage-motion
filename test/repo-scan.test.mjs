@@ -480,3 +480,63 @@ test('R2-T the README\'s title is never a heading a command or a section sits un
   assert.deepEqual(examples.name, { value: 'Examples', file: 'README.md', line: 1 });
   assert.deepEqual(examples.features.map((f) => f.text), ['Basic usage', 'Advanced', 'Plugins']);
 });
+
+// ---------------------------------------------------------------- council round 3: the README regression table
+// Every README shape rounds 1 to 3 found or tested, run through readme() itself: the title it names the project from
+// (null: the metadata or the folder names it), the install command it reads (null: one is made from the metadata) and
+// the features. Every later change to the parser must keep the whole table green.
+const fixtureReadme = fs.readFileSync(path.join(repoRoot, 'skills', 'sabotage-motion', 'examples', 'repo-launch', 'fixture', 'README.md'), 'utf8');
+const README_CASES = [
+  ['control: an h1, badges, a Features list', '# Snagwick\n\n[![build](https://img.shields.io/badge/build-passing-green.svg)](https://ci.example.com) [![npm](https://img.shields.io/npm/v/snagwick.svg)](https://npm.example.com)\n\nSnagwick finds every TODO in your code.\n\n## Install\n\n```sh\nnpm install -g snagwick\n```\n\n## Features\n\n- Finds every TODO\n- Groups them by file\n- Opens a board\n\n## License\n\nMIT\n',
+    ['snagwick'], 'Snagwick', 'npm install -g snagwick', ['Finds every TODO', 'Groups them by file', 'Opens a board']],
+  ['the example\'s fixture README', fixtureReadme, ['snagwick'], 'Snagwick', 'npm install -g snagwick',
+    ['Finds every TODO, FIXME and HACK, in any language with comments', 'Groups them by file, by tag and by who left them', 'Opens a board on localhost you can sort, filter and check off']],
+  ['round 1: a picture above the h1, badges, a prompt, nested and numbered items', '<p align="center"><img src="assets/logo.svg" width="96"></p>\n\n# Snagwick\n\n[![build](https://img.shields.io/badge/build-passing-green.svg)](https://ci.example.com)\n\nSnagwick finds every **TODO** in your code. Then it sorts them.\n\n## Install\n\n```sh\n$ npm install -g snagwick\n```\n\n## Features\n\n- Finds every `TODO`, FIXME and HACK\n- Groups them by [file](docs/files.md)\n  - a nested item is not a feature\n1. Opens a board on localhost\n\n## How it works\n\n## License\n',
+    ['snagwick'], 'Snagwick', 'npm install -g snagwick', ['Finds every TODO, FIXME and HACK', 'Groups them by file', 'Opens a board on localhost', 'How it works']],
+  ['round 1: a title and a sentence only', '# Snagwick\n\nSnagwick finds every TODO in your code. Then it sorts them.\n', [], 'Snagwick', null, []],
+  ['round 1 (4): a bare npm install and pip install -r in Development', '# Snagwick\n\nIt finds TODOs.\n\n## Development\n\n```sh\nnpm install\npip install -r requirements.txt\nnpm test\n```\n', ['snagwick'], 'Snagwick', null, []],
+  ['round 1 (4): a command continued with \\', '# Snagwick\n\n## Usage\n\n```sh\n$ npm install --save-dev \\\n    snagwick\n```\n', ['snagwick'], 'Snagwick', 'npm install --save-dev snagwick', []],
+  ['round 1 (4): another tool\'s global install under Usage', '# Tool\n\n## Usage\n\n```sh\nnpm i -g some-cli\n```\n', [], 'Tool', null, []],
+  ['round 1 (4): a bare install under Getting started', '# Tool\n\n## Getting started\n\n```sh\nnpm install\n```\n', [], 'Tool', 'npm install', []],
+  ['round 1 (4): another package, then this one with a version', '# Snagwick\n\n## Usage\n\n```sh\nnpm install lodash\npnpm add snagwick@1.2.0\n```\n', ['snagwick'], 'Snagwick', 'pnpm add snagwick@1.2.0', []],
+  ['round 1 (7): an h2 title under a picture', '<p align="center"><img src="logo.svg" width="80"></p>\n\n## Snagwick\n\nSnagwick finds every TODO.\n\n## Features\n\n- Finds TODOs\n\n## How it works\n', ['snagwick-cli'], 'Snagwick', null, ['Finds TODOs', 'How it works']],
+  ['round 1 (7): an h3 title', '### Snagwick\nSnagwick finds every TODO.\n', [], 'Snagwick', null, []],
+  ['round 1 (7): prose before the first heading', 'Snagwick finds every TODO in your code.\n\n## Install\n\n```sh\nnpm i -g snagwick-cli\n```\n', ['snagwick-cli'], null, 'npm i -g snagwick-cli', []],
+  ['round 2 (F2): ## Installation > ### npm > npm install', '# Tool\n\n## Installation\n\n### npm\n\n```sh\nnpm install\n```\n\n## Development\n\n### Tests\n\n```sh\nnpm install --save-dev mocha\n```\n', [], 'Tool', 'npm install', []],
+  ['round 2 (F2): ## Installation > ### Linux > pip install -r', '# Tool\n\n## Installation\n\n### macOS\n\nSee the app.\n\n### Linux\n\n```sh\npip install -r requirements.txt\n```\n', [], 'Tool', 'pip install -r requirements.txt', []],
+  ['round 2 (F2): ## Development > ### Tests > npm install', '# Tool\n\n## Development\n\n### Tests\n\n```sh\nnpm install\n```\n', ['tool'], 'Tool', null, []],
+  ['round 2 (F3): front matter above the title', '---\ntitle: Snagwick docs\nlayout: default\n---\n\n# Snagwick\n\nSnagwick finds every TODO.\n\n## Features\n\n- Finds TODOs\n', [], 'Snagwick', null, ['Finds TODOs']],
+  ['round 2 (F3): link-reference definitions above the title', '[ci]: https://ci.example.com/badge.svg\n[docs]: <https://docs.example.com> "Docs"\n\n## Snagwick\n\nIt finds TODOs.\n', [], 'Snagwick', null, []],
+  ['round 2 (F3): a multi-line <p> with a tagline, and a <div> of badges', '<p align="center">\n  <img src="logo.svg"\n       width="96" alt="">\n  <br>\n  Every TODO, on one board\n</p>\n\n<div align="center">\n\n  [![ci](https://ci.example.com/b.svg)](https://ci.example.com)\n\n</div>\n\n# Snagwick\n', [], 'Snagwick', null, []],
+  ['round 2 (F3): an unclosed <p> with a tagline', '<p align="center">\n  <img src="logo.svg" width="96">\n  Every TODO, on one board\n\n# Snagwick\n', [], 'Snagwick', null, []],
+  ['round 2 (F3): prose after an HTML block', '<p align="center"><img src="logo.svg"></p>\n\nSnagwick finds TODOs.\n\n## Install\n', [], null, null, []],
+  ['round 2 (M1): Development only, npm i -g pnpm', '# Lintrove\n\n## Development\n\n```sh\nnpm i -g pnpm\npnpm install\n```\n', ['lintrove'], 'Lintrove', null, []],
+  ['round 2 (M1): Development, then Install', '# Lintrove\n\n## Development\n\n```sh\nnpm i -g pnpm\n```\n\n## Install\n\n```sh\nnpm install lintrove\n```\n', ['lintrove'], 'Lintrove', 'npm install lintrove', []],
+  ['round 2 (M1): the command naming the package wins', '# Lintrove\n\n## Quick start\n\n```sh\nnpm install\n```\n\n### From npm\n\n```sh\nnpm install -g lintrove\n```\n', ['lintrove'], 'Lintrove', 'npm install -g lintrove', []],
+  ['round 2 (M2): sub-headings of Installation, License and Set up', '# Tool\n\n## Installation\n\n### npm\n\n### Linux\n\n## How it works\n\n### The scanner\n\n## License\n\n### MIT\n\n## Set up\n\n### Docker\n', [], 'Tool', null, ['How it works', 'The scanner', 'Set up']],
+  ['round 2 (title): # Setup Wizard', '# Setup Wizard\n\nIt does things.\n\n## Development\n\n```sh\nnpm install\n```\n\n## How it works\n\n### The engine\n', ['wizard'], 'Setup Wizard', null, ['How it works', 'The engine']],
+  ['round 2 (title): its control, # Snagwick', '# Snagwick\n\nIt does things.\n\n## Development\n\n```sh\nnpm install\n```\n\n## How it works\n\n### The engine\n', ['wizard'], 'Snagwick', null, ['How it works', 'The engine']],
+  ['round 2 (title): # Examples', '# Examples\n\nA set of examples.\n\n## Basic usage\n\n## Advanced\n\n### Plugins\n', [], 'Examples', null, ['Basic usage', 'Advanced', 'Plugins']],
+  ['round 3 (T1): a horizontal rule at the top, and a later one', '---\n\n# Snagwick\n\nSnagwick finds every TODO.\n\n---\n\n## Install\n\n```sh\nnpm install snagwick\n```\n', ['snagwick'], null, 'npm install snagwick', []],
+  ['round 3 (T1): front matter with a comment, a list and a folded value', '---\n# docs config\ntitle: Snagwick\ntags:\n  - cli\n  - todo\ndescription: >\n  Finds TODOs\n---\n# Snagwick\n\n## Features\n\n- Finds TODOs\n', [], 'Snagwick', null, ['Finds TODOs']],
+  // not front matter, so it is Markdown: a rule, a paragraph, and see: below over --- is a setext heading
+  ['round 3 (T1): a blank line before the closer: no front matter', '---\nlayout: default\n\nsee: below\n---\n\n# Snagwick\n', [], null, null, ['see: below']],
+  ['round 3 (T1): a line that is not YAML before the closer: no front matter', '---\ntitle: Snagwick\nThis README opens on a rule.\n...\n# Snagwick\n', [], null, null, []],
+  ['round 3 (T2): sub-headings of Usage', '# Snagwick\n\n## Usage\n\n### Incremental scanning\n\n### Parallel processing\n', [], 'Snagwick', null, ['Incremental scanning', 'Parallel processing']],
+  ['round 3 (T2): sub-headings of Examples, API, Configuration and Documentation stay; of Contributing, Changelog and Getting started do not', '# Tool\n\n## Examples\n\n### Basic\n\n## API\n\n### scan()\n\n## Configuration\n\n### Ignore files\n\n## Documentation\n\n### Guides\n\n## Contributing\n\n### Running tests\n\n## Changelog\n\n### 1.2.0\n\n## Getting started\n\n### Docker\n',
+    [], 'Tool', null, ['Basic', 'scan()', 'Ignore files', 'Guides']],
+  ['round 3 (T4): an inline tag in prose above ## Installation', 'Find TODOs using <code>Snagwick</code>.\n\n## Installation\n\n```sh\nnpm install\n```\n', [], null, 'npm install', []],
+  ['round 3 (T4): an autolink above the title', '<https://snagwick.example.com>\n\n# Snagwick\n', [], null, null, []],
+  ['round 3 (T4): an email autolink above the title', '<team@snagwick.example.com>\n\n# Snagwick\n', [], null, null, []],
+];
+test('R3 the README regression table: every README shape from rounds 1 to 3, through readme()', () => {
+  const wrong = [];
+  for (const [what, text, names, name, install, features] of README_CASES) {
+    const r = S.readme(text, 'README.md', { names });
+    const got = { name: r.name ? r.name.value : null, install: r.install ? r.install.value : null, features: r.features.map((f) => f.text) };
+    const want = { name, install, features };
+    if (JSON.stringify(got) !== JSON.stringify(want)) wrong.push(`${what}:\n    got  ${JSON.stringify(got)}\n    want ${JSON.stringify(want)}`);
+  }
+  assert.equal(README_CASES.length, 36);
+  assert.deepEqual(wrong, []);
+});

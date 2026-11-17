@@ -309,5 +309,5 @@ test('R2-M1 references/launch.md and repo-scan.mjs: a global flag alone is not a
   assert.match(row, /another tool's `npm i -g pnpm` from a Development section is never taken/);
   assert.doesNotMatch(row, /installs globally/);
   assert.doesNotMatch(src.slice(0, src.indexOf('import ')), /installs globally|--global/, 'the header no longer names a global flag');
-  assert.match(md, /do not sit inside a boilerplate or Install-like section \(`## Installation` > `### npm` is not a feature\)/);
+  assert.match(md, /do not sit inside an Install-like section or one that never holds features, such as License, Contributing, Development or Changelog \(`## Installation` > `### npm` is not a feature; `## Usage` > `### Incremental scanning` is\)/);
 });

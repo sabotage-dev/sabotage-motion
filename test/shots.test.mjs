@@ -310,3 +310,72 @@ test('R2-1 a page that goes off this machine later (a location change on a timer
     assert.ok(!fs.readdirSync(P(dir, 'assets/seq')).some((f) => f.includes('.tmp-')), 'no temporary folder left behind');
   } finally { server.close(); }
 });
+
+// ---------------------------------------------------------------- council round 3 (T3): each guard on its own
+// The refusals do not depend on a browser's timing here: a stand-in for Playwright's page answers each step, and moves
+// the page off this machine at the step a test names. 203.0.113.5 is a documentation address; nothing is fetched.
+const { FramesError } = await import(pathToFileURL(path.join(templateDir, 'tools', 'frames.mjs')).href);
+const AWAY = 'http://203.0.113.5/away', SRC = { label: 'tall.html', url: 'file:///piece/tall.html', http: false };
+const DESTROYED = 'page.evaluate: Execution context was destroyed, most likely because of a navigation';
+function stubPage(on = {}) {
+  const p = { href: SRC.url, y: 0, shots: [], waited: 0 };
+  p.url = () => p.href;
+  p.mainFrame = () => 'main';
+  p.evaluate = async (fn, arg) => {
+    const f = String(fn), step = /scrollTo/.test(f) ? 'scroll' : /getAnimations/.test(f) ? 'animations' : /scrollHeight/.test(f) ? 'height' : /fonts/.test(f) ? 'fonts' : 'scrollY';
+    if (on[step]) { const r = on[step](p); if (r !== undefined) return r; }
+    if (step === 'scroll') return (p.y = arg);
+    if (step === 'scrollY') return p.y;
+    if (step === 'height') return 3000;
+    return undefined;
+  };
+  p.clock = { runFor: async () => on.clock && on.clock(p) };
+  p.waitForEvent = async () => { p.waited++; if (on.wait) on.wait(p); };
+  p.screenshot = async (o) => { p.shots.push(o.path); };
+  return p;
+}
+const SEQ = { frames: 3, from: 0, to: 100, ease: 'linear', fps: 24 };
+const refusedAway = async (run, p) => {
+  await assert.rejects(run, (e) => e instanceof FramesError && e.message.includes(`went to ${AWAY}, which is not on this machine`));
+  assert.deepEqual(p.shots, [], 'no screenshot was taken');
+};
+
+test('R3-T3 page mode: a page that left while its height was measured is refused before the screenshot', async () => {
+  const p = stubPage({ height: (q) => { q.href = AWAY; return 3000; } });
+  await refusedAway(SH.pageSteps(p, SRC, '/nowhere/x.png'), p);
+  const ok = stubPage();
+  assert.equal(await SH.pageSteps(ok, SRC, '/nowhere/x.png'), 3000);
+  assert.deepEqual(ok.shots, ['/nowhere/x.png'], 'a page still here is taken');
+});
+test('R3-T3 open: a page whose navigation ends off this machine is refused when it opens', async () => {
+  const p = stubPage();
+  p.goto = async () => { p.href = AWAY; };
+  const browser = { newContext: async () => ({ clock: { install: async () => {}, pauseAt: async () => {} }, newPage: async () => p }) };
+  await assert.rejects(SH.open(browser, SRC, { w: 135, h: 240 }, 1), (e) => e instanceof FramesError && e.message.includes(`went to ${AWAY}`));
+  const q = stubPage(); q.goto = async () => {};
+  assert.equal(await SH.open({ newContext: async () => ({ newPage: async () => q }) }, SRC, { w: 135, h: 240 }, 1), q, 'a page that stays opens');
+});
+test('R3-T3 a sequence frame: a page its clock took away (and that answers every step) is refused before the screenshot', async () => {
+  const p = stubPage({ clock: (q) => { q.href = AWAY; } });
+  await SH.frameSteps(p, SRC, SEQ, 0, '/nowhere');   // frame 0 runs no clock
+  assert.equal(p.shots.length, 1);
+  p.shots = [];
+  await refusedAway(SH.frameSteps(p, SRC, SEQ, 1, '/nowhere'), p);
+});
+test('R3-T3 a step a navigation broke: the refusal says where the page went (reported at once, or after the wait)', async () => {
+  const now = stubPage({ clock: (q) => { q.href = AWAY; }, animations: () => { throw new Error(DESTROYED); } });
+  await refusedAway(SH.frameSteps(now, SRC, SEQ, 1, '/nowhere'), now);
+  assert.equal(now.waited, 0, 'no wait when the page has already said where it went');
+  const later = stubPage({ animations: () => { throw new Error(DESTROYED); }, wait: (q) => { q.href = AWAY; } });
+  await refusedAway(SH.frameSteps(later, SRC, SEQ, 1, '/nowhere'), later);
+  assert.equal(later.waited, 1, 'it waited for the navigation to be reported');
+  // any other error is the error, unchanged
+  const other = stubPage({ animations: () => { throw new Error('boom'); } });
+  await assert.rejects(SH.frameSteps(other, SRC, SEQ, 1, '/nowhere'), (e) => !(e instanceof FramesError) && e.message === 'boom');
+});
+test('R3-T3 a refusal about the page checks first that it is still here: gone and scrolled is "went to", not "moved its scroll"', async () => {
+  const p = stubPage({ clock: (q) => { q.href = AWAY; q.y = 0; } });
+  await refusedAway(SH.frameSteps(p, SRC, { ...SEQ, from: 50 }, 1, '/nowhere'), p);
+  const scrolled = stubPage({ clock: (q) => { q.y = 0; } });
+  await assert.rejects(SH.frameSteps(scrolled, SRC, { ...SEQ, from: 50 }, 1, '/nowhere'), /moved its own scroll to 0 px when its clock ran/);
+});

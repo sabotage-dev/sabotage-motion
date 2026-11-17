@@ -14,7 +14,8 @@
 //                derived)
 //   features     the list items under a README heading named like Features (Features, Highlights, Why ...,
 //                What it does), then the README's other section headings that are not boilerplate (Install,
-//                Usage, License ...) and do not sit inside a boilerplate or Install-like section
+//                Usage, License ...) and do not sit inside an Install-like section or one that never holds features
+//                (License, Contributing, Development, Changelog ...)
 //   colors       every colour, with the file and line it came from: CSS custom properties (--name: a hex, rgb(),
 //                hsl() or oklch() value, or a var() of one, or its fallback when that var is not declared) in
 //                stylesheets and pages, a Tailwind config's theme colours (read as text, never run), a web
@@ -326,10 +327,14 @@ export function fontRoles(text, file, props) {
 const mdText = (s) => String(s).replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<[^>]+>/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
   .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2').replace(/(^|\W)[*_]([^*_]+)[*_](?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/\s+/g, ' ').trim();
 const FEATURE_HEAD = /^(features?|key features|highlights?|why\b.*|what (it|you) .*|what's (in|inside)\b.*)$/i;
+// Sections whose sub-headings are never features either (the sub-headings of Usage, Examples, API, Configuration or
+// Documentation are).
+const NO_FEATURES_HEAD = /^(licen[cs]e|contributing|contributors?|development|build(ing)?|tests?|testing|changelog|faq|support|credits|acknowledg(e)?ments?|authors?|(table of )?contents|requirements|prerequisites|security|code of conduct|sponsors?|community|links?|related|see also|status|badges|roadmap)$/i;
 const BOILER_HEAD = /^(install(ation|ing)?|getting started|quick ?start|usage|how to use|requirements|prerequisites|licen[cs]e|contributing|contributors?|development|build(ing)?|tests?|testing|changelog|faq|support|credits|acknowledg(e)?ments?|authors?|(table of )?contents|documentation|docs|api|configuration|config|setup|roadmap|security|code of conduct|sponsors?|community|links?|related|see also|examples?|status|badges)$/i;
-// Lines inside an HTML block, among the first n: a tag's own lines (one spanning lines too), and every line between an
-// element's opening tag and its closing tag; an element left open runs to the next blank line, where Markdown ends an
-// HTML block.
+// Lines inside an HTML block, among the first n: a block opens on a line that starts with a tag (HTML_OPENER), and its
+// lines are the tag's own (one spanning lines too) and every line between an element's opening tag and its closing tag;
+// an element left open runs to the next blank line, where Markdown ends an HTML block. A tag inside a line of prose
+// (Find TODOs with <code>x</code>.) opens nothing.
 const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 export function htmlLines(lines, n) {
   const mark = new Array(n).fill(false), text = lines.slice(0, n).join('\n'), open = [];
@@ -339,6 +344,8 @@ export function htmlLines(lines, n) {
   const span = (a, b) => { for (let k = lineOf(a); k <= lineOf(b); k++) mark[k] = true; };
   for (const m of text.matchAll(/<(\/?)([A-Za-z][\w-]*)\b[^>]*?(\/?)>/g)) {
     const end = m.index + m[0].length - 1, name = m[2].toLowerCase();
+    // outside any open element, a tag counts only when it opens a block: at the start of its line
+    if (!open.length && !HTML_OPENER.test(text.slice(starts[lineOf(m.index)], m.index + m[0].length))) continue;
     span(m.index, end);
     if (m[1]) { const k = open.map((o) => o.name).lastIndexOf(name); if (k >= 0) { span(open[k].at, end); open.splice(k); } }
     else if (!m[3] && !VOID_TAGS.has(name)) open.push({ name, at: m.index });
@@ -347,6 +354,11 @@ export function htmlLines(lines, n) {
   return mark;
 }
 const LINK_DEF = /^ {0,3}\[[^\]]+\]:\s*\S/;
+// A line of YAML front matter: key: value, - item, an indented continuation, a # comment (never a blank line).
+const YAML_LINE = /^(\s*#.*|[\w"'][^:]*:(\s.*)?|\s*-(\s.*)?|\s+\S.*)$/;
+// A line that opens an HTML block: it starts (after up to three spaces) with a tag (<name, </name) or a comment (<!--).
+// An autolink (<https://...>, <a@b.c>) is not a tag, and a tag inside a line of prose opens nothing.
+const HTML_OPENER = /^ {0,3}(<\/?[A-Za-z][\w-]*(\s|\/?>|$)|<!--)/;
 // An install command for this package: it names one of the package's names (a version, a range or extras cut off),
 // under any heading, or (INSTALL_HEAD) it sits under an Install-like heading; one that names the package wins over one
 // that only sits under such a heading. Anything else (a bare npm install in a Development section, another tool's
@@ -362,9 +374,15 @@ export const INSTALL_RE = /^(?:npm (?:i|install|add)|pnpm (?:add|i|install)|yarn
 // metadata, for telling this package's install command from any other.
 export function readme(text, file, { names = [] } = {}) {
   const lines = text.replace(/<!--[\s\S]*?-->/g, blank).split('\n'), r = { file };
-  // YAML front matter at the very top (--- to --- or ...) is not the README's text: blanked, so lines keep their numbers
+  // YAML front matter at the very top is not the README's text: blanked, so lines keep their numbers. It is front matter
+  // only when its closer (--- or ...) comes before the first blank line and every line between looks like YAML; a
+  // README that opens on a horizontal rule keeps every line
   if (/^---\s*$/.test(lines[0] || '')) {
-    const end = lines.findIndex((l, i) => i > 0 && /^(---|\.\.\.)\s*$/.test(l));
+    let end = -1;
+    for (let i = 1; i < lines.length; i++) {
+      if (/^(---|\.\.\.)\s*$/.test(lines[i])) { end = i; break; }
+      if (!YAML_LINE.test(lines[i])) break;
+    }
     if (end > 0) for (let i = 0; i <= end; i++) lines[i] = '';
   }
   const s = lines.join('\n');
@@ -386,7 +404,7 @@ export function readme(text, file, { names = [] } = {}) {
   // the title: the first heading, at any level, when only pictures, badges, link-reference definitions ([label]: url) and
   // HTML blocks come before it
   const above = heads[0] ? heads[0].line - 1 : 0, html = htmlLines(lines, above);
-  const title = heads[0] && lines.slice(0, above).every((l, i) => !inCode[i] && (html[i] || /^\s*($|<|!\[|\[!\[)/.test(l) || LINK_DEF.test(l))) ? heads[0] : null;
+  const title = heads[0] && lines.slice(0, above).every((l, i) => !inCode[i] && (html[i] || /^\s*($|!\[|\[!\[)/.test(l) || LINK_DEF.test(l))) ? heads[0] : null;
   if (title) r.name = { value: title.text, file, line: title.line };
   // the install command: the first one in a code block (a line ending in \ goes on to the next) that names this package,
   // else the first that sits under an Install-like heading (any heading it is under: ## Installation > ### npm counts)
@@ -435,8 +453,9 @@ export function readme(text, file, { names = [] } = {}) {
   });
   for (const h of heads) {
     if (h === title || h.level < 2 || h.level > 3 || FEATURE_HEAD.test(h.text) || BOILER_HEAD.test(h.text)) continue;
-    // a heading inside a boilerplate or Install-like section (## Installation > ### npm) is not a feature either
-    if (enclosing(h.line - 1, h.level).some((x) => BOILER_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;
+    // a heading inside an Install-like section (## Installation > ### npm) or one that never holds features (## License >
+    // ### MIT) is not a feature either; one inside Usage, Examples, API, Configuration or Documentation is
+    if (enclosing(h.line - 1, h.level).some((x) => NO_FEATURES_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;
     feats.push({ text: h.text, kind: 'heading', file, line: h.line });
   }
   r.features = feats;

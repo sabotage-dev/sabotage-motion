@@ -141,7 +141,9 @@ async function withChrome(work, cleanup) {
     try { if (browser) await browser.close(); } finally { cleanup(); }
   }
 }
-async function open(browser, src, vp, dpr, { clock = false } = {}) {
+// Opens the page: a context at the viewport (and, for a sequence, a stopped clock), the source, its fonts. Exported, with
+// pageSteps and frameSteps below, so a test can drive each refusal with a stand-in for Playwright's browser and page.
+export async function open(browser, src, vp, dpr, { clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: dpr });
   // the page's clock, installed on the context and paused before the page exists, at a time ahead of any setup, so the
   // page opens on a stopped clock (installed on the page, or paused at a time already passed, it starts each capture a
@@ -184,17 +186,21 @@ export async function shots(argv, log = console.log) {
   return seqShots(name, src, { vp, dpr, fps, fpsFrom, frames, w, h, dur, from: +sm[1], to: +sm[2], ease }, log);
 }
 
+// The page mode's steps on an open page: its full height, then (still local) the full-page screenshot to tmp.
+export function pageSteps(page, src, tmp) {
+  return onPage(page, src, async () => {
+    const css = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
+    stillLocal(page, src);   // the page may have moved on since it opened
+    await page.screenshot({ path: tmp, type: 'png', fullPage: true, animations: 'disabled', caret: 'hide' });
+    return css;
+  });
+}
 async function pageShot(name, src, vp, dpr, log) {
   const out = path.join(SHOTS_DIR, `${name}.png`), tmp = path.join(SHOTS_DIR, `.${name}.tmp-${process.pid}.png`);
   return withChrome(async (browser) => {
     fs.mkdirSync(SHOTS_DIR, { recursive: true });
     const page = await open(browser, src, vp, dpr);
-    const full = await onPage(page, src, async () => {
-      const css = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
-      stillLocal(page, src);   // the page may have moved on since it opened
-      await page.screenshot({ path: tmp, type: 'png', fullPage: true, animations: 'disabled', caret: 'hide' });
-      return css;
-    });
+    const full = await pageSteps(page, src, tmp);
     fs.renameSync(tmp, out);
     const { w, h } = pngSize(out);
     log(`shots: ${name}: ${src.label} at ${vp.w}x${vp.h} (dpr ${dpr}), the full page: ${w}x${h} px (${full} CSS px tall)`);
@@ -203,6 +209,32 @@ async function pageShot(name, src, vp, dpr, log) {
   }, () => fs.rmSync(tmp, { force: true }));
 }
 
+// One frame of a sequence on an open page: scroll to its position, run the page's clock to its time, set its CSS
+// animations, check the scroll and that the page is still local, then the screenshot, tmp/<NNN>.png.
+export function frameSteps(page, src, s, i, tmp) {
+  return onPage(page, src, async () => {
+    const y = scrollAt(i, s.frames, s.from, s.to, EASES[s.ease]), t = i / s.fps;
+    const got = await page.evaluate((y) => { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); return window.scrollY; }, y);
+    if (Math.abs(got - y) > 0.01) refuse(page, src, `frame ${i}: the page scrolled to ${got} px, not ${y} (does it move its own scroll?)`);
+    if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));
+    // CSS animations and transitions run on Chrome's own clock: pause each one and set it to its time since the frame
+    // it first showed up in, so a frame is the same on every run
+    await page.evaluate((t) => {
+      const seen = (window.__smShots ||= new WeakMap());
+      for (const a of document.getAnimations()) {
+        if (a.timeline !== document.timeline) continue;   // scroll-driven: it follows the scroll already
+        if (!seen.has(a)) seen.set(a, t);
+        a.pause();
+        a.currentTime = (t - seen.get(a)) * 1000;
+      }
+    }, t);
+    // the clock step may have run page code that moved the scroll: check it again right before the picture
+    const now = await page.evaluate(() => window.scrollY);
+    if (Math.abs(now - y) > 0.01) refuse(page, src, `frame ${i}: the page moved its own scroll to ${now} px when its clock ran, not ${y}: shots.mjs cannot set the scroll of a page that sets it`);
+    stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine
+    await page.screenshot({ path: path.join(tmp, `${String(i).padStart(3, '0')}.png`), type: 'png', animations: 'allow', caret: 'hide' });
+  });
+}
 async function seqShots(name, src, s, log) {
   const tmp = path.join(SEQ_DIR, `.${name}.tmp-${process.pid}`);
   return withChrome(async (browser) => {
@@ -212,29 +244,7 @@ async function seqShots(name, src, s, log) {
     const page = await open(browser, src, s.vp, s.dpr, { clock: true });
     const max = await page.evaluate(() => Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
     if (Math.max(s.from, s.to) > max) throw new FramesError(`--scroll ${s.from}:${s.to}: ${src.label} scrolls to at most ${max} px at a ${s.vp.w}x${s.vp.h} viewport`);
-    const ease = EASES[s.ease];
-    for (let i = 0; i < s.frames; i++) await onPage(page, src, async () => {
-      const y = scrollAt(i, s.frames, s.from, s.to, ease), t = i / s.fps;
-      const got = await page.evaluate((y) => { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); return window.scrollY; }, y);
-      if (Math.abs(got - y) > 0.01) refuse(page, src, `frame ${i}: the page scrolled to ${got} px, not ${y} (does it move its own scroll?)`);
-      if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));
-      // CSS animations and transitions run on Chrome's own clock: pause each one and set it to its time since the frame
-      // it first showed up in, so a frame is the same on every run
-      await page.evaluate((t) => {
-        const seen = (window.__smShots ||= new WeakMap());
-        for (const a of document.getAnimations()) {
-          if (a.timeline !== document.timeline) continue;   // scroll-driven: it follows the scroll already
-          if (!seen.has(a)) seen.set(a, t);
-          a.pause();
-          a.currentTime = (t - seen.get(a)) * 1000;
-        }
-      }, t);
-      // the clock step may have run page code that moved the scroll: check it again right before the picture
-      const now = await page.evaluate(() => window.scrollY);
-      if (Math.abs(now - y) > 0.01) refuse(page, src, `frame ${i}: the page moved its own scroll to ${now} px when its clock ran, not ${y}: shots.mjs cannot set the scroll of a page that sets it`);
-      stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine
-      await page.screenshot({ path: path.join(tmp, `${String(i).padStart(3, '0')}.png`), type: 'png', animations: 'allow', caret: 'hide' });
-    });
+    for (let i = 0; i < s.frames; i++) await frameSteps(page, src, s, i, tmp);
     const { w, h } = pngSize(path.join(tmp, '000.png'));
     const entry = installSeq(name, tmp, { frames: s.frames, fps: s.fps, w, h, ext: 'png', src: src.label, dur: s.dur,
       viewport: [s.vp.w, s.vp.h], dpr: s.dpr, scroll: [s.from, s.to], ease: s.ease });

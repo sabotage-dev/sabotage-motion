@@ -443,10 +443,10 @@ const M = [
   ["P9 shots: the scroll not eased", T + "tools/shots.mjs", [["(to - from) * ease(n > 1 ? i / (n - 1) : 1));", "(to - from) * (n > 1 ? i / (n - 1) : 1));"]], SH],
   ["P9 shots: the last frame short of the scroll's end", T + "tools/shots.mjs", [["ease(n > 1 ? i / (n - 1) : 1)", "ease(n > 1 ? i / n : 1)"]], SH],
   ["P9 shots: the scroll not rounded to a pixel", T + "tools/shots.mjs", [["=> Math.round(from + (to - from) * ease(", "=> (from + (to - from) * ease("]], SH],
-  ["P9 shots: the page's clock not run", T + "tools/shots.mjs", [["      if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));\n", ""]], SH],
-  ["P9 shots: the page's own clock", T + "tools/shots.mjs", [["  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }", "  if (false) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"], ["      if (i > 0) await page.clock.runFor(", "      if (false) await page.clock.runFor("]], SH],
-  ["P9 shots: CSS animations not set to their time", T + "tools/shots.mjs", [["          a.currentTime = (t - seen.get(a)) * 1000;\n", ""]], SH],
-  ["P9 shots: scroll-driven animations seeked", T + "tools/shots.mjs", [["          if (a.timeline !== document.timeline) continue;", "          if (false) continue;"]], SH],
+  ["P9 shots: the page's clock not run", T + "tools/shots.mjs", [["    if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));\n", ""]], SH],
+  ["P9 shots: the page's own clock", T + "tools/shots.mjs", [["  if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }", "  if (false) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }"], ["    if (i > 0) await page.clock.runFor(", "    if (false) await page.clock.runFor("]], SH],
+  ["P9 shots: CSS animations not set to their time", T + "tools/shots.mjs", [["        a.currentTime = (t - seen.get(a)) * 1000;\n", ""]], SH],
+  ["P9 shots: scroll-driven animations seeked", T + "tools/shots.mjs", [["        if (a.timeline !== document.timeline) continue;", "        if (false) continue;"]], SH],
   ["P9 shots: a page that is not local taken", T + "tools/shots.mjs", [["const LOCAL_HOSTS = (h) => h === 'localhost'", "const LOCAL_HOSTS = (h) => true || h === 'localhost'"]], SH],
   ["P9 shots: frames numbered from 001", T + "tools/shots.mjs", [["path.join(tmp, `${String(i).padStart(3, '0')}.png`), type", "path.join(tmp, `${String(i + 1).padStart(3, '0')}.png`), type"]], SH],
   ["P9 shots: the manifest says jpg", T + "tools/shots.mjs", [["w, h, ext: 'png', src:", "w, h, ext: 'jpg', src:"]], SH],
@@ -473,7 +473,7 @@ const M = [
   // title at any level, exact token names first; the example's shot compared by landmarks; the recipe's sheets and start.
   ["P9 R1 shots: the temp files removed before Chrome closes", T + "tools/shots.mjs", [["    try { if (browser) await browser.close(); } finally { cleanup(); }", "    cleanup(); if (browser) await browser.close();"]], SH],
   ["P9 R1 shots: Chrome left open when a step throws", T + "tools/shots.mjs", [["    return await work(browser);", "    return await work(browser).catch((e) => { browser = null; throw e; });"]], SH],
-  ["P9 R1 shots: the final URL not checked (when the page opens, nor in page mode)", T + "tools/shots.mjs", [["  stillLocal(page, src);\n  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));", "  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));"], ["      stillLocal(page, src);   // the page may have moved on since it opened\n", ""]], SH],
+  ["P9 R1 shots: the final URL not checked (when the page opens, nor in page mode)", T + "tools/shots.mjs", [["  stillLocal(page, src);\n  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));", "  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));"], ["    stillLocal(page, src);   // the page may have moved on since it opened\n", ""]], SH],
   ["P9 R1 shots: the scroll not checked again after the clock", T + "tools/shots.mjs", [["if (Math.abs(now - y) > 0.01) refuse(", "if (false) refuse("]], SH],
   ["P9 R1 install: continuations not joined", T + "tools/repo-scan.mjs", [["      while (cmd.endsWith('\\\\') && k + 1 < b.length) cmd = cmd.slice(0, -1).trim() + ' ' + lines[b[++k]].trim();\n", ""]], RS],
   ["P9 R1 install: any install command taken", T + "tools/repo-scan.mjs", [["      if (installsPackage(cmd, want)) { r.install", "      if (true) { r.install"]], RS],
@@ -483,7 +483,7 @@ const M = [
   ["P9 R1 fonts: other formats ranked first", T + "tools/repo-scan.mjs", [["return i < 0 ? FONT_EXT_RANK.length : i; };", "return i; };"]], RS],
   ["P9 R1 colours: the var() fallback ignored", T + "tools/repo-scan.mjs", [["      if (m[2] == null) break;", "      if (true) break;"]], RS],
   ["P9 R1 name: only an h1 names the project", T + "tools/repo-scan.mjs", [["const title = heads[0] && lines.slice(", "const title = heads[0] && heads[0].level === 1 && lines.slice("]], RS],
-  ["P9 R1 name: prose above the first heading allowed", T + "tools/repo-scan.mjs", [[".every((l, i) => !inCode[i] && (html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l) || LINK_DEF.test(l)))", ".every(() => true)"]], RS],
+  ["P9 R1 name: prose above the first heading allowed", T + "tools/repo-scan.mjs", [[".every((l, i) => !inCode[i] && (html[i] || /^\\s*($|!\\[|\\[!\\[)/.test(l) || LINK_DEF.test(l)))", ".every(() => true)"]], RS],
   ["P9 R1 name: the title listed as a feature", T + "tools/repo-scan.mjs", [["if (h === title || h.level < 2 || h.level > 3", "if (h.level < 2 || h.level > 3"]], RS],
   ["P9 R1 kit: exact token names not read first", T + "tools/repo-scan.mjs", [["for (const read of [exactToken, tokenFor]) {", "for (const read of [tokenFor]) {"]], RS],
   ["P9 R1 example: the shot not compared (cards in the background colour)", "skills/sabotage-motion/examples/repo-launch/fixture/app/styles.css", [[".card { background: var(--surface);", ".card { background: var(--bg);"]], LE],
@@ -495,7 +495,6 @@ const M = [
   ["P9 R1 docs: the example README leaves out the board as slates", "skills/sabotage-motion/examples/repo-launch/README.md", [["node render.mjs board --slates                          # board.png as slates", "node render.mjs board                                   # board.png as slates"]], DOCS],
   // ---- P9 council round 2 fold: the URL checked before every screenshot (a navigation mid-step reported as one); the
   // install rule reads every heading above a command; the title after front matter, link definitions and HTML blocks.
-  ["P9 R2 shots: the URL checked only when the page opens", T + "tools/shots.mjs", [["      stillLocal(page, src);\n    }\n    throw e;", "    }\n    throw e;"], ["      stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine\n", ""], ["const refuse = (page, src, msg) => { stillLocal(page, src); throw new FramesError(msg); };", "const refuse = (page, src, msg) => { throw new FramesError(msg); };"]], SH],
   ["P9 R2 shots: a navigation mid-step not waited for", T + "tools/shots.mjs", [["        await page.waitForEvent('framenavigated', { predicate: (f) => f === page.mainFrame(), timeout: 2000 }).catch(() => {});\n", ""]], SH],
   ["P9 R2 install: only the nearest heading read", T + "tools/repo-scan.mjs", [["enclosing(at).some((h) => INSTALL_HEAD.test(h.text))", "enclosing(at).slice(0, 1).some((h) => INSTALL_HEAD.test(h.text))"]], RS],
   ["P9 R2 title: front matter read as text", T + "tools/repo-scan.mjs", [["    if (end > 0) for (let i = 0; i <= end; i++) lines[i] = '';", "    if (end > 0) void 0;"]], RS],
@@ -507,12 +506,26 @@ const M = [
   // feature headings inside a boilerplate or Install-like section (M2); repo-launch a reference only in SKILL.md (M3).
   ["P9 R2 M1 install: a global flag is a reason again", T + "tools/repo-scan.mjs", [["      if (installsPackage(cmd, want)) { r.install", "      if (installsPackage(cmd, want) || /(^|\\s)(-g|--global)(\\s|$)/.test(cmd)) { r.install"]], RS],
   ["P9 R2 M1 install: the first under an Install heading wins over one naming the package", T + "tools/repo-scan.mjs", [["if (!underHeading && enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) underHeading = { value: cmd, file, line: at + 1 };", "if (enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) { r.install = { value: cmd, file, line: at + 1 }; break find; }"]], RS],
-  ["P9 R2 M2 features: headings inside a boilerplate section listed", T + "tools/repo-scan.mjs", [["    if (enclosing(h.line - 1, h.level).some((x) => BOILER_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;\n", ""]], RS],
-  ["P9 R2 M2 features: headings inside an Install-like section listed", T + "tools/repo-scan.mjs", [["some((x) => BOILER_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;", "some((x) => BOILER_HEAD.test(x.text))) continue;"]], RS],
+  ["P9 R2 M2 features: headings inside a boilerplate section listed", T + "tools/repo-scan.mjs", [["    if (enclosing(h.line - 1, h.level).some((x) => NO_FEATURES_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;\n", ""]], RS],
+  ["P9 R2 M2 features: headings inside an Install-like section listed", T + "tools/repo-scan.mjs", [["some((x) => NO_FEATURES_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;", "some((x) => NO_FEATURES_HEAD.test(x.text))) continue;"]], RS],
   ["P9 R2 M2 features: a sibling heading read as the section", T + "tools/repo-scan.mjs", [["enclosing(h.line - 1, h.level)", "enclosing(h.line - 1)"]], RS],
   ["P9 R2 M1 docs: launch.md's install row names a global flag again", "skills/sabotage-motion/references/launch.md", [["that names this package; else the first that sits under", "that names this package or installs globally; else the first that sits under"]], DOCS],
   ["P9 R2 M3 docs: SKILL.md lets repo-launch be copied", "skills/sabotage-motion/SKILL.md", [["(`cp -R`, then `chmod -R u+w`), except\n`repo-launch/`: it is a reference only, and a launch piece starts from the template (`references/launch.md`).", "(`cp -R`, then `chmod -R u+w`)."]], DOCS],
   ["P9 R2 T: the title is a heading a command or a section sits under", T + "tools/repo-scan.mjs", [["if (heads[k] !== title && heads[k].line - 1 < i", "if (heads[k].line - 1 < i"]], RS],
+  // ---- P9 council round 3 fold: one mutation per shots.mjs guard (stub-page tests drive each); front matter only when
+  // it is real; Usage's sub-headings stay features; an HTML block opens only on a line that starts with a tag.
+  ["P9 R3 shots: page mode not checked before its screenshot", T + "tools/shots.mjs", [["    stillLocal(page, src);   // the page may have moved on since it opened\n", ""]], SH],
+  ["P9 R3 shots: the URL not checked when the page opens", T + "tools/shots.mjs", [["  stillLocal(page, src);\n  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));", "  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));"]], SH],
+  ["P9 R3 shots: a sequence frame not checked before its screenshot", T + "tools/shots.mjs", [["    stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine\n", ""]], SH],
+  ["P9 R3 shots: a step a navigation broke not reported as one", T + "tools/shots.mjs", [["      stillLocal(page, src);\n    }\n    throw e;", "    }\n    throw e;"]], SH],
+  ["P9 R3 shots: a refusal about the page not checked first", T + "tools/shots.mjs", [["const refuse = (page, src, msg) => { stillLocal(page, src); throw new FramesError(msg); };", "const refuse = (page, src, msg) => { throw new FramesError(msg); };"]], SH],
+  ["P9 R3 front matter: any later closer taken", T + "tools/repo-scan.mjs", [["      if (!YAML_LINE.test(lines[i])) break;\n", ""]], RS],
+  ["P9 R3 front matter: a blank line allowed inside", T + "tools/repo-scan.mjs", [["const YAML_LINE = /^(\\s*#.*|", "const YAML_LINE = /^(\\s*$|\\s*#.*|"]], RS],
+  ["P9 R3 front matter: a comment line is not YAML", T + "tools/repo-scan.mjs", [["const YAML_LINE = /^(\\s*#.*|", "const YAML_LINE = /^("]], RS],
+  ["P9 R3 features: Usage's sub-headings dropped again", T + "tools/repo-scan.mjs", [["some((x) => NO_FEATURES_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;", "some((x) => BOILER_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;"]], RS],
+  ["P9 R3 HTML: a tag inside prose opens a block", T + "tools/repo-scan.mjs", [["    if (!open.length && !HTML_OPENER.test(text.slice(starts[lineOf(m.index)], m.index + m[0].length))) continue;\n", ""]], RS],
+  ["P9 R3 HTML: an autolink opens a block", T + "tools/repo-scan.mjs", [["const HTML_OPENER = /^ {0,3}(<\\/?[A-Za-z][\\w-]*(\\s|\\/?>|$)|<!--)/;", "const HTML_OPENER = /^ {0,3}(<\\/?[A-Za-z]|<!--)/;"]], RS],
+  ["P9 R3 title: any line starting with < allowed above it", T + "tools/repo-scan.mjs", [["(html[i] || /^\\s*($|!\\[|\\[!\\[)/.test(l)", "(html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l)"]], RS],
 ];
 
 const argv = process.argv.slice(2);
