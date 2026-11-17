@@ -399,3 +399,47 @@ test('R1-8 a token\'s exact name wins over a name that only holds one of its wor
   const words = scan(project('word-names', { 'a.css': ':root { --highlight: #FF0000; --brand-tint: #00FF00; }' })).json;
   assert.equal(words.brand.kit.colors.accent, '#FF0000');
 });
+
+// ---------------------------------------------------------------- council round 2 (F2, F3)
+test('R2-2 a command under an Install-like heading at any level above it is taken (## Installation > ### npm)', () => {
+  const npm = scan(project('install-nested-npm', { 'README.md': '# Tool\n\n## Installation\n\n### npm\n\n```sh\nnpm install\n```\n\n## Development\n\n### Tests\n\n```sh\nnpm install --save-dev mocha\n```\n' })).json;
+  assert.deepEqual(npm.install, { value: 'npm install', file: 'README.md', line: 8 });
+  const pip = scan(project('install-nested-pip', { 'README.md': '# Tool\n\n## Installation\n\n### macOS\n\nSee the app.\n\n### Linux\n\n```sh\npip install -r requirements.txt\n```\n' })).json;
+  assert.deepEqual(pip.install, { value: 'pip install -r requirements.txt', file: 'README.md', line: 12 });
+  // a sub-heading under a section that is not Install-like still does not qualify
+  const dev = scan(project('install-nested-dev', { 'package.json': '{ "name": "tool" }', 'README.md': '# Tool\n\n## Development\n\n### Tests\n\n```sh\nnpm install\n```\n' })).json;
+  assert.deepEqual(dev.install, { value: 'npm install tool', file: 'package.json', line: 1, derived: true });
+});
+
+test('R2-3 the title after YAML front matter, link-reference definitions or a multi-line HTML block still names the project', () => {
+  const front = scan(project('title-front', { 'README.md': '---\ntitle: Snagwick docs\nlayout: default\n---\n\n# Snagwick\n\nSnagwick finds every TODO.\n\n## Features\n\n- Finds TODOs\n' })).json;
+  assert.deepEqual(front.name, { value: 'Snagwick', file: 'README.md', line: 6 });
+  assert.deepEqual(front.features.map((f) => f.text), ['Finds TODOs'], 'the front matter\'s last field is not a feature');
+  assert.deepEqual(front.pitch, { value: 'Snagwick finds every TODO.', file: 'README.md', line: 8 });
+  const defs = scan(project('title-defs', { 'README.md': '[ci]: https://ci.example.com/badge.svg\n[docs]: <https://docs.example.com> "Docs"\n\n## Snagwick\n\nIt finds TODOs.\n' })).json;
+  assert.deepEqual(defs.name, { value: 'Snagwick', file: 'README.md', line: 4 });
+  const block = scan(project('title-html', { 'README.md': [
+    '<p align="center">',
+    '  <img src="logo.svg"',
+    '       width="96" alt="">',
+    '  <br>',
+    '  Every TODO, on one board',
+    '</p>',
+    '',
+    '<div align="center">',
+    '',
+    '  [![ci](https://ci.example.com/b.svg)](https://ci.example.com)',
+    '',
+    '</div>',
+    '',
+    '# Snagwick',
+    '',
+  ].join('\n') })).json;
+  assert.deepEqual(block.name, { value: 'Snagwick', file: 'README.md', line: 14 });
+  // an element left open runs to the next blank line, as Markdown ends an HTML block there
+  const open = scan(project('title-html-open', { 'README.md': '<p align="center">\n  <img src="logo.svg" width="96">\n  Every TODO, on one board\n\n# Snagwick\n' })).json;
+  assert.deepEqual(open.name, { value: 'Snagwick', file: 'README.md', line: 5 });
+  // text outside any HTML block, above the first heading, still means there is no title
+  const prose = scan(project('title-html-prose', { 'README.md': '<p align="center"><img src="logo.svg"></p>\n\nSnagwick finds TODOs.\n\n## Install\n' })).json;
+  assert.deepEqual(prose.name, { value: 'title-html-prose', file: null, line: null });
+});

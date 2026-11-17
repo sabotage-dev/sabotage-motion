@@ -473,18 +473,18 @@ const M = [
   // title at any level, exact token names first; the example's shot compared by landmarks; the recipe's sheets and start.
   ["P9 R1 shots: the temp files removed before Chrome closes", T + "tools/shots.mjs", [["    try { if (browser) await browser.close(); } finally { cleanup(); }", "    cleanup(); if (browser) await browser.close();"]], SH],
   ["P9 R1 shots: Chrome left open when a step throws", T + "tools/shots.mjs", [["    return await work(browser);", "    return await work(browser).catch((e) => { browser = null; throw e; });"]], SH],
-  ["P9 R1 shots: the final URL not checked", T + "tools/shots.mjs", [["  stillLocal(page, src);\n", ""]], SH],
-  ["P9 R1 shots: the scroll not checked again after the clock", T + "tools/shots.mjs", [["if (Math.abs(now - y) > 0.01) throw", "if (false) throw"]], SH],
+  ["P9 R1 shots: the final URL not checked (when the page opens, nor in page mode)", T + "tools/shots.mjs", [["  stillLocal(page, src);\n  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));", "  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));"], ["      stillLocal(page, src);   // the page may have moved on since it opened\n", ""]], SH],
+  ["P9 R1 shots: the scroll not checked again after the clock", T + "tools/shots.mjs", [["if (Math.abs(now - y) > 0.01) refuse(", "if (false) refuse("]], SH],
   ["P9 R1 install: continuations not joined", T + "tools/repo-scan.mjs", [["      while (cmd.endsWith('\\\\') && k + 1 < b.length) cmd = cmd.slice(0, -1).trim() + ' ' + lines[b[++k]].trim();\n", ""]], RS],
-  ["P9 R1 install: any install command taken", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || (h && INSTALL_HEAD.test(h.text))) {", "if (true) {"]], RS],
-  ["P9 R1 install: a global flag not enough", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || (h && INSTALL_HEAD.test(h.text))) {", "if (installsPackage(cmd, want) || (h && INSTALL_HEAD.test(h.text))) {"]], RS],
-  ["P9 R1 install: an Install heading not enough", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || (h && INSTALL_HEAD.test(h.text))) {", "if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd)) {"]], RS],
+  ["P9 R1 install: any install command taken", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) {", "if (true) {"]], RS],
+  ["P9 R1 install: a global flag not enough", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) {", "if (installsPackage(cmd, want) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) {"]], RS],
+  ["P9 R1 install: an Install heading not enough", T + "tools/repo-scan.mjs", [["if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) {", "if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd)) {"]], RS],
   ["P9 R1 install: extras read before the version range", T + "tools/repo-scan.mjs", [[".replace(/[=<>~!].*$/, '').replace(/\\[.*\\]$/, '')", ".replace(/\\[.*\\]$/, '').replace(/[=<>~!].*$/, '')"]], RS],
   ["P9 R1 fonts: only the first src read", T + "tools/repo-scan.mjs", [["const srcs = [...body.matchAll(/(?:^|[;\\s{])src\\s*:\\s*([^;]+)/gi)].map((x) => x[1]);", "const srcs = [get('src') || ''];"]], RS],
   ["P9 R1 fonts: other formats ranked first", T + "tools/repo-scan.mjs", [["return i < 0 ? FONT_EXT_RANK.length : i; };", "return i; };"]], RS],
   ["P9 R1 colours: the var() fallback ignored", T + "tools/repo-scan.mjs", [["      if (m[2] == null) break;", "      if (true) break;"]], RS],
   ["P9 R1 name: only an h1 names the project", T + "tools/repo-scan.mjs", [["const title = heads[0] && lines.slice(", "const title = heads[0] && heads[0].level === 1 && lines.slice("]], RS],
-  ["P9 R1 name: prose above the first heading allowed", T + "tools/repo-scan.mjs", [[".every((l, i) => !inCode[i] && /^\\s*($|<|!\\[|\\[!\\[)/.test(l))", ".every(() => true)"]], RS],
+  ["P9 R1 name: prose above the first heading allowed", T + "tools/repo-scan.mjs", [[".every((l, i) => !inCode[i] && (html[i] || /^\\s*($|<|!\\[|\\[!\\[)/.test(l) || LINK_DEF.test(l)))", ".every(() => true)"]], RS],
   ["P9 R1 name: the title listed as a feature", T + "tools/repo-scan.mjs", [["if (h !== title && h.level >= 2 && h.level <= 3", "if (h.level >= 2 && h.level <= 3"]], RS],
   ["P9 R1 kit: exact token names not read first", T + "tools/repo-scan.mjs", [["for (const read of [exactToken, tokenFor]) {", "for (const read of [tokenFor]) {"]], RS],
   ["P9 R1 example: the shot not compared (cards in the background colour)", "skills/sabotage-motion/examples/repo-launch/fixture/app/styles.css", [[".card { background: var(--surface);", ".card { background: var(--bg);"]], LE],
@@ -494,6 +494,16 @@ const M = [
   ["P9 R1 docs: launch.md lets a piece start from the example", "skills/sabotage-motion/references/launch.md", [["0. **Start the piece from the template**, in the project:", "0. **Start the piece from the template or the example**, in the project:"]], DOCS],
   ["P9 R1 docs: SKILL.md's branch drops the template start", "skills/sabotage-motion/SKILL.md", [["Start the piece from the template, inside the project; the `repo-launch` example\nis a reference only, never a starting point.", "Start the piece from the template or the `repo-launch` example."]], DOCS],
   ["P9 R1 docs: the example README leaves out the board as slates", "skills/sabotage-motion/examples/repo-launch/README.md", [["node render.mjs board --slates                          # board.png as slates", "node render.mjs board                                   # board.png as slates"]], DOCS],
+  // ---- P9 council round 2 fold: the URL checked before every screenshot (a navigation mid-step reported as one); the
+  // install rule reads every heading above a command; the title after front matter, link definitions and HTML blocks.
+  ["P9 R2 shots: the URL checked only when the page opens", T + "tools/shots.mjs", [["      stillLocal(page, src);\n    }\n    throw e;", "    }\n    throw e;"], ["      stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine\n", ""], ["const refuse = (page, src, msg) => { stillLocal(page, src); throw new FramesError(msg); };", "const refuse = (page, src, msg) => { throw new FramesError(msg); };"]], SH],
+  ["P9 R2 shots: a navigation mid-step not waited for", T + "tools/shots.mjs", [["        await page.waitForEvent('framenavigated', { predicate: (f) => f === page.mainFrame(), timeout: 2000 }).catch(() => {});\n", ""]], SH],
+  ["P9 R2 install: only the nearest heading read", T + "tools/repo-scan.mjs", [["enclosing(at).some((h) => INSTALL_HEAD.test(h.text))", "enclosing(at).slice(0, 1).some((h) => INSTALL_HEAD.test(h.text))"]], RS],
+  ["P9 R2 title: front matter read as text", T + "tools/repo-scan.mjs", [["    if (end > 0) for (let i = 0; i <= end; i++) lines[i] = '';", "    if (end > 0) void 0;"]], RS],
+  ["P9 R2 title: link-reference definitions above it refused", T + "tools/repo-scan.mjs", [[" || LINK_DEF.test(l))) ? heads[0] : null;", ")) ? heads[0] : null;"]], RS],
+  ["P9 R2 title: lines inside an HTML block refused", T + "tools/repo-scan.mjs", [["!inCode[i] && (html[i] || /^", "!inCode[i] && (/^"]], RS],
+  ["P9 R2 title: an element's text lines not in its block", T + "tools/repo-scan.mjs", [["if (k >= 0) { span(open[k].at, end); open.splice(k); }", "if (k >= 0) { open.splice(k); }"]], RS],
+  ["P9 R2 title: an element left open ends at its own line", T + "tools/repo-scan.mjs", [["  for (const o of open) for (let k = lineOf(o.at); k < n && lines[k].trim() !== ''; k++) mark[k] = true;\n", ""]], RS],
 ];
 
 const argv = process.argv.slice(2);

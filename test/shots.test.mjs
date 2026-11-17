@@ -287,3 +287,26 @@ test('R1-3 a page whose clock moves its own scroll is refused at that frame, not
   // the same page without the loop is captured
   assert.equal(shots(dir, ['seq', 't', 'tall.html', ...VP, '--dur', '0.3', '--scroll', '100:500']).status, 0);
 });
+
+// ---------------------------------------------------------------- council round 2 (F1)
+test('R2-1 a page that goes off this machine later (a location change on a timer the clock fires) is refused, with nothing written', { skip: !lan && 'this machine has no non-loopback IPv4 address' }, async () => {
+  const dir = piece('shots-r2-later');
+  const page = fs.readFileSync(P(dir, 'tall.html'), 'utf8');
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    if (req.url === '/later') return res.end(page.replace('</script>', `setTimeout(() => { location.href = 'http://${lan.address}:${server.address().port}/away'; }, 200);\n</script>`));
+    res.end(page);
+  });
+  await new Promise((ok) => server.listen(0, '0.0.0.0', ok));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    assert.equal((await spawnBounded(dir, ['seq', 'stay', `${base}/page`, '--viewport', '135x240', '--dur', '0.2', '--scroll', '0:10'])).c, 0, 'the page without the timer is captured');
+    const before = fs.readFileSync(P(dir, 'assets/seq/manifest.json'), 'utf8');
+    const r = await spawnBounded(dir, ['seq', 'later', `${base}/later`, '--viewport', '135x240', '--dur', '1', '--scroll', '0:10']);
+    assert.equal(r.c, 1, r.s);
+    assert.match(r.s, new RegExp(`refused: ${base.replace(/[.]/g, '\\.')}/later went to http://${lan.address.replace(/[.]/g, '\\.')}:\\d+/away, which is not on this machine`));
+    assert.ok(!fs.existsSync(P(dir, 'assets/seq/later')), 'no sequence written');
+    assert.equal(fs.readFileSync(P(dir, 'assets/seq/manifest.json'), 'utf8'), before, 'the manifest is untouched');
+    assert.ok(!fs.readdirSync(P(dir, 'assets/seq')).some((f) => f.includes('.tmp-')), 'no temporary folder left behind');
+  } finally { server.close(); }
+});

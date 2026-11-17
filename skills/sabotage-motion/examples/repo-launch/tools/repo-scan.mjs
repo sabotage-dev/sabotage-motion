@@ -4,13 +4,14 @@
 //
 // Reads the project's files as text (it never runs them and never touches the network) and prints JSON. Every
 // value says where it came from: `file` (relative to the project folder) and `line`.
-//   name         the README's title (its first heading, at any level, with only pictures, badges and HTML above it),
-//                else the package metadata's name (package.json, pyproject.toml, Cargo.toml), else the folder's name
+//   name         the README's title (its first heading, at any level, with only pictures, badges, link-reference
+//                definitions and HTML blocks above it, after any YAML front matter), else the package metadata's
+//                name (package.json, pyproject.toml, Cargo.toml), else the folder's name
 //   pitch        the package metadata's description, else the README's first sentence of prose
 //   install      the first install command in a README code block (a line ending in \ joined to the next) that
 //                installs this package: it names the package, installs globally (-g, --global), or sits under an
-//                Install-like heading (Install, Setup, Getting started, Quick start); else one made from the package
-//                metadata (marked derived)
+//                Install-like heading, at any level above it (Install, Setup, Getting started, Quick start); else one
+//                made from the package metadata (marked derived)
 //   features     the list items under a README heading named like Features (Features, Highlights, Why ...,
 //                What it does), then the README's other section headings that are not boilerplate (Install,
 //                Usage, License ...)
@@ -326,6 +327,26 @@ const mdText = (s) => String(s).replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<[
   .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2').replace(/(^|\W)[*_]([^*_]+)[*_](?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/\s+/g, ' ').trim();
 const FEATURE_HEAD = /^(features?|key features|highlights?|why\b.*|what (it|you) .*|what's (in|inside)\b.*)$/i;
 const BOILER_HEAD = /^(install(ation|ing)?|getting started|quick ?start|usage|how to use|requirements|prerequisites|licen[cs]e|contributing|contributors?|development|build(ing)?|tests?|testing|changelog|faq|support|credits|acknowledg(e)?ments?|authors?|(table of )?contents|documentation|docs|api|configuration|config|setup|roadmap|security|code of conduct|sponsors?|community|links?|related|see also|examples?|status|badges)$/i;
+// Lines inside an HTML block, among the first n: a tag's own lines (one spanning lines too), and every line between an
+// element's opening tag and its closing tag; an element left open runs to the next blank line, where Markdown ends an
+// HTML block.
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+export function htmlLines(lines, n) {
+  const mark = new Array(n).fill(false), text = lines.slice(0, n).join('\n'), open = [];
+  const starts = [0];
+  for (let k = 0; k < text.length; k++) if (text.charCodeAt(k) === 10) starts.push(k + 1);
+  const lineOf = (i) => { let k = 0; while (k + 1 < starts.length && starts[k + 1] <= i) k++; return k; };
+  const span = (a, b) => { for (let k = lineOf(a); k <= lineOf(b); k++) mark[k] = true; };
+  for (const m of text.matchAll(/<(\/?)([A-Za-z][\w-]*)\b[^>]*?(\/?)>/g)) {
+    const end = m.index + m[0].length - 1, name = m[2].toLowerCase();
+    span(m.index, end);
+    if (m[1]) { const k = open.map((o) => o.name).lastIndexOf(name); if (k >= 0) { span(open[k].at, end); open.splice(k); } }
+    else if (!m[3] && !VOID_TAGS.has(name)) open.push({ name, at: m.index });
+  }
+  for (const o of open) for (let k = lineOf(o.at); k < n && lines[k].trim() !== ''; k++) mark[k] = true;
+  return mark;
+}
+const LINK_DEF = /^ {0,3}\[[^\]]+\]:\s*\S/;
 // An install command for this package: it names one of the package's names (a version, a range or extras cut off), or
 // installs globally, or (INSTALL_HEAD) sits under an Install-like heading. Anything else (a bare npm install in a
 // Development section, pip install -r requirements.txt) is not, and the command is made from the metadata instead.
@@ -340,7 +361,13 @@ export const INSTALL_RE = /^(?:npm (?:i|install|add)|pnpm (?:add|i|install)|yarn
 // The README: its title, first sentence, install command, features and pictures. names are the package's names from its
 // metadata, for telling this package's install command from any other.
 export function readme(text, file, { names = [] } = {}) {
-  const s = text.replace(/<!--[\s\S]*?-->/g, blank), lines = s.split('\n'), r = { file };
+  const lines = text.replace(/<!--[\s\S]*?-->/g, blank).split('\n'), r = { file };
+  // YAML front matter at the very top (--- to --- or ...) is not the README's text: blanked, so lines keep their numbers
+  if (/^---\s*$/.test(lines[0] || '')) {
+    const end = lines.findIndex((l, i) => i > 0 && /^(---|\.\.\.)\s*$/.test(l));
+    if (end > 0) for (let i = 0; i <= end; i++) lines[i] = '';
+  }
+  const s = lines.join('\n');
   // fenced code blocks are not prose, headings or lists; their lines are read for an install command
   const inCode = new Array(lines.length).fill(false), blocks = [];
   for (let i = 0, open = null; i < lines.length; i++) {
@@ -356,21 +383,28 @@ export function readme(text, file, { names = [] } = {}) {
     if (!m) { const h = lines[i].match(/<h([1-3])\b[^>]*>(.*?)<\/h\1>/i); if (h) { level = +h[1]; text = h[2]; m = true; } }
     if (m && mdText(text)) heads.push({ level, text: mdText(text), line: i + 1 });
   }
-  // the title: the first heading, at any level, when only pictures, badges and HTML come before it
-  const title = heads[0] && lines.slice(0, heads[0].line - 1).every((l, i) => !inCode[i] && /^\s*($|<|!\[|\[!\[)/.test(l)) ? heads[0] : null;
+  // the title: the first heading, at any level, when only pictures, badges, link-reference definitions ([label]: url) and
+  // HTML blocks come before it
+  const above = heads[0] ? heads[0].line - 1 : 0, html = htmlLines(lines, above);
+  const title = heads[0] && lines.slice(0, above).every((l, i) => !inCode[i] && (html[i] || /^\s*($|<|!\[|\[!\[)/.test(l) || LINK_DEF.test(l))) ? heads[0] : null;
   if (title) r.name = { value: title.text, file, line: title.line };
   // the install command: the first one in a code block (a line ending in \ goes on to the next) that installs this
-  // package (it names it, or installs globally) or sits under an Install-like heading
+  // package (it names it, or installs globally) or sits under an Install-like heading (any heading it is under:
+  // ## Installation > ### npm counts)
   const want = [...names, title && title.text].filter(Boolean).map((n) => String(n).toLowerCase());
-  const under = (i) => { let h = null; for (const x of heads) if (x.line - 1 < i) h = x; return h; };
+  // the headings a line sits under: the nearest above it, then each one above that with a smaller level
+  const enclosing = (i) => {
+    const out = [];
+    for (let k = heads.length - 1, lvl = Infinity; k >= 0; k--) if (heads[k].line - 1 < i && heads[k].level < lvl) { out.push(heads[k]); lvl = heads[k].level; }
+    return out;
+  };
   find: for (const b of blocks) {
     for (let k = 0; k < b.length; k++) {
       const at = b[k];
       let cmd = lines[at].trim().replace(/^[$>%]\s+/, '');
       while (cmd.endsWith('\\') && k + 1 < b.length) cmd = cmd.slice(0, -1).trim() + ' ' + lines[b[++k]].trim();
       if (!INSTALL_RE.test(cmd)) continue;
-      const h = under(at);
-      if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || (h && INSTALL_HEAD.test(h.text))) { r.install = { value: cmd, file, line: at + 1 }; break find; }
+      if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) { r.install = { value: cmd, file, line: at + 1 }; break find; }
     }
   }
   // the first paragraph of prose after the title: its first sentence

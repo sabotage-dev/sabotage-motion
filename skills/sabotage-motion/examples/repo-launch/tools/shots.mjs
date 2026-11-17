@@ -30,8 +30,8 @@
 // loadSeq holds every frame decoded (w x h x 4 bytes), so a sequence over 1 GB decoded (frames x w x h x 4 bytes,
 // w and h in device pixels) is refused before anything is captured: lower the size (--viewport, --dpr) or the
 // length (--dur). A --scroll past the page's end is refused too, and so is a page that moves its own scroll when its
-// clock runs, and a local app that redirects off this machine. There is no live screen recording: every frame is
-// set, then taken. The page's own network requests are its own; nothing here fetches anything else.
+// clock runs, and a page that goes off this machine (a redirect, or later). There is no live screen recording: every
+// frame is set, then taken. The page's own network requests are its own; nothing here fetches anything else.
 // Exit 2 on a usage error, 1 when it refuses (nothing is written then; an older sequence of the name stays).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,8 +61,9 @@ export const clockAt = (i, fps) => Math.round((i * 1000) / fps);
 
 // A local source: a running local app's URL, or an HTML file in or beside the piece.
 const LOCAL_HOSTS = (h) => h === 'localhost' || h.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(h) || h === '::1' || h === '0.0.0.0';
-// Whether the URL a page ended up at is still local: a file, or an http(s) page on this machine. A local app that
-// redirects to another host is refused before anything is captured.
+// Whether the URL a page is at is still local: a file, or an http(s) page on this machine. It is checked when the page
+// opens and again right before every screenshot, so a local app that redirects to another host, or a page that goes
+// there later (a timer or a location change its clock runs), is refused with nothing written.
 export function isLocalUrl(url) {
   let u;
   try { u = new URL(url); } catch { return false; }
@@ -72,6 +73,22 @@ export function isLocalUrl(url) {
 const stillLocal = (page, src) => {
   if (!isLocalUrl(page.url())) throw new FramesError(`${src.label} went to ${page.url()}, which is not on this machine: shots.mjs takes pictures of local pages only`);
 };
+// A refusal about the page checks first that it is still local: a page that went off this machine says so.
+const refuse = (page, src, msg) => { stillLocal(page, src); throw new FramesError(msg); };
+// Runs steps on the page. A navigation off this machine can land in the middle of a step (the page's context is then
+// destroyed, and the step throws, sometimes before Playwright has reported where the page went): the refusal says where
+// it went, not what the step was doing.
+async function onPage(page, src, fn) {
+  try { return await fn(); } catch (e) {
+    if (!(e instanceof FramesError)) {
+      if (/context was destroyed|navigat/i.test(String(e && e.message)) && isLocalUrl(page.url())) {
+        await page.waitForEvent('framenavigated', { predicate: (f) => f === page.mainFrame(), timeout: 2000 }).catch(() => {});
+      }
+      stillLocal(page, src);
+    }
+    throw e;
+  }
+}
 export function localSource(arg, root = ROOT) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^file:/i.test(arg)) {
     let u;
@@ -133,7 +150,7 @@ async function open(browser, src, vp, dpr, { clock = false } = {}) {
   const page = await context.newPage();
   await page.goto(src.url, { waitUntil: src.http ? 'networkidle' : 'load' });
   stillLocal(page, src);
-  await page.evaluate(() => document.fonts.ready);
+  await onPage(page, src, () => page.evaluate(() => document.fonts.ready));
   return page;
 }
 const pngSize = (file) => { const b = fs.readFileSync(file); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
@@ -172,8 +189,12 @@ async function pageShot(name, src, vp, dpr, log) {
   return withChrome(async (browser) => {
     fs.mkdirSync(SHOTS_DIR, { recursive: true });
     const page = await open(browser, src, vp, dpr);
-    const full = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
-    await page.screenshot({ path: tmp, type: 'png', fullPage: true, animations: 'disabled', caret: 'hide' });
+    const full = await onPage(page, src, async () => {
+      const css = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
+      stillLocal(page, src);   // the page may have moved on since it opened
+      await page.screenshot({ path: tmp, type: 'png', fullPage: true, animations: 'disabled', caret: 'hide' });
+      return css;
+    });
     fs.renameSync(tmp, out);
     const { w, h } = pngSize(out);
     log(`shots: ${name}: ${src.label} at ${vp.w}x${vp.h} (dpr ${dpr}), the full page: ${w}x${h} px (${full} CSS px tall)`);
@@ -192,10 +213,10 @@ async function seqShots(name, src, s, log) {
     const max = await page.evaluate(() => Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
     if (Math.max(s.from, s.to) > max) throw new FramesError(`--scroll ${s.from}:${s.to}: ${src.label} scrolls to at most ${max} px at a ${s.vp.w}x${s.vp.h} viewport`);
     const ease = EASES[s.ease];
-    for (let i = 0; i < s.frames; i++) {
+    for (let i = 0; i < s.frames; i++) await onPage(page, src, async () => {
       const y = scrollAt(i, s.frames, s.from, s.to, ease), t = i / s.fps;
       const got = await page.evaluate((y) => { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); return window.scrollY; }, y);
-      if (Math.abs(got - y) > 0.01) throw new FramesError(`frame ${i}: the page scrolled to ${got} px, not ${y} (does it move its own scroll?)`);
+      if (Math.abs(got - y) > 0.01) refuse(page, src, `frame ${i}: the page scrolled to ${got} px, not ${y} (does it move its own scroll?)`);
       if (i > 0) await page.clock.runFor(clockAt(i, s.fps) - clockAt(i - 1, s.fps));
       // CSS animations and transitions run on Chrome's own clock: pause each one and set it to its time since the frame
       // it first showed up in, so a frame is the same on every run
@@ -210,9 +231,10 @@ async function seqShots(name, src, s, log) {
       }, t);
       // the clock step may have run page code that moved the scroll: check it again right before the picture
       const now = await page.evaluate(() => window.scrollY);
-      if (Math.abs(now - y) > 0.01) throw new FramesError(`frame ${i}: the page moved its own scroll to ${now} px when its clock ran, not ${y}: shots.mjs cannot set the scroll of a page that sets it`);
+      if (Math.abs(now - y) > 0.01) refuse(page, src, `frame ${i}: the page moved its own scroll to ${now} px when its clock ran, not ${y}: shots.mjs cannot set the scroll of a page that sets it`);
+      stillLocal(page, src);   // a timer or a location change the clock ran may have taken it off this machine
       await page.screenshot({ path: path.join(tmp, `${String(i).padStart(3, '0')}.png`), type: 'png', animations: 'allow', caret: 'hide' });
-    }
+    });
     const { w, h } = pngSize(path.join(tmp, '000.png'));
     const entry = installSeq(name, tmp, { frames: s.frames, fps: s.fps, w, h, ext: 'png', src: src.label, dur: s.dur,
       viewport: [s.vp.w, s.vp.h], dpr: s.dpr, scroll: [s.from, s.to], ease: s.ease });
