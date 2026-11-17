@@ -534,9 +534,10 @@ async function flashOnRender(settings, INFOc) {
   if (!cur) return skip(`${relRoot(found[0].file)} ${why(found[0])}: ${render}`);
   return C.flashResult(await C.measureFlash(cur.file), { scope: 'source', what: relRoot(cur.file) });
 }
-// flash on a --file: the file itself, as delivered, whatever its provenance. An overlay (alpha) is not checked.
+// flash on a --file: the file itself, as delivered, whatever its provenance. An overlay is not checked: --alpha, a render
+// record of an alpha render, or a file whose stream has alpha (its pixel format, or VP9's alpha_mode=1 tag).
 async function flashOnFile(file, rec) {
-  if (alphaKind || (rec && rec.alpha) || C.hasAlpha(C.flashProbe(file).pixFmt)) {
+  if (alphaKind || (rec && rec.alpha) || C.flashProbe(file).alpha) {
     return { id: 'flash', scope: 'file', level: 'SKIP', detail: 'not checked: an overlay with alpha, and what it flashes depends on the picture under it: check the video it is laid over' };
   }
   return C.flashResult(await C.measureFlash(file), { scope: 'file', what: relRoot(file) });

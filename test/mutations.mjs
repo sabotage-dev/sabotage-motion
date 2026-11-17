@@ -543,7 +543,7 @@ const M = [
   ["P11a flash (red): measured from the previous frame, not the far end", T + 'check.mjs', [["} else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {", "} else if (true) {"]], FLU],
   ["P11a flash (red): anchored at the clip's first colour", T + 'check.mjs', [["tu[p] = cu; tv[p] = cv; tr[p] = c; rd[p] = c ? 1 : -1;", "rd[p] = c ? 1 : -1;"], ["} else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {", "} else if (false) {"]], FLU],
   ["P11a flash (time): the second closed, not half-open", T + 'check.mjs', [["Number((BigInt(num) - 1n) / BigInt(den))", "Number(BigInt(num) / BigInt(den))"]], FLU],
-  ["P11a flash (time): a rounded rate, not the exact fraction", T + 'check.mjs', [["gap = flashGap(R), K", "gap = Math.round(R.num / R.den) - 1, K"]], FLU],
+  ["P11a flash (time): a rounded rate, not the exact fraction", T + 'check.mjs', [["const gap = flashGap({ num: TB.den, den: TB.num });", "const gap = Math.round(TB.den / TB.num) - 1;"]], FLU],
   ["P11a flash (time): more than six transitions, not seven", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 6, area: 21824"]], FLU],
   ["P11a flash (time): more than eight transitions, not seven", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 8, area: 21824"]], FLU],
   ["P11a flash (area): the landscape window only", T + 'check.mjs', [["for (const [a, b] of [[F.win[0], F.win[1]], [F.win[1], F.win[0]]]) {", "for (const [a, b] of [[F.win[0], F.win[1]]]) {"]], FLU],
@@ -551,7 +551,7 @@ const M = [
   ["P11a flash (area): the window not clipped to a short frame", T + 'check.mjs', [["const ww = Math.min(a, w), wh = Math.min(b, h);", "const ww = a, wh = b;"]], FLU],
   ["P11a flash (area): 22,200 px, not 21,824", T + 'check.mjs', [["swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 21824", "swing: 0.1, dark: 0.8, red: 0.8, uv: 0.2, count: 7, area: 22200"]], FLU],
   ["P11a flash (area): general and red areas added together", T + 'check.mjs', [["if (ringR[p * K + ptrR[p]] >= since) { maskR[p] = 1; cr++; } else maskR[p] = 0;", "if (ringR[p * K + ptrR[p]] >= since) { maskR[p] = 1; cr++; if (!maskG[p]) { maskG[p] = 1; cg++; } } else maskR[p] = 0;"]], FLU],
-  ["P11a flash (area): general and red transitions in one count per pixel", T + 'check.mjs', [["const k = ptrR[p];\n          ringR[p * K + k] = f; ptrR[p] = k + 1 === K ? 0 : k + 1;", "const k = ptrG[p];\n          ringG[p * K + k] = f; ptrG[p] = k + 1 === K ? 0 : k + 1;"]], FLU],
+  ["P11a flash (area): general and red transitions in one count per pixel", T + 'check.mjs', [["const k = ptrR[p];\n          ringR[p * K + k] = ts; ptrR[p] = k + 1 === K ? 0 : k + 1;", "const k = ptrG[p];\n          ringG[p * K + k] = ts; ptrG[p] = k + 1 === K ? 0 : k + 1;"]], FLU],
   ["P11a decode: frames measured at their own size, not 1024 px", T + 'check.mjs', [["const [sw, sh] = flashSize(p.width, p.height);", "const [sw, sh] = [p.width, p.height];"]], FLE],
   ["P11a decode: scaled down bilinearly, not by area averaging", T + 'check.mjs', [["flags=${sw < p.width ? 'area' : 'bilinear'}", "flags=${sw < p.width ? 'bilinear' : 'bilinear'}"]], FLE],
   ["P11a render.mjs: flash not run on the current render", T + 'render.mjs', [["if (!file && want('flash')) push(await flashOnRender(settings, INFOc));", "if (false) push(await flashOnRender(settings, INFOc));"]], FLE],
@@ -559,9 +559,17 @@ const M = [
   ["P11a render.mjs: a render from an older source checked", T + 'render.mjs', [["    : !x.rec.source || x.rec.source.hash !== sourceHash(recordSkips(x.rec)).hash ? 'was rendered from an older source' : null);", "    : null);"]], FLE],
   ["P11a render.mjs: a render of part of the piece taken", T + 'render.mjs', [["    if (!(rec.from === 0 && Math.abs(rec.to - INFOc.DUR) < 1e-6)) continue;   // a render of part of the piece speaks for that part only\n", ""]], FLE],
   ["P11a render.mjs: an --alpha source check measured", T + 'render.mjs', [["if (settings.alpha) return skip(", "if (false) return skip("]], FLE],
-  ["P11a render.mjs: a file with alpha measured", T + 'render.mjs', [["if (alphaKind || (rec && rec.alpha) || C.hasAlpha(C.flashProbe(file).pixFmt)) {", "if (alphaKind || (rec && rec.alpha)) {"]], FLE],
+  ["P11a render.mjs: a file with alpha measured", T + 'render.mjs', [["if (alphaKind || (rec && rec.alpha) || C.flashProbe(file).alpha) {", "if (alphaKind || (rec && rec.alpha)) {"]], FLE],
   ["P11a docs: check.md's flash window drifts", 'skills/sabotage-motion/references/check.md', [["more than 21,824 px of some 341x256 window, either way round", "more than 21,824 px of some 341x341 window, either way round"]], DOCS],
   ["P11a docs: check.md drops the certified tool", 'skills/sabotage-motion/references/check.md', [["still goes through a certified tool (a Harding-type test) before it", "still goes through a review before it"]], DOCS],
+  // ---- P11a council round 1 fold: VP9 alpha read from its stream tag (A1); the picture measured as displayed (A2);
+  // frames dated by their presentation timestamps (A3); check.md says how (A4).
+  ["P11a R1 A1: VP9's alpha_mode tag not read", T + 'check.mjs', [["pixFmt: v.pix_fmt, alpha: hasAlpha(v.pix_fmt) || alphaTag, timeBase };", "pixFmt: v.pix_fmt, alpha: hasAlpha(v.pix_fmt), timeBase };"]], FLE],
+  ["P11a R1 A2: the coded size measured, not the displayed", T + 'check.mjs', [["return { width: turned ? v.height : v.width, height: turned ? v.width : v.height,", "return { width: v.width, height: v.height,"]], FLE],
+  ["P11a R1 A2: only the old rotate tag read, not the display matrix", T + 'check.mjs', [["const rotation = side ? +side.rotation : tags.rotate != null ? -tags.rotate : 0;", "const rotation = tags.rotate != null ? -tags.rotate : 0;"]], FLE],
+  ["P11a R1 A3: frames dated as if each lasted as long as the first", T + 'check.mjs', [["        const x = await ptsOf(k);\n", "        const x = k < 2 ? await ptsOf(k) : pts[0] + k * ((await ptsOf(1)) - pts[0]);\n"]], FLE],
+  ["P11a R1 A3: the timestamps passed in ignored (frames dated by index)", T + 'check.mjs', [["    if (!byPts) return f + 1;", "    if (true) return f + 1;"]], ['test/flash-dating.test.mjs']],
+  ["P11a R1 A4 docs: check.md drops the rotation line", 'skills/sabotage-motion/references/check.md', [["- **Rotation**: a file with a display rotation is measured as displayed.", "- **Rotation**: a file is measured as coded."]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

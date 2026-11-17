@@ -323,6 +323,12 @@ test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets
     assert.ok(sec.replace(/\s+/g, ' ').includes(want), `section 7 says "${want}"`);
   }
   assert.equal(F.count, 7, 'seven, as section 7 spells it');
+  // round 1 (A4): how it reads a file, so that it sees what a viewer sees
+  const flat = sec.replace(/\s+/g, ' ');
+  assert.ok(flat.includes('So it sees what a viewer sees'), 'what a viewer sees');
+  assert.ok(flat.includes('a file with a display rotation is measured as displayed') && flat.includes('a rotation of 90 or 270 degrees swaps the width and height'), 'rotation');
+  assert.ok(flat.includes('each frame is dated by its own presentation timestamp in the stream\'s time base, never by one probed rate'), 'variable frame rate');
+  assert.ok(flat.includes('a VP9 stream tagged `alpha_mode=1`, which ffprobe reports as plain `yuv420p`) is an overlay, and is not checked'), 'alpha');
   const rows = md.split('\n').filter((l) => l.startsWith('| flash: '));
   assert.equal(rows.length, 3, 'three threshold rows');
   assert.ok(rows[2].includes(`more than ${n(F.area)} px of a ${F.win[0]}x${F.win[1]} window, either way round, at ${F.side} px on the longer side`), rows[2]);

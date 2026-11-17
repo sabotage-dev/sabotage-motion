@@ -662,10 +662,16 @@ export const flashGap = ({ num, den }) => Number((BigInt(num) - 1n) / BigInt(den
 
 // The rule as a stream: push frames in order, then read result(). w x h is the measured size (already scaled). Frames
 // are pushRGB8 (packed 8-bit sRGB, w x h x 3), pushRGB (sRGB 0-1 floats, w x h x 3) or pushLum (relative luminance,
-// w x h; only with red: false, which follows the general kind alone). result(): { frames, w, h, rate, failing (frames
-// over the limit), first and last ({ f, t, kind, area, x, y, w, h }: the window over it), peak (the largest area seen) }.
-export function flashTracker({ w, h, rate, red = true }) {
-  const F = T.flash, n = w * h, R = flashRate(rate), gap = flashGap(R), K = F.count + 1;
+// w x h; only with red: false, which follows the general kind alone). Each frame is dated in ticks of a time base:
+// with `rate` (frames a second), a frame's tick is its index; with `timeBase` (seconds a tick, as ffprobe writes it,
+// "1/15360"), each push passes the frame's presentation timestamp in it (`ts`), so a variable-rate file is dated by
+// when its frames are shown. A transition at tick i counts at tick f when (f - i) x num < den, in exact integers.
+// result(): { frames, w, h, timeBase, failing (frames over the limit), first and last ({ f (index), t (s from the first
+// frame), kind, area, x, y, w, h }: the window over it), peak (the largest area seen) }.
+export function flashTracker({ w, h, rate, timeBase, red = true }) {
+  const F = T.flash, n = w * h, K = F.count + 1;
+  const byPts = timeBase != null, TB = byPts ? flashRate(timeBase) : (({ num, den }) => ({ num: den, den: num }))(flashRate(rate));
+  const gap = flashGap({ num: TB.den, den: TB.num });   // the largest tick gap g with g x TB.num < TB.den
   const L = new Float64Array(n), U = new Float64Array(red ? n : 0), V = new Float64Array(red ? n : 0), RD = new Uint8Array(red ? n : 0);
   // general: the last turning points (lo, hi) and the direction of the last transition (1 up, -1 down, 0 none yet)
   const lo = new Float64Array(n), hi = new Float64Array(n), gd = new Int8Array(n);
@@ -673,13 +679,20 @@ export function flashTracker({ w, h, rate, red = true }) {
   // last red transition (1 into red, -1 out of it, 0 none yet)
   const pu = new Float64Array(red ? n : 0), pv = new Float64Array(red ? n : 0), tu = new Float64Array(red ? n : 0), tv = new Float64Array(red ? n : 0);
   const pr = new Uint8Array(red ? n : 0), tr = new Uint8Array(red ? n : 0), rd = new Int8Array(red ? n : 0);
-  // the frames of each pixel's last K transitions of each kind (a ring; the slot at the pointer is the oldest)
-  const NONE = -(2 ** 30);
-  const ringG = new Int32Array(n * K).fill(NONE), ptrG = new Uint8Array(n), maskG = new Uint8Array(n);
-  const ringR = new Int32Array(red ? n * K : 0).fill(NONE), ptrR = new Uint8Array(red ? n : 0), maskR = new Uint8Array(red ? n : 0);
+  // the ticks of each pixel's last K transitions of each kind (a ring; the slot at the pointer is the oldest). Float64:
+  // a timestamp can pass 2^31 ticks, and every tick count stays an exact integer far beyond any clip's length.
+  const NONE = -Infinity;
+  const ringG = new Float64Array(n * K).fill(NONE), ptrG = new Uint8Array(n), maskG = new Uint8Array(n);
+  const ringR = new Float64Array(red ? n * K : 0).fill(NONE), ptrR = new Uint8Array(red ? n : 0), maskR = new Uint8Array(red ? n : 0);
   const sat = new Int32Array((w + 1) * (h + 1));
-  let f = -1, failing = 0, first = null, last = null, peak = { area: 0, kind: null, f: null, t: null };
-  const time = (k) => (k * R.den) / R.num;
+  let f = -1, ts = 0, ts0 = 0, failing = 0, first = null, last = null, peak = { area: 0, kind: null, f: null, t: null };
+  const time = (x) => ((x - ts0) * TB.num) / TB.den;
+  // the frame's tick: its presentation timestamp when dated by pts (an integer), else its index
+  function clock(x) {
+    if (!byPts) return f + 1;
+    if (!Number.isSafeInteger(x)) throw new Error(`a frame needs an integer timestamp in ${TB.num}/${TB.den} s, not ${x}`);
+    return x;
+  }
 
   // One pixel's colour: its stored sRGB (r, g, b, 0-1) and the same linearised (Rl, Gl, Bl).
   function put(p, r, g, b, Rl, Gl, Bl) {
@@ -713,14 +726,16 @@ export function flashTracker({ w, h, rate, red = true }) {
     }
     return best;
   }
-  function step() {
+  function step(t) {
+    ts = t;
     f++;
     if (f === 0) {   // every pixel's zig-zags start at its first frame
+      ts0 = ts;
       lo.set(L); hi.set(L);
       if (red) { pu.set(U); tu.set(U); pv.set(V); tv.set(V); pr.set(RD); tr.set(RD); }
       return;
     }
-    const SW = F.swing, DK = F.dark, UV = F.uv, since = f - gap;
+    const SW = F.swing, DK = F.dark, UV = F.uv, since = ts - gap;
     let cg = 0, cr = 0;
     for (let p = 0; p < n; p++) {
       // general: the threshold zig-zag on relative luminance
@@ -735,7 +750,7 @@ export function flashTracker({ w, h, rate, red = true }) {
         if (dn) a = x;
         d = up ? 1 : -1;
         const k = ptrG[p];
-        ringG[p * K + k] = f; ptrG[p] = k + 1 === K ? 0 : k + 1;
+        ringG[p * K + k] = ts; ptrG[p] = k + 1 === K ? 0 : k + 1;
       }
       if (d === 1) { if (x > b) b = x; } else if (d === -1 && x < a) a = x;
       lo[p] = a; hi[p] = b; gd[p] = d;
@@ -754,7 +769,7 @@ export function flashTracker({ w, h, rate, red = true }) {
           if (fromT) { pu[p] = Tu; pv[p] = Tv; pr[p] = tr[p]; }   // the swing now leaves its old far end
           tu[p] = cu; tv[p] = cv; tr[p] = c; rd[p] = c ? 1 : -1;
           const k = ptrR[p];
-          ringR[p * K + k] = f; ptrR[p] = k + 1 === K ? 0 : k + 1;
+          ringR[p * K + k] = ts; ptrR[p] = k + 1 === K ? 0 : k + 1;
         } else if (dP > Math.sqrt((Tu - Pu) * (Tu - Pu) + (Tv - Pv) * (Tv - Pv))) {
           tu[p] = cu; tv[p] = cv; tr[p] = c;   // still moving away from the end it left: the far end follows
         }
@@ -766,13 +781,14 @@ export function flashTracker({ w, h, rate, red = true }) {
     for (const [kind, cnt, mask] of [['general', cg, maskG], ['red', cr, maskR]]) {
       if (!cnt) continue;
       const m = windowMax(mask);
-      if (m.area > peak.area) peak = { area: m.area, kind, f, t: time(f) };
-      if (m.area > F.area && (!over || m.area > over.area)) over = { f, t: time(f), kind, ...m };
+      if (m.area > peak.area) peak = { area: m.area, kind, f, t: time(ts) };
+      if (m.area > F.area && (!over || m.area > over.area)) over = { f, t: time(ts), kind, ...m };
     }
     if (over) { failing++; last = over; if (!first) first = over; }
   }
   return {
-    pushRGB8(buf) {
+    pushRGB8(buf, x) {
+      const t = clock(x);
       let r0 = -1, g0 = -1, b0 = -1, s = 0;
       for (let p = 0, i = 0; p < n; p++, i += 3) {
         const r = buf[i], g = buf[i + 1], b = buf[i + 2];
@@ -784,68 +800,110 @@ export function flashTracker({ w, h, rate, red = true }) {
         put(p, r / 255, g / 255, b / 255, LIN8[r], LIN8[g], LIN8[b]);
         r0 = r; g0 = g; b0 = b; s = p;
       }
-      step();
+      step(t);
     },
-    pushRGB(arr) {
+    pushRGB(arr, x) {
+      const t = clock(x);
       for (let p = 0, i = 0; p < n; p++, i += 3) put(p, arr[i], arr[i + 1], arr[i + 2], linear01(arr[i]), linear01(arr[i + 1]), linear01(arr[i + 2]));
-      step();
+      step(t);
     },
-    pushLum(arr) {
+    pushLum(arr, x) {
       if (red) throw new Error('pushLum follows luminance alone: make the tracker with red: false');
+      const t = clock(x);
       L.set(arr);
-      step();
+      step(t);
     },
-    result: () => ({ frames: f + 1, w, h, rate: R, failing, first, last, peak }),
+    result: () => ({ frames: f + 1, w, h, timeBase: TB, failing, first, last, peak }),
   };
 }
 
-// ffprobe facts for flash: the first video stream's size, exact frame rate and pixel format.
+// ffprobe facts for flash, from the first video stream:
+//   width, height   the size as displayed: a display rotation of 90 or 270 degrees (the display matrix's side data,
+//                   or an older file's `rotate` tag) swaps the coded width and height, as ffmpeg's autorotate does when
+//                   it decodes, so the picture is measured the way a viewer sees it
+//   alpha           an alpha pixel format, or a VP9 stream tagged alpha_mode=1: ffprobe reads VP9 alpha with its own
+//                   decoder, which reports the plain yuv420p (PIX_FMTS above)
+//   timeBase        the stream's time base (ffmpeg's own filter link names the one its timestamps are in)
 export function flashProbe(file) {
-  const a = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate,avg_frame_rate,pix_fmt', '-of', 'json', file], { encoding: 'utf8' });
+  const a = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], { encoding: 'utf8', maxBuffer: 64 << 20 });
   if (a.error || a.status !== 0) return { error: String(a.stderr || a.error).trim().split('\n').pop() };
   const v = (JSON.parse(a.stdout || '{}').streams || [])[0];
   if (!v) return { error: 'no video stream' };
-  let rate = null;
-  for (const k of ['r_frame_rate', 'avg_frame_rate']) { try { rate = flashRate(v[k]); break; } catch { /* the next */ } }
-  if (!rate) return { error: `no exact frame rate (r_frame_rate ${v.r_frame_rate})` };
-  return { width: v.width, height: v.height, rate, pixFmt: v.pix_fmt };
+  const tags = v.tags || {}, side = (v.side_data_list || []).find((x) => x.rotation != null);
+  const rotation = side ? +side.rotation : tags.rotate != null ? -tags.rotate : 0;
+  const turned = Math.abs(Math.round(rotation)) % 180 === 90;
+  const alphaTag = String(tags.alpha_mode ?? tags.ALPHA_MODE ?? '') === '1';
+  let timeBase = null;
+  try { timeBase = flashRate(v.time_base); } catch { /* ffmpeg names it while decoding */ }
+  return { width: turned ? v.height : v.width, height: turned ? v.width : v.height, coded: [v.width, v.height], rotation,
+    pixFmt: v.pix_fmt, alpha: hasAlpha(v.pix_fmt) || alphaTag, timeBase };
 }
 // Pixel formats with an alpha plane: an overlay, whose flashes depend on the picture under it.
 export const hasAlpha = (pixFmt) => /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/.test(String(pixFmt || ''));
 
-// The rule on a file: ffmpeg decodes every frame (one out per frame in, at the file's rate), scales it to flashSize
-// (area averaging down, bilinear up) and hands it over as RGB; frames stream through flashTracker, never all held.
-// Returns flashTracker's result plus { src: [w, h], ms }, or { error }.
+// showinfo prints each frame's timestamp; without its checksums when this ffmpeg has the option (5.1 and later)
+let showinfoArg = null;
+const showinfo = () => showinfoArg ?? (showinfoArg = /^\s*checksum\s/m.test(spawnSync('ffmpeg', ['-hide_banner', '-h', 'filter=showinfo'], { encoding: 'utf8' }).stdout || '') ? 'showinfo=checksum=0' : 'showinfo');
+
+// The rule on a file: ffmpeg decodes every frame (one out per frame in; autorotated, so as displayed), scales it to
+// flashSize (area averaging down, bilinear up) and hands it over as RGB; frames stream through flashTracker, never all
+// held. Each frame is dated by its presentation timestamp, which ffmpeg's showinfo filter prints for it on the same
+// filter link, with the link's time base, so a variable-rate file is dated by when its frames are shown.
+// Returns flashTracker's result plus { src: [w, h] (as displayed), ms }, or { error }.
 export async function measureFlash(file) {
   const p = flashProbe(file);
   if (p.error) return p;
   const [sw, sh] = flashSize(p.width, p.height);
-  const vf = sw === p.width && sh === p.height ? 'format=rgb24'
-    : `scale=${sw}:${sh}:flags=${sw < p.width ? 'area' : 'bilinear'},format=rgb24`;
+  const scale = sw === p.width && sh === p.height ? '' : `scale=${sw}:${sh}:flags=${sw < p.width ? 'area' : 'bilinear'},`;
   const t0 = Date.now();
-  const proc = spawn('ffmpeg', ['-v', 'error', '-nostdin', '-i', file, '-map', '0:v:0', '-fps_mode', 'passthrough', '-vf', vf,
-    '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  let err = '';
-  proc.stderr.on('data', (d) => { err += d; });
-  const done = new Promise((res) => { proc.on('error', (e) => res({ error: e.message })); proc.on('close', (code) => res({ code })); });
-  const tr = flashTracker({ w: sw, h: sh, rate: p.rate });
+  const proc = spawn('ffmpeg', ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'level+info', '-i', file, '-map', '0:v:0',
+    '-fps_mode', 'passthrough', '-vf', `${scale}format=rgb24,${showinfo()}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
+  { stdio: ['ignore', 'pipe', 'pipe'] });
+  // stderr: the link's time base, each frame's pts in order, and ffmpeg's errors
+  const pts = [], errors = [];
+  let tb = null, rest = '', closed = false, wake = null;
+  const nudge = () => { if (wake) { const w = wake; wake = null; w(); } };
+  proc.stderr.setEncoding('utf8');
+  proc.stderr.on('data', (d) => {
+    const lines = (rest + d).split('\n');
+    rest = lines.pop();
+    for (const l of lines) {
+      let m;
+      if (!tb && (m = /showinfo.*\] (?:\[info\] )?config in time_base: (\d+)\/(\d+)/.exec(l))) tb = { num: +m[1], den: +m[2] };
+      else if ((m = /showinfo.*\] (?:\[info\] )?n:\s*(\d+)\s+pts:\s*(\S+)/.exec(l))) pts[+m[1]] = m[2] === 'NOPTS' ? null : Number(m[2]);
+      else if (/\[(error|fatal|panic)\]/.test(l)) errors.push(l.replace(/^.*\[(error|fatal|panic)\] /, ''));
+    }
+    nudge();
+  });
+  const done = new Promise((res) => {
+    proc.on('error', (e) => { closed = true; nudge(); res({ error: e.message }); });
+    proc.on('close', (code) => { closed = true; nudge(); res({ code }); });
+  });
+  const ptsOf = async (k) => { while (pts.length <= k && !closed) await new Promise((r) => { wake = r; }); return pts[k]; };
   const size = sw * sh * 3, frame = Buffer.allocUnsafe(size);
-  let have = 0;
+  let tr = null, have = 0, k = 0, bad = null;
   try {
     for await (const chunk of proc.stdout) {
       for (let off = 0; off < chunk.length;) {
-        const k = Math.min(size - have, chunk.length - off);
-        chunk.copy(frame, have, off, off + k); have += k; off += k;
-        if (have === size) { tr.pushRGB8(frame); have = 0; }
+        const n = Math.min(size - have, chunk.length - off);
+        chunk.copy(frame, have, off, off + n); have += n; off += n;
+        if (have < size) continue;
+        have = 0;
+        const x = await ptsOf(k);
+        if (x == null) { bad = `frame ${k} has no presentation timestamp`; break; }
+        if (!tr) tr = flashTracker({ w: sw, h: sh, timeBase: tb || p.timeBase });
+        tr.pushRGB8(frame, x);
+        k++;
       }
+      if (bad) break;
     }
-  } catch (e) { proc.kill('SIGKILL'); await done; return { error: e.message }; }
+  } catch (e) { bad = e.message; }
+  if (bad) { proc.kill('SIGKILL'); await done; return { error: bad }; }
   const end = await done;
-  if (end.error || end.code !== 0) return { error: end.error || err.trim().split('\n').pop() || `ffmpeg exited ${end.code}` };
-  const res = tr.result();
-  if (!res.frames) return { error: 'no frames decoded' };
+  if (end.error || end.code !== 0) return { error: end.error || errors.pop() || rest.trim() || `ffmpeg exited ${end.code}` };
+  if (!tr) return { error: 'no frames decoded' };
   if (have) return { error: `the last frame was cut short (${have} of ${size} bytes)` };
-  return { ...res, src: [p.width, p.height], ms: Date.now() - t0 };
+  return { ...tr.result(), src: [p.width, p.height], ms: Date.now() - t0 };
 }
 
 // The flash result for a measurement (measureFlash's), on `what` (the file, as the line names it).

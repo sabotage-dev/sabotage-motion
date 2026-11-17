@@ -61,7 +61,7 @@ A master is only as good as the source it came from, so these first prove which 
 | `faststart` | WARN | In an `.mp4`, the `moov` atom comes before `mdat`, so playback starts before the download ends. |
 | `loudness` | FAIL | Integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). Without either, not checked. |
 | `vo_delay` | FAIL | A voiced master's voice delay equals `cues.js`'s `VO_OFFSET`. `--master-only` and `--sting` masters skip it. |
-| `flash` | FAIL | The rule of section 7 on the file itself, decoded, whatever its provenance (with `--plain` too): what is delivered is what is measured. A file with an alpha plane (an overlay) is not checked. |
+| `flash` | FAIL | The rule of section 7 on the file itself, decoded, whatever its provenance (with `--plain` too): what is delivered is what is measured. A file with alpha (an alpha pixel format, or a VP9 stream tagged `alpha_mode=1`, which ffprobe reports as plain `yuv420p`) is an overlay and is not checked, with `--plain` too. |
 
 The source hash covers every file in the piece except `out/`, `stills/`, `node_modules/`, the review sheets and
 render records. Any edit after the render (a scene, a board, `cues.js`, a font) makes the master stale; re-render
@@ -106,7 +106,7 @@ on purpose to prove a test notices.
 | spike | 18 dB over the 90th percentile of the non-silent 50 ms windows | Tuned in P3: silence is left out of the percentile, because a stem with sound in under a tenth of its windows otherwise compared every sound with silence. Measured: the check fixture's effects 7.9 dB, the template's 11.9 dB (P3); the explainer's 14.1 dB and the showreel's 2.8 dB (P4). |
 | loudness | within 1 LU; true peak at or under -1.0 dBTP | AAC adds about 0.5 dB of true peak, which is why the mixer aims at -2.0 dBTP (-3.0 for stings). |
 | flash: a transition | General: 0.1 of relative luminance from the pixel's last turning point, the darker end under 0.80. Red: more than 0.2 in CIE 1976 u'v' back from the far end of the swing, one end a saturated red (R/(R+G+B) of 0.8 or more on linear RGB) | WCAG 2.3.1's definitions of a general flash and a red flash, applied to each pixel (section 7). |
-| flash: too fast | more than 7 transitions of one kind (four complete flashes) in a half-open second | WCAG 2.3.1: no more than three flashes in any one-second period. Counted in whole frames on the file's exact rate, so 29.97 fps is 30000/1001, never 30. |
+| flash: too fast | more than 7 transitions of one kind (four complete flashes) in a half-open second | WCAG 2.3.1: no more than three flashes in any one-second period. Counted on each frame's presentation timestamp in exact integer ticks of the stream's time base, so 29.97 fps is 30000/1001, never 30, and a variable-rate file is dated by when its frames are shown. |
 | flash: area | more than 21,824 px of a 341x256 window, either way round, at 1024 px on the longer side | WCAG's area: a 341x256 px rectangle at 1024x768 stands for 10 degrees of the visual field, and a flash may cover a quarter of it (21,824 px). A phone is held either way, so the window is tried both ways; a frame smaller than the window clips it. |
 | captions | lines fill the safe width / 1.165; between words, a space or the pop's growth plus half a space and the stroke, whichever is larger | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). A popped long word used to touch its neighbours, and a word wider than the line was drawn whole, past the safe edge or into an `exclude` rectangle; both are fixed (P4, council round 1): the gap grows beside long words, and an oversized word is scaled to fit the line. |
 
@@ -140,7 +140,7 @@ each example's README names them:
 |---|---|---|---|
 | `explainer-beat` | 12 ok, 0 WARN | 17 ok, 0 WARN | none |
 | `lower-third` (`--alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
-| `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and not changed yet: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
+| `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and re-cut in P11b: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
 | `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 | `repo-launch` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 
@@ -153,10 +153,17 @@ and Linux; the probe checks, `flash` and the masters run on a Mac before a relea
 photosensitivity test: a piece made for broadcast still goes through a certified tool (a Harding-type test) before it
 airs.
 
-It reads the delivered picture: every frame of the file, decoded by ffmpeg at the file's own frame rate, scaled so its
-longer side is 1024 px (area averaging down, bilinear up), as RGB. So it sees what a viewer sees, motion blur and grain
-included, at every energy and look, and it sees a flash that lands between the probe's samples (the probe draws one
-subframe a frame; the render blurs them all).
+It reads the delivered picture: every frame of the file, decoded by ffmpeg, scaled so its longer side is 1024 px (area
+averaging down, bilinear up), as RGB. So it sees what a viewer sees, motion blur and grain included, at every energy
+and look, and it sees a flash that lands between the probe's samples (the probe draws one subframe a frame; the render
+blurs them all).
+
+- **Rotation**: a file with a display rotation is measured as displayed. ffmpeg turns each frame upright, and a
+  rotation of 90 or 270 degrees swaps the width and height before the picture is scaled.
+- **Variable frame rate**: each frame is dated by its own presentation timestamp in the stream's time base, never by
+  one probed rate, so a file whose frames come unevenly is judged by when they are shown.
+- **Alpha**: a file with alpha (an alpha pixel format, or a VP9 stream tagged `alpha_mode=1`, which ffprobe reports
+  as plain `yuv420p`) is an overlay, and is not checked: what it flashes depends on the video it is laid over.
 
 - **Every pixel on its own**, never an average: an average hides a pattern whose halves swap, spreads a small
   flashing spot over a whole cell, and softens a real flash near the threshold below it.
@@ -169,7 +176,7 @@ subframe a frame; the render blurs them all).
   out of one (R/(R+G+B) of 0.8 or more on linear RGB, not the stored values), opposite to the last. A fade between red
   and another colour counts as fully as a cut, and no earlier colour anchors it.
 - **Too fast**: more than seven transitions of one kind (four complete flashes) dated within a half-open second
-  (t - 1 s, t], in whole frames on the file's exact rate. Three flashes and then a lasting change (seven transitions)
+  (t - 1 s, t], compared in exact integer ticks of the stream's time base. Three flashes and then a lasting change (seven transitions)
   pass, as WCAG passes them.
 - **The area**: at each frame, every pixel flashing too fast counts, whether or not it changes at that frame, so a
   strobe split across columns or a band sweeping the frame is seen whole. A frame fails when one kind's too-fast

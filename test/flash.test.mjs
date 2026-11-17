@@ -2,7 +2,11 @@
 //   - Frames built in code, encoded losslessly (FFV1, RGB), run through `check --file --plain --only flash`: the result
 //     is what the rule gives on the same frames in memory (so decoding changes nothing), at 30 and at 29.97 fps, for
 //     general and red flashes, a pass, and the scaling both ways (a frame scaled up to 1024 px fails where it would
-//     pass unscaled, one scaled down passes where it would fail unscaled). A file with alpha is not checked.
+//     pass unscaled, one scaled down passes where it would fail unscaled). A file with alpha is not checked, a VP9
+//     WebM whose alpha only its stream tag shows included (council round 1, A1).
+//   - Round 1 (A2, A3): a rotated MP4 is measured as displayed, scaled or with its coded long side already 1024 px;
+//     a variable-frame-rate file is dated by its frames' timestamps, so a strobe that a single probed rate would
+//     crowd into one second passes, and one whose frames really are that close fails.
 //   - fixture-flash rendered by the engine: a strobe lit only between the probe's samples, which the motion-blurred
 //     render shows. Source `check` runs flash on the current render of the whole piece (FAIL), while the probe sees a
 //     still card; with no render, only a partial one, or one from an older source, flash is not checked and says to
@@ -110,6 +114,104 @@ test('a file with an alpha plane is an overlay: flash is not checked, and says w
   const d = fileFlash(encode('alpha', frames, W, H, '30', 'bgra'));
   assert.equal(d.level, 'SKIP', d.out);
   assert.match(d.detail, /not checked: an overlay with alpha/);
+});
+test('round 1, A1: a VP9 WebM with alpha (yuv420p to ffprobe, alpha_mode=1 on the stream) is an overlay: not checked, even --plain', () => {
+  const w = 128, h = 128, frames = Array.from({ length: 31 }, (_, k) => {
+    const b = Buffer.alloc(w * h * 4);
+    for (let i = 0; i < b.length; i += 4) { b.fill(k % 2 ? 255 : 0, i, i + 3); b[i + 3] = i < b.length / 2 ? 255 : 0; }
+    return b;
+  });
+  const f = P('out/overlay.webm');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${w}x${h}`, '-r', '30', '-i', '-',
+    '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '0', '-crf', '40', f], { input: Buffer.concat(frames), maxBuffer: 1 << 30 });
+  assert.equal(r.status, 0, String(r.stderr));
+  const v = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', f], { encoding: 'utf8' }).stdout).streams[0];
+  assert.equal(v.pix_fmt, 'yuv420p', 'ffprobe reads it as plain video');
+  assert.equal(String(v.tags.alpha_mode ?? v.tags.ALPHA_MODE), '1', 'the stream tag says it has alpha');
+  assert.equal(C.flashProbe(f).alpha, true);
+  const d = fileFlash(f);
+  assert.equal(d.level, 'SKIP', d.out);
+  assert.match(d.detail, /not checked: an overlay with alpha/);
+});
+
+// A 90-degree display rotation (-display_rotation 90, counter-clockwise) on a lossless MP4 of the coded frames: the
+// coded frames are the displayed ones turned clockwise, so the file shows `shown` (w x h) upright.
+function encodeRotated(name, shown, w, h) {
+  const coded = shown.map((d) => {
+    const c = Buffer.alloc(w * h * 3);          // h wide, w tall
+    for (let yc = 0; yc < w; yc++) for (let xc = 0; xc < h; xc++) d.copy(c, (yc * h + xc) * 3, ((h - 1 - xc) * w + yc) * 3, ((h - 1 - xc) * w + yc) * 3 + 3);
+    return c;
+  });
+  const tmp = P(`out/${name}-coded.mp4`), f = P(`out/${name}.mp4`);
+  let r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${h}x${w}`, '-r', '30', '-i', '-',
+    '-c:v', 'libx264rgb', '-crf', '0', '-preset', 'ultrafast', tmp], { input: Buffer.concat(coded), maxBuffer: 1 << 30 });
+  assert.equal(r.status, 0, String(r.stderr));
+  r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-display_rotation:v:0', '90', '-i', tmp, '-c', 'copy', f], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  // decoded the way flash decodes it (autorotated), the first frame is the picture as shown
+  const back = spawnSync('ffmpeg', ['-v', 'error', '-i', f, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 30 }).stdout;
+  assert.ok(back.equals(shown[0]), 'the rotated file shows the picture upright');
+  return f;
+}
+test('round 1, A2: a rotated MP4 is measured as displayed: a 341x65 strip on a 576x1024 picture coded 1024x576', () => {
+  const shown = Array.from({ length: 61 }, (_, k) => rect(576, 1024, Math.floor(k / 4) % 2 === 1, 100, 100, 341, 65));
+  const f = encodeRotated('turned-1024', shown, 576, 1024);
+  const p = C.flashProbe(f);
+  assert.deepEqual([p.width, p.height, p.coded], [576, 1024, [1024, 576]]);
+  const d = fileFlash(f);
+  assert.equal(d.level, 'FAIL', d.out);
+  same(d, inMemory(shown, 576, 1024, '30'));
+});
+test('round 1, A2: rotated and scaled: a 682x130 strip on a 1152x2048 picture coded 2048x1152 measures as the 341x65 strip', () => {
+  const shown = Array.from({ length: 61 }, (_, k) => rect(1152, 2048, Math.floor(k / 4) % 2 === 1, 200, 200, 682, 130));
+  const half = Array.from({ length: 61 }, (_, k) => rect(576, 1024, Math.floor(k / 4) % 2 === 1, 100, 100, 341, 65));
+  const d = fileFlash(encodeRotated('turned-2048', shown, 1152, 2048));
+  assert.equal(d.level, 'FAIL', d.out);
+  assert.match(d.detail, /measured at 576x1024/);
+  same(d, inMemory(half, 576, 1024, '30'));
+});
+
+// Frames shown at the given times (ms): they go in at 1000 fps and setpts puts each at its own time; FFV1 in Matroska
+// keeps the millisecond timestamps.
+function encodeAt(name, frames, ms) {
+  const f = P(`out/${name}.mkv`), expr = ms.map((t, i) => `eq(N,${i})*${t}`).join('+');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${W}x${H}`, '-r', '1000', '-i', '-',
+    '-vf', `setpts='${expr}'`, '-fps_mode', 'passthrough', '-c:v', 'ffv1', '-pix_fmt', 'gbrp', f], { input: Buffer.concat(frames), maxBuffer: 1 << 30 });
+  assert.equal(r.status, 0, String(r.stderr));
+  const got = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'frame=pts', '-of', 'csv=p=0', f], { encoding: 'utf8' }).stdout.trim().split('\n').map(Number);
+  assert.deepEqual(got, ms, 'the file shows each frame at its time');
+  return f;
+}
+// The rule on frames dated in ms, in memory.
+function atMs(frames, ms) {
+  const t = C.flashTracker({ w: W, h: H, timeBase: '1/1000' });
+  frames.forEach((fr, k) => t.pushRGB8(fr, ms[k]));
+  return C.flashResult(t.result(), { scope: 'file', what: 'x' });
+}
+test('round 1, A3: variable frame rate, dated by each frame\'s timestamp: frames at 0, 0.2 ... 1.6 and 1.801 s alternating pass', () => {
+  const ms = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1801], frames = ms.map((_, k) => grey(k % 2 ? 188 : 89));
+  const d = fileFlash(encodeAt('vfr-codex', frames, ms));
+  assert.equal(d.level, 'OK', d.out);
+  same(d, atMs(frames, ms));
+  // after ten frames at 30 fps, ffprobe guesses a rate of 30 or more (60/1 with ffmpeg 9), and dating these frames by
+  // it would crowd their ten transitions into a third of a second or less, and fail them
+  const lead = Array.from({ length: 10 }, (_, k) => Math.round((k * 1000) / 30)), ms2 = [...lead, ...ms.map((t) => t + 500)];
+  const frames2 = [...lead.map(() => grey(89)), ...frames.map((_, k) => grey(k % 2 ? 89 : 188))];
+  const f2 = encodeAt('vfr-lead', frames2, ms2);
+  const guess = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0', f2], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(eval(guess) >= 30, `ffprobe's guess ${guess}`);
+  assert.equal(inMemory(frames2, W, H, guess).level, 'FAIL', `dated by the probed rate (${guess}), ten transitions sit in a third of a second`);
+  const d2 = fileFlash(f2);
+  assert.equal(d2.level, 'OK', d2.out);
+  same(d2, atMs(frames2, ms2));
+});
+test('round 1, A3: variable frame rate: a 60 fps burst after a 30 fps lead-in, 5 frames light and 5 dark, FAILs at its real times', () => {
+  const lead = Array.from({ length: 10 }, (_, k) => Math.round((k * 1000) / 30)), burst = Array.from({ length: 40 }, (_, m) => 500 + Math.round((m * 1000) / 60));
+  const ms = [...lead, ...burst], frames = [...lead.map(() => grey(89)), ...burst.map((_, m) => grey(Math.floor(m / 5) % 2 ? 89 : 188))];
+  const d = fileFlash(encodeAt('vfr-burst', frames, ms));
+  assert.equal(d.level, 'FAIL', d.out);
+  assert.equal(d.t, 1.083, 'the eighth transition, frame 45, shown at 1083 ms');
+  same(d, atMs(frames, ms));
 });
 test('a file ffmpeg cannot decode is a flash FAIL that says so', () => {
   fs.writeFileSync(P('out/broken.mp4'), Buffer.from('not a video at all'));
