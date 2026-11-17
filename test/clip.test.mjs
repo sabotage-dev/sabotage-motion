@@ -182,7 +182,7 @@ test('a variable frame rate clip is converted to the nearest standard constant r
   assert.equal(clip.from.convertedTo, '25/1');
   assert.equal(clip.frames, 50);
   const again = ok(tool(d, ['probe', 'clip.mp4']));
-  assert.match(again.out, /25 fps constant \(25\/1\), 50 frames, 2\.000 s/);
+  assert.match(again.out, /25 fps constant \(25\/1\), 50 frames, 2\.0\d\d s/);   // the container's length: 2.005 s on Linux's ffmpeg (AAC padding)
   // refusals: no transcript, a clip with no sound
   assert.match(tool(d, ['prepare', 'vfr.mp4']).out, /needs --transcript/);
   ff(['-f', 'lavfi', '-i', 'testsrc2=s=64x64:r=30:d=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(d, 'mute.mp4')]);
