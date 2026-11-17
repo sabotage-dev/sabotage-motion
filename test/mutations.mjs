@@ -563,13 +563,15 @@ const M = [
   ["P11a docs: check.md's flash window drifts", 'skills/sabotage-motion/references/check.md', [["more than 21,824 px of some 341x256 window, either way round", "more than 21,824 px of some 341x341 window, either way round"]], DOCS],
   ["P11a docs: check.md drops the certified tool", 'skills/sabotage-motion/references/check.md', [["still goes through a certified tool (a Harding-type test) before it", "still goes through a review before it"]], DOCS],
   // ---- P11a council round 1 fold: VP9 alpha read from its stream tag (A1); the picture measured as displayed (A2);
-  // frames dated by their presentation timestamps (A3); check.md says how (A4).
+  // frames dated by their presentation timestamps (A3); check.md says how (A4); ffmpeg's errors fail it, even on exit 0 (M1).
   ["P11a R1 A1: VP9's alpha_mode tag not read", T + 'check.mjs', [["pixFmt: v.pix_fmt, alpha: hasAlpha(v.pix_fmt) || alphaTag, timeBase };", "pixFmt: v.pix_fmt, alpha: hasAlpha(v.pix_fmt), timeBase };"]], FLE],
   ["P11a R1 A2: the coded size measured, not the displayed", T + 'check.mjs', [["return { width: turned ? v.height : v.width, height: turned ? v.width : v.height,", "return { width: v.width, height: v.height,"]], FLE],
   ["P11a R1 A2: only the old rotate tag read, not the display matrix", T + 'check.mjs', [["const rotation = side ? +side.rotation : tags.rotate != null ? -tags.rotate : 0;", "const rotation = tags.rotate != null ? -tags.rotate : 0;"]], FLE],
   ["P11a R1 A3: frames dated as if each lasted as long as the first", T + 'check.mjs', [["        const x = await ptsOf(k);\n", "        const x = k < 2 ? await ptsOf(k) : pts[0] + k * ((await ptsOf(1)) - pts[0]);\n"]], FLE],
   ["P11a R1 A3: the timestamps passed in ignored (frames dated by index)", T + 'check.mjs', [["    if (!byPts) return f + 1;", "    if (true) return f + 1;"]], ['test/flash-dating.test.mjs']],
   ["P11a R1 A4 docs: check.md drops the rotation line", 'skills/sabotage-motion/references/check.md', [["- **Rotation**: a file with a display rotation is measured as displayed.", "- **Rotation**: a file is measured as coded."]], DOCS],
+  ["P11a R1 M1: ffmpeg errors ignored when it exits 0", T + 'check.mjs', [["  if (errors.length) {", "  if (false) {"]], FLE],
+  ["P11a R1 M1: info lines (showinfo) counted as errors", T + 'check.mjs', [["(?:error|fatal|panic)", "(?:error|fatal|panic|info)"]], FLE],
 ];
 
 const argv = process.argv.slice(2);

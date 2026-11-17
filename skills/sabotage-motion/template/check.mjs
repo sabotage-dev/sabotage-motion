@@ -859,22 +859,27 @@ export async function measureFlash(file) {
   const proc = spawn('ffmpeg', ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'level+info', '-i', file, '-map', '0:v:0',
     '-fps_mode', 'passthrough', '-vf', `${scale}format=rgb24,${showinfo()}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
   { stdio: ['ignore', 'pipe', 'pipe'] });
-  // stderr: the link's time base, each frame's pts in order, and ffmpeg's errors
+  // stderr, every line tagged with its level (-loglevel level+info): showinfo's [info] lines give the link's time base and
+  // each frame's pts in order; an [error], [fatal] or [panic] line is ffmpeg reporting a damaged or cut-short input, a
+  // frame it could not decode or a packet it truncated, and it may still exit 0 (council round 1, M1)
   const pts = [], errors = [];
   let tb = null, rest = '', closed = false, wake = null;
   const nudge = () => { if (wake) { const w = wake; wake = null; w(); } };
   proc.stderr.setEncoding('utf8');
+  const line = (l) => {
+    let m;
+    if (!tb && (m = /showinfo.*\] (?:\[info\] )?config in time_base: (\d+)\/(\d+)/.exec(l))) tb = { num: +m[1], den: +m[2] };
+    else if ((m = /showinfo.*\] (?:\[info\] )?n:\s*(\d+)\s+pts:\s*(\S+)/.exec(l))) pts[+m[1]] = m[2] === 'NOPTS' ? null : Number(m[2]);
+    else if ((m = /^(?:\[[^\]]+\] )*\[(?:error|fatal|panic)\] (.*)$/.exec(l))) errors.push(m[1].trim());
+  };
+  let tail = '';
   proc.stderr.on('data', (d) => {
     const lines = (rest + d).split('\n');
     rest = lines.pop();
-    for (const l of lines) {
-      let m;
-      if (!tb && (m = /showinfo.*\] (?:\[info\] )?config in time_base: (\d+)\/(\d+)/.exec(l))) tb = { num: +m[1], den: +m[2] };
-      else if ((m = /showinfo.*\] (?:\[info\] )?n:\s*(\d+)\s+pts:\s*(\S+)/.exec(l))) pts[+m[1]] = m[2] === 'NOPTS' ? null : Number(m[2]);
-      else if (/\[(error|fatal|panic)\]/.test(l)) errors.push(l.replace(/^.*\[(error|fatal|panic)\] /, ''));
-    }
+    lines.forEach(line);
     nudge();
   });
+  proc.stderr.on('end', () => { tail = rest.trim(); if (rest) line(rest); rest = ''; });
   const done = new Promise((res) => {
     proc.on('error', (e) => { closed = true; nudge(); res({ error: e.message }); });
     proc.on('close', (code) => { closed = true; nudge(); res({ code }); });
@@ -900,7 +905,12 @@ export async function measureFlash(file) {
   } catch (e) { bad = e.message; }
   if (bad) { proc.kill('SIGKILL'); await done; return { error: bad }; }
   const end = await done;
-  if (end.error || end.code !== 0) return { error: end.error || errors.pop() || rest.trim() || `ffmpeg exited ${end.code}` };
+  if (end.error || end.code !== 0) return { error: end.error || errors.pop() || tail || `ffmpeg exited ${end.code}` };
+  // ffmpeg exited 0 but reported errors: a frame may be missing or damaged, so what was measured is not the picture
+  if (errors.length) {
+    const more = errors.length > 1 ? ` (and ${errors.length - 1} more error${errors.length > 2 ? 's' : ''})` : '';
+    return { error: `ffmpeg reported "${errors[0]}"${more} and went on, so frames may be missing or damaged` };
+  }
   if (!tr) return { error: 'no frames decoded' };
   if (have) return { error: `the last frame was cut short (${have} of ${size} bytes)` };
   return { ...tr.result(), src: [p.width, p.height], ms: Date.now() - t0 };

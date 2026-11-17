@@ -164,6 +164,8 @@ blurs them all).
   one probed rate, so a file whose frames come unevenly is judged by when they are shown.
 - **Alpha**: a file with alpha (an alpha pixel format, or a VP9 stream tagged `alpha_mode=1`, which ffprobe reports
   as plain `yuv420p`) is an overlay, and is not checked: what it flashes depends on the video it is laid over.
+- **Damage**: any error ffmpeg reports while it decodes (a file cut short, a truncated packet) makes `flash` FAIL as
+  not decodable, with ffmpeg's message, even when ffmpeg still finishes: a missing frame could hide a flash.
 
 - **Every pixel on its own**, never an average: an average hides a pattern whose halves swap, spreads a small
   flashing spot over a whole cell, and softens a real flash near the threshold below it.

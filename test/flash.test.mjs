@@ -7,6 +7,8 @@
 //   - Round 1 (A2, A3): a rotated MP4 is measured as displayed, scaled or with its coded long side already 1024 px;
 //     a variable-frame-rate file is dated by its frames' timestamps, so a strobe that a single probed rate would
 //     crowd into one second passes, and one whose frames really are that close fails.
+//   - Round 1 (M1): a file cut short, which ffmpeg decodes one frame short and still exits 0, is a FAIL that says it
+//     could not be decoded, while the intact file still FAILs on its flashes.
 //   - fixture-flash rendered by the engine: a strobe lit only between the probe's samples, which the motion-blurred
 //     render shows. Source `check` runs flash on the current render of the whole piece (FAIL), while the probe sees a
 //     still card; with no render, only a partial one, or one from an older source, flash is not checked and says to
@@ -212,6 +214,24 @@ test('round 1, A3: variable frame rate: a 60 fps burst after a 30 fps lead-in, 5
   assert.equal(d.level, 'FAIL', d.out);
   assert.equal(d.t, 1.083, 'the eighth transition, frame 45, shown at 1083 ms');
   same(d, atMs(frames, ms));
+});
+test('round 1, M1: a strobe cut 40 bytes short, which ffmpeg decodes a frame short and exits 0 on, FAILs as not decodable', () => {
+  // nine frames at 8 fps, black and white in turn: eight transitions in 0.875 s
+  const f = P('out/strobe8.mkv');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', "color=c=black:s=320x240:r=8:d=1.125,geq=lum='if(mod(N,2),255,0)':cb=128:cr=128",
+    '-c:v', 'ffv1', '-pix_fmt', 'yuv444p', f], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const whole = fileFlash(f);
+  assert.equal(whole.level, 'FAIL', whole.out);
+  assert.match(whole.detail, /flash more than three times a second \(general\)/, 'the intact file fails on its flashes, and showinfo\'s lines are not errors');
+  const buf = fs.readFileSync(f), cut = P('out/strobe8-cut.mkv');
+  fs.writeFileSync(cut, buf.subarray(0, buf.length - 40));
+  const dec = spawnSync('ffmpeg', ['-v', 'error', '-i', cut, '-f', 'null', '-'], { encoding: 'utf8' });
+  assert.equal(dec.status, 0, 'ffmpeg exits 0 on the cut file');
+  assert.match(dec.stderr, /\S/, 'and reports an error');
+  const d = fileFlash(cut);
+  assert.equal(d.level, 'FAIL', d.out);
+  assert.match(d.detail, /^out\/strobe8-cut\.mkv could not be decoded to look for flashes: ffmpeg reported "[^"]+".* and went on, so frames may be missing or damaged$/);
 });
 test('a file ffmpeg cannot decode is a flash FAIL that says so', () => {
   fs.writeFileSync(P('out/broken.mp4'), Buffer.from('not a video at all'));
