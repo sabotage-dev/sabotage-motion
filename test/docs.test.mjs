@@ -296,3 +296,18 @@ test('R1 examples/repo-launch/README.md: its commands are the ones run, in their
   assert.deepEqual(cmds, ['node tools/repo-scan.mjs fixture', 'node render.mjs doctor', 'node render.mjs brand', 'node tools/shots.mjs page', 'node render.mjs board --slates',
     'node render.mjs board', 'node render.mjs contact', 'node render.mjs check', 'node render.mjs palette', 'node render.mjs full', 'node tools/mix.mjs repo-launch', 'node render.mjs check']);
 });
+
+test('R2-M3 SKILL.md: the examples are starting points except repo-launch, a reference only (start a launch piece from the template)', () => {
+  const md = read('SKILL.md');
+  const ex = md.slice(md.indexOf('## Examples'), md.indexOf('- `showreel/`'));
+  assert.match(ex, /Copy one as a starting point the same way as the template \(`cp -R`, then `chmod -R u\+w`\), except\s+`repo-launch\/`: it is a reference only, and a launch piece starts from the template \(`references\/launch\.md`\)\./);
+});
+test('R2-M1 references/launch.md and repo-scan.mjs: a global flag alone is not an install command for this package', () => {
+  const md = read('references/launch.md'), src = fs.readFileSync(path.join(templateDir, 'tools', 'repo-scan.mjs'), 'utf8');
+  const row = md.match(/^\| `install` \|(.+)\|$/m)[1];
+  assert.match(row, /that names this package; else the first that sits under an Install-like heading at any level above it/);
+  assert.match(row, /another tool's `npm i -g pnpm` from a Development section is never taken/);
+  assert.doesNotMatch(row, /installs globally/);
+  assert.doesNotMatch(src.slice(0, src.indexOf('import ')), /installs globally|--global/, 'the header no longer names a global flag');
+  assert.match(md, /do not sit inside a boilerplate or Install-like section \(`## Installation` > `### npm` is not a feature\)/);
+});

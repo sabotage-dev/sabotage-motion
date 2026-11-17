@@ -333,7 +333,7 @@ test('it writes nothing without --brand; --brand writes the draft kit (relative 
 });
 
 // ---------------------------------------------------------------- council round 1 (items 4 to 8)
-test('R1-4 the install command: continuations joined; only one that installs this package or sits under an Install heading', () => {
+test('R1-4 the install command: continuations joined; only one that names this package or sits under an Install heading', () => {
   const pkg = '{\n  "name": "snagwick",\n  "bin": { "snagwick": "cli.js" }\n}\n';
   // a bare npm install and a requirements install in Development are not this package's install command
   const dev = scan(project('install-dev', { 'package.json': pkg, 'README.md': '# Snagwick\n\nIt finds TODOs.\n\n## Development\n\n```sh\nnpm install\npip install -r requirements.txt\nnpm test\n```\n' })).json;
@@ -341,9 +341,10 @@ test('R1-4 the install command: continuations joined; only one that installs thi
   // a command split over lines with \ is one command
   const cont = scan(project('install-cont', { 'package.json': pkg, 'README.md': '# Snagwick\n\n## Usage\n\n```sh\n$ npm install --save-dev \\\n    snagwick\n```\n' })).json;
   assert.deepEqual(cont.install, { value: 'npm install --save-dev snagwick', file: 'README.md', line: 6 });
-  // a global install, or any install under an Install-like heading, is taken; a versioned name is still the name
+  // a global install of another tool is not this package's (M1); any install under an Install-like heading is taken; a
+  // versioned name is still the name
   const glob = scan(project('install-global', { 'README.md': '# Tool\n\n## Usage\n\n```sh\nnpm i -g some-cli\n```\n' })).json;
-  assert.equal(glob.install.value, 'npm i -g some-cli');
+  assert.equal(glob.install, null);
   const head = scan(project('install-head', { 'README.md': '# Tool\n\n## Getting started\n\n```sh\nnpm install\n```\n' })).json;
   assert.deepEqual(head.install, { value: 'npm install', file: 'README.md', line: 6 });
   const ver = scan(project('install-ver', { 'package.json': pkg, 'README.md': '# Snagwick\n\n## Usage\n\n```sh\nnpm install lodash\npnpm add snagwick@1.2.0\n```\n' })).json;
@@ -442,4 +443,27 @@ test('R2-3 the title after YAML front matter, link-reference definitions or a mu
   // text outside any HTML block, above the first heading, still means there is no title
   const prose = scan(project('title-html-prose', { 'README.md': '<p align="center"><img src="logo.svg"></p>\n\nSnagwick finds TODOs.\n\n## Install\n' })).json;
   assert.deepEqual(prose.name, { value: 'title-html-prose', file: null, line: null });
+});
+
+// ---------------------------------------------------------------- council round 2, the main loop's items (M1, M2)
+test('R2-M1 a global flag alone is no reason: another tool\'s global install is not taken, and a command naming the package wins', () => {
+  const pkg = '{\n  "name": "lintrove",\n  "bin": { "lintrove": "cli.js" }\n}\n';
+  // Development only: npm i -g pnpm is another tool's install, so the command is made from the metadata
+  const dev = scan(project('m1-dev', { 'package.json': pkg, 'README.md': '# Lintrove\n\n## Development\n\n```sh\nnpm i -g pnpm\npnpm install\n```\n' })).json;
+  assert.deepEqual(dev.install, { value: 'npm install -g lintrove', file: 'package.json', line: 2, derived: true });
+  // Development, then Install: the Install section's command is taken
+  const both = scan(project('m1-both', { 'package.json': pkg, 'README.md': '# Lintrove\n\n## Development\n\n```sh\nnpm i -g pnpm\n```\n\n## Install\n\n```sh\nnpm install lintrove\n```\n' })).json;
+  assert.deepEqual(both.install, { value: 'npm install lintrove', file: 'README.md', line: 12 });
+  // under one Install-like section, a command naming the package wins over an earlier one that only sits there
+  const pref = scan(project('m1-prefer', { 'package.json': pkg, 'README.md': '# Lintrove\n\n## Quick start\n\n```sh\nnpm install\n```\n\n### From npm\n\n```sh\nnpm install -g lintrove\n```\n' })).json;
+  assert.deepEqual(pref.install, { value: 'npm install -g lintrove', file: 'README.md', line: 12 });
+  // with nothing naming it, the first command under an Install-like heading is still taken
+  const head = scan(project('m1-head', { 'README.md': '# Tool\n\n## Installation\n\n```sh\nnpm install\n```\n' })).json;
+  assert.deepEqual(head.install, { value: 'npm install', file: 'README.md', line: 6 });
+});
+
+test('R2-M2 a heading inside a boilerplate or Install-like section is not a feature', () => {
+  const r = scan(project('m2-features', { 'README.md': '# Tool\n\n## Installation\n\n### npm\n\n### Linux\n\n## How it works\n\n### The scanner\n\n## License\n\n### MIT\n\n## Set up\n\n### Docker\n' })).json;
+  // Installation and License are boilerplate; Set up is not (so it is listed, as before) but it is Install-like, so Docker is not
+  assert.deepEqual(r.features.map((f) => f.text), ['How it works', 'The scanner', 'Set up']);
 });

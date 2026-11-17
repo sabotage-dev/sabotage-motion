@@ -176,7 +176,8 @@ motion blur, post, shader looks, data and UI motion, captions, lower thirds, sou
 ## Examples
 
 Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folder, with its `contact.png` and
-`board.png` committed. Copy one as a starting point the same way as the template (`cp -R`, then `chmod -R u+w`).
+`board.png` committed. Copy one as a starting point the same way as the template (`cp -R`, then `chmod -R u+w`), except
+`repo-launch/`: it is a reference only, and a launch piece starts from the template (`references/launch.md`).
 
 - `showreel/` (20 s, 16:9, 60 fps): what the engine can draw, cut to a 120 BPM grid: kinetic type, shape morphs,
   22,000 particles, a raymarched blob, liquid metaballs refracting type, a data panel, an eight-cut montage, and an

@@ -9,12 +9,12 @@
 //                name (package.json, pyproject.toml, Cargo.toml), else the folder's name
 //   pitch        the package metadata's description, else the README's first sentence of prose
 //   install      the first install command in a README code block (a line ending in \ joined to the next) that
-//                installs this package: it names the package, installs globally (-g, --global), or sits under an
-//                Install-like heading, at any level above it (Install, Setup, Getting started, Quick start); else one
-//                made from the package metadata (marked derived)
+//                names this package, else the first that sits under an Install-like heading at any level above it
+//                (Install, Setup, Getting started, Quick start); else one made from the package metadata (marked
+//                derived)
 //   features     the list items under a README heading named like Features (Features, Highlights, Why ...,
 //                What it does), then the README's other section headings that are not boilerplate (Install,
-//                Usage, License ...)
+//                Usage, License ...) and do not sit inside a boilerplate or Install-like section
 //   colors       every colour, with the file and line it came from: CSS custom properties (--name: a hex, rgb(),
 //                hsl() or oklch() value, or a var() of one, or its fallback when that var is not declared) in
 //                stylesheets and pages, a Tailwind config's theme colours (read as text, never run), a web
@@ -347,11 +347,11 @@ export function htmlLines(lines, n) {
   return mark;
 }
 const LINK_DEF = /^ {0,3}\[[^\]]+\]:\s*\S/;
-// An install command for this package: it names one of the package's names (a version, a range or extras cut off), or
-// installs globally, or (INSTALL_HEAD) sits under an Install-like heading. Anything else (a bare npm install in a
-// Development section, pip install -r requirements.txt) is not, and the command is made from the metadata instead.
+// An install command for this package: it names one of the package's names (a version, a range or extras cut off),
+// under any heading, or (INSTALL_HEAD) it sits under an Install-like heading; one that names the package wins over one
+// that only sits under such a heading. Anything else (a bare npm install in a Development section, another tool's
+// npm i -g pnpm, pip install -r requirements.txt) is not, and the command is made from the metadata instead.
 export const INSTALL_HEAD = /^(install(ation|ing)?|set ?up|get(ting)? started|quick ?start)\b/i;
-const GLOBAL_FLAG = /(^|\s)(-g|--global)(\s|$)|^yarn global add\b/;
 export function installsPackage(cmd, names) {
   const want = names.map((n) => String(n).toLowerCase());
   return String(cmd).toLowerCase().split(/\s+/).some((t) => want.includes(t.replace(/^["']|["']$/g, '').replace(/[=<>~!].*$/, '').replace(/\[.*\]$/, '').replace(/(?<=.)@[^/@]*$/, '')));
@@ -388,25 +388,28 @@ export function readme(text, file, { names = [] } = {}) {
   const above = heads[0] ? heads[0].line - 1 : 0, html = htmlLines(lines, above);
   const title = heads[0] && lines.slice(0, above).every((l, i) => !inCode[i] && (html[i] || /^\s*($|<|!\[|\[!\[)/.test(l) || LINK_DEF.test(l))) ? heads[0] : null;
   if (title) r.name = { value: title.text, file, line: title.line };
-  // the install command: the first one in a code block (a line ending in \ goes on to the next) that installs this
-  // package (it names it, or installs globally) or sits under an Install-like heading (any heading it is under:
-  // ## Installation > ### npm counts)
+  // the install command: the first one in a code block (a line ending in \ goes on to the next) that names this package,
+  // else the first that sits under an Install-like heading (any heading it is under: ## Installation > ### npm counts)
   const want = [...names, title && title.text].filter(Boolean).map((n) => String(n).toLowerCase());
-  // the headings a line sits under: the nearest above it, then each one above that with a smaller level
-  const enclosing = (i) => {
+  // the headings line i sits under: the nearest above it with a level under `level` (any, for a line; a heading's own
+  // level, for a heading), then each one above that with a smaller level
+  const enclosing = (i, level = Infinity) => {
     const out = [];
-    for (let k = heads.length - 1, lvl = Infinity; k >= 0; k--) if (heads[k].line - 1 < i && heads[k].level < lvl) { out.push(heads[k]); lvl = heads[k].level; }
+    for (let k = heads.length - 1, lvl = level; k >= 0; k--) if (heads[k].line - 1 < i && heads[k].level < lvl) { out.push(heads[k]); lvl = heads[k].level; }
     return out;
   };
+  let underHeading = null;
   find: for (const b of blocks) {
     for (let k = 0; k < b.length; k++) {
       const at = b[k];
       let cmd = lines[at].trim().replace(/^[$>%]\s+/, '');
       while (cmd.endsWith('\\') && k + 1 < b.length) cmd = cmd.slice(0, -1).trim() + ' ' + lines[b[++k]].trim();
       if (!INSTALL_RE.test(cmd)) continue;
-      if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) { r.install = { value: cmd, file, line: at + 1 }; break find; }
+      if (installsPackage(cmd, want)) { r.install = { value: cmd, file, line: at + 1 }; break find; }
+      if (!underHeading && enclosing(at).some((h) => INSTALL_HEAD.test(h.text))) underHeading = { value: cmd, file, line: at + 1 };
     }
   }
+  if (!r.install && underHeading) r.install = underHeading;
   // the first paragraph of prose after the title: its first sentence
   for (let i = title ? title.line : 0, para = [], at = 0; i <= lines.length; i++) {
     const l = i < lines.length && !inCode[i] ? lines[i].trim() : '';
@@ -429,7 +432,12 @@ export function readme(text, file, { names = [] } = {}) {
       if (li && mdText(li[1])) feats.push({ text: mdText(li[1]), kind: 'item', file, line: i + 1 });
     }
   });
-  for (const h of heads) if (h !== title && h.level >= 2 && h.level <= 3 && !FEATURE_HEAD.test(h.text) && !BOILER_HEAD.test(h.text)) feats.push({ text: h.text, kind: 'heading', file, line: h.line });
+  for (const h of heads) {
+    if (h === title || h.level < 2 || h.level > 3 || FEATURE_HEAD.test(h.text) || BOILER_HEAD.test(h.text)) continue;
+    // a heading inside a boilerplate or Install-like section (## Installation > ### npm) is not a feature either
+    if (enclosing(h.line - 1, h.level).some((x) => BOILER_HEAD.test(x.text) || INSTALL_HEAD.test(x.text))) continue;
+    feats.push({ text: h.text, kind: 'heading', file, line: h.line });
+  }
   r.features = feats;
   r.images = [...s.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)].map((m) => ({ src: m[1] || m[2], line: lineAt(s, m.index) }));
   return r;
