@@ -245,3 +245,54 @@ test('README: the launch section, the repo-launch row and the launch suite; CI r
   assert.match(pkg.scripts['test:launch'], /repo-scan\.test\.mjs.*shots\.test\.mjs.*launch-example\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:launch/);
 });
+
+// ---------------------------------------------------------------- council round 1 on P9 (items 8, 10, 11, the example's commands)
+test('R1-8 references/launch.md: its token table is repo-scan\'s exact names and words, every alias, and the names that are never tokens', () => {
+  const md = read('references/launch.md');
+  const rows = new Map([...md.matchAll(/^\| `(\w+)` \| ([^|]+)\| ([^|]+)\|$/gm)].map((m) => [m[1], [m[2], m[3]]]));
+  const ticks = (x) => [...x.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+  const W = SCAN.TOKEN_WORDS;
+  for (const tok of ['bgA', 'bgB', 'ink', 'muted', 'accent', 'accent2']) {
+    assert.ok(rows.has(tok), `no row for ${tok}`);
+    const [exact, also] = rows.get(tok);
+    assert.deepEqual(ticks(exact), SCAN.TOKEN_EXACT[tok], `${tok}: the exact names`);
+    for (const w of W[tok]) assert.ok(ticks(also).includes(w), `${tok}: the word ${w} is not in the table`);
+  }
+  for (const w of W.second) assert.ok(ticks(rows.get('bgB')[1]).includes(w), `bgB: the second-background word ${w}`);
+  const never = md.slice(md.indexOf('A name holding `border`'), md.indexOf('is never a token'));
+  assert.deepEqual(ticks(never), W.never, 'the names that are never tokens');
+  assert.match(md, /A colour whose whole name \(after a leading `--` and `color-`\) is one of\s+a token's exact names wins/);
+});
+test('R1-10 the kit sheet and the board sheet are always rendered before the full render, and named in the reply', () => {
+  const md = read('references/launch.md'), sk = read('SKILL.md');
+  const order = md.slice(md.indexOf('## 1. The order'), md.indexOf('## 2.'));
+  const at = (x) => order.indexOf(x);
+  assert.ok(at('**render the kit sheet** (`node render.mjs brand`)') > 0, 'the order renders the kit sheet');
+  assert.ok(at('**Render the board sheet before rendering** (`node render.mjs board --slates`)') > at('`node render.mjs brand`'), 'then the board sheet');
+  assert.ok(at('**Render, mix, then `palette` and `check`**') > at('`node render.mjs board --slates`'), 'then the render');
+  assert.match(order, /\*\*The two sheets always come before the full render\*\*: `brand\.png` \(`node render\.mjs brand`\) and `board\.png`\s+\(`node render\.mjs board --slates`\), even when nobody can approve them now/);
+  assert.match(order, /name both sheets in your reply/);
+  const branch = sk.slice(sk.indexOf('**A launch video for a repo**'), sk.indexOf('1. **Pin the brief.**'));
+  assert.match(branch, /render the kit\s+sheet \(`node render\.mjs brand`\)/);
+  assert.match(branch, /render the board sheet \(`node render\.mjs board --slates`\) before rendering/);
+  assert.match(branch, /Both sheets, `brand\.png` and `board\.png`, are always rendered before the full render, even when nobody can approve them\s+now/);
+  assert.match(branch, /name both in your reply/);
+});
+test('R1-11 a launch piece starts from the template, the example is a reference only, and every file stays inside the piece', () => {
+  const md = read('references/launch.md'), sk = read('SKILL.md');
+  const order = md.slice(md.indexOf('## 1. The order'), md.indexOf('## 2.'));
+  assert.match(order, /^0\. \*\*Start the piece from the template\*\*, in the project: `cp -R "\$\{CLAUDE_SKILL_DIR\}\/template" <project>\/motion\/<piece>`/m);
+  assert.match(order, /Not from the example: it is a reference only/);
+  assert.match(order, /Every file\s+the work makes stays inside the piece, temporary ones included/);
+  assert.match(order, /never move or write a file outside the project, to `\/tmp` or anywhere else/);
+  assert.match(md, /read it as a\s+reference, never copy it as a starting point/);
+  const branch = sk.slice(sk.indexOf('**A launch video for a repo**'), sk.indexOf('1. **Scan**'));
+  assert.match(branch, /Start the piece from the template, inside the project; the `repo-launch` example\s+is a reference only, never a starting point\. Every file the work makes stays inside the piece \(temporary ones too\)\./);
+});
+test('R1 examples/repo-launch/README.md: its commands are the ones run, in their order (doctor, the kit sheet, the board as slates)', () => {
+  const md = fs.readFileSync(path.join(examplesDir, 'repo-launch', 'README.md'), 'utf8');
+  const block = md.slice(md.indexOf('```sh'), md.indexOf('```', md.indexOf('```sh') + 5));
+  const cmds = [...block.matchAll(/^(node \S+ \S+(?: --slates)?)/gm)].map((m) => m[1]);
+  assert.deepEqual(cmds, ['node tools/repo-scan.mjs fixture', 'node render.mjs doctor', 'node render.mjs brand', 'node tools/shots.mjs page', 'node render.mjs board --slates',
+    'node render.mjs board', 'node render.mjs contact', 'node render.mjs check', 'node render.mjs palette', 'node render.mjs full', 'node tools/mix.mjs repo-launch', 'node render.mjs check']);
+});

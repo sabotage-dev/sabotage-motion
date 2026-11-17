@@ -4,18 +4,22 @@
 //
 // Reads the project's files as text (it never runs them and never touches the network) and prints JSON. Every
 // value says where it came from: `file` (relative to the project folder) and `line`.
-//   name         the README's first heading, else the package metadata's name (package.json, pyproject.toml,
-//                Cargo.toml), else the folder's name
+//   name         the README's title (its first heading, at any level, with only pictures, badges and HTML above it),
+//                else the package metadata's name (package.json, pyproject.toml, Cargo.toml), else the folder's name
 //   pitch        the package metadata's description, else the README's first sentence of prose
-//   install      the first install command in a README code block, else one made from the package metadata
-//                (marked derived)
+//   install      the first install command in a README code block (a line ending in \ joined to the next) that
+//                installs this package: it names the package, installs globally (-g, --global), or sits under an
+//                Install-like heading (Install, Setup, Getting started, Quick start); else one made from the package
+//                metadata (marked derived)
 //   features     the list items under a README heading named like Features (Features, Highlights, Why ...,
 //                What it does), then the README's other section headings that are not boilerplate (Install,
 //                Usage, License ...)
 //   colors       every colour, with the file and line it came from: CSS custom properties (--name: a hex, rgb(),
-//                hsl() or oklch() value, or a var() of one) in stylesheets and pages, a Tailwind config's theme
-//                colours (read as text, never run), a web manifest's theme_color
-//   fonts        @font-face rules (the family, its local file, weight and style) and font links (a <link> or an
+//                hsl() or oklch() value, or a var() of one, or its fallback when that var is not declared) in
+//                stylesheets and pages, a Tailwind config's theme colours (read as text, never run), a web
+//                manifest's theme_color
+//   fonts        @font-face rules (the family; the best local file of every src, woff2, woff, ttf, otf, then the
+//                rest; weight and style) and font links (a <link> or an
 //                @import of a font service's CSS: the families it names, never fetched), each with the roles the
 //                project gives the family: display (h1 to h3, .title, --font-display or --font-heading), body
 //                (body, html, p, --font-body or --font-text), mono (code, pre, --font-mono or --font-code)
@@ -28,12 +32,12 @@
 //   brand        the draft brand.json made from the above (`kit`), where each value came from (`from`) and what
 //                it could not decide (`notes`); show it to the person before using it
 //
-// The draft kit maps colours to tokens by their names: bg, background, canvas or page -> bgA; surface, panel,
-// card, or a second background (bg-2, bg-alt) -> bgB; text, fg, foreground or ink -> ink; muted, subtle, dim or
-// faint -> muted; accent, primary or brand -> accent; secondary, accent-2, link or a second accent -> accent2. The
-// first one found wins (stylesheets before the Tailwind config before the manifest, whose theme_color fills
-// accent when nothing else does). A token it finds no name for is left out, for the look or the template to fill;
-// with a bgA but no bgB, bgB is bgA. Fonts: the family of each role that has a local file. Logo: the top-ranked
+// The draft kit maps colours to tokens by their names (TOKEN_EXACT and TOKEN_WORDS below; references/launch.md lists
+// every one): a whole name that is a token's exact name (--bg, --surface, --text, --muted, --accent, --accent-2 ...)
+// wins; then a name holding one of its words (--page-bg, --card, --brand-tint ...). Among each, the first one found
+// wins (stylesheets before the Tailwind config before the manifest, whose theme_color fills accent when nothing else
+// does). A token it finds no name for is left out, for the look or the template to fill; with a bgA but no bgB, bgB
+// is bgA. Fonts: the family of each role that has a local file. Logo: the top-ranked
 // file, for both grounds.
 //
 // --brand <file> also writes the draft there (usually brand.json in the project root), with its paths relative to
@@ -140,7 +144,8 @@ export function customProps(text, file) {
   }
   return out;
 }
-// The colours among custom properties, with var() aliases followed (up to five steps) to the property they name.
+// The colours among custom properties, with var() aliases followed (up to five steps) to the property they name, or
+// to their fallback (var(--x, #hex)) when --x is not declared.
 export function cssColors(props) {
   const first = new Map();
   for (const p of props) if (!first.has(p.name)) first.set(p.name, p);
@@ -148,10 +153,13 @@ export function cssColors(props) {
   for (const p of props) {
     let c = parseColor(p.value), via = null, cur = p;
     for (let k = 0; !c && k < 5; k++) {
-      const m = cur.value.match(/^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,[^)]*)?\)$/);
-      const next = m && first.get(m[1]);
-      if (!next) break;
-      cur = next; c = parseColor(cur.value); via = { name: cur.name, file: cur.file, line: cur.line };
+      const m = cur.value.match(/^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([\s\S]+))?\)$/);
+      if (!m) break;
+      const next = first.get(m[1]);
+      if (next) { cur = next; c = parseColor(cur.value); via = { name: cur.name, file: cur.file, line: cur.line }; continue; }
+      if (m[2] == null) break;
+      // --x is not declared anywhere: var(--x, <fallback>) is its fallback
+      cur = { ...cur, value: m[2].trim() }; c = parseColor(cur.value); via = { name: m[1], fallback: cur.value };
     }
     if (c) out.push({ name: p.name, value: p.value, hex: c.hex, ...(c.alpha < 1 ? { alpha: +c.alpha.toFixed(3) } : {}), kind: 'css', file: p.file, line: p.line, ...(via ? { via } : {}) });
   }
@@ -210,19 +218,35 @@ export function manifestColors(text, file) {
   return c ? [{ name: 'theme_color', value: j.theme_color, hex: c.hex, kind: 'manifest', file, line: at >= 0 ? lineAt(text, at) : 1 }] : [];
 }
 
-// The token a colour's name suggests, or null (see the header).
+// The names a colour's token is read from (references/launch.md lists every one). A colour whose whole name (after a
+// leading -- and color-) is one of a token's exact names wins over one that only holds one of its words, so an earlier
+// --highlight never takes the accent from a real --accent; among each kind, the first found.
+export const TOKEN_EXACT = {
+  bgA: ['bg', 'background'], bgB: ['surface', 'bg-2', 'bg-alt'], ink: ['text', 'fg', 'foreground'],
+  muted: ['muted', 'text-muted'], accent: ['accent', 'primary', 'brand'], accent2: ['accent-2', 'secondary'],
+};
+export const TOKEN_WORDS = {
+  bgA: ['bg', 'background', 'canvas', 'page', 'backdrop'], bgB: ['surface', 'panel', 'card', 'elevated', 'raised'],
+  ink: ['text', 'fg', 'foreground', 'ink', 'copy'], muted: ['muted', 'subtle', 'dim', 'faint'],
+  accent: ['accent', 'primary', 'brand', 'highlight', 'tint'], accent2: ['secondary', 'tertiary', 'link'],
+  second: ['alt', '2', 'secondary', 'soft'],   // with a background word: bgB
+  never: ['border', 'ring', 'shadow', 'outline', 'divider', 'overlay', 'scrim', 'hover', 'active', 'focus', 'disabled', 'selection', 'on'],
+};
+export const exactToken = (name) => {
+  const n = String(name).toLowerCase().replace(/^--/, '').replace(/^colou?r-/, '');
+  return Object.keys(TOKEN_EXACT).find((k) => TOKEN_EXACT[k].includes(n)) || null;
+};
+// The token a colour's name suggests by its words, or null (see the header).
 export function tokenFor(name) {
-  const w = words(String(name).replace(/^--/, ''));
+  const w = words(String(name).replace(/^--/, '')), T = TOKEN_WORDS;
   const has = (...xs) => xs.some((x) => w.includes(x));
-  if (has('border', 'ring', 'shadow', 'outline', 'divider', 'overlay', 'scrim', 'hover', 'active', 'focus', 'disabled', 'selection', 'on')) return null;
+  if (has(...T.never)) return null;
   if (w.some((x) => /^\d+$/.test(x) && !['2', '500'].includes(x))) return null;   // a shade of a scale (brand-100), not the colour
-  if (has('muted', 'subtle', 'dim', 'faint')) return has('bg', 'background', 'surface') ? 'bgB' : 'muted';
-  if (has('text', 'fg', 'foreground', 'ink', 'copy')) return has('secondary') ? 'muted' : 'ink';
-  if (has('bg', 'background', 'canvas', 'page', 'backdrop', 'surface', 'panel', 'card', 'elevated', 'raised')) {
-    return has('surface', 'panel', 'card', 'elevated', 'raised', 'alt', '2', 'secondary', 'soft') ? 'bgB' : 'bgA';
-  }
-  if (has('accent', 'primary', 'brand', 'highlight', 'tint')) return has('2', 'alt', 'secondary', 'tertiary') ? 'accent2' : 'accent';
-  if (has('secondary', 'tertiary', 'link')) return 'accent2';
+  if (has(...T.muted)) return has('bg', 'background', 'surface') ? 'bgB' : 'muted';
+  if (has(...T.ink)) return has('secondary') ? 'muted' : 'ink';
+  if (has(...T.bgA, ...T.bgB)) return has(...T.bgB, ...T.second) ? 'bgB' : 'bgA';
+  if (has(...T.accent)) return has('2', 'alt', 'secondary', 'tertiary') ? 'accent2' : 'accent';
+  if (has(...T.accent2)) return 'accent2';
   return null;
 }
 
@@ -242,9 +266,11 @@ export function fontFaces(text, file, resolveLocal) {
     const body = m[1], get = (k) => { const x = body.match(new RegExp(`(?:^|[;\\s{])${k}\\s*:\\s*([^;]+)`, 'i')); return x ? x[1].trim() : null; };
     const family = firstFamily(get('font-family') || '');
     if (!family) continue;
-    const urls = [...(get('src') || '').matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)].map((u) => u[2]);
-    const local = urls.filter((u) => !isRemote(u)).map((u) => resolveLocal(file, u)).filter(Boolean)
-      .sort((a, b) => FONT_EXT_RANK.indexOf(path.extname(a).toLowerCase()) - FONT_EXT_RANK.indexOf(path.extname(b).toLowerCase()));
+    // every src descriptor (a rule often has an .eot one first, for old browsers), then the best local file
+    const srcs = [...body.matchAll(/(?:^|[;\s{])src\s*:\s*([^;]+)/gi)].map((x) => x[1]);
+    const urls = srcs.flatMap((v) => [...v.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)].map((u) => u[2]));
+    const rank = (f) => { const i = FONT_EXT_RANK.indexOf(path.extname(f).toLowerCase()); return i < 0 ? FONT_EXT_RANK.length : i; };
+    const local = urls.filter((u) => !isRemote(u)).map((u) => resolveLocal(file, u)).filter(Boolean).sort((a, b) => rank(a) - rank(b));
     out.push({ family, kind: 'font-face', file: local[0] || null, ...(local[0] ? {} : { url: urls[0] || null }),
       weight: get('font-weight') || null, style: get('font-style') || null, from: { file, line: lineAt(s, m.index) } });
   }
@@ -300,19 +326,27 @@ const mdText = (s) => String(s).replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<[
   .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2').replace(/(^|\W)[*_]([^*_]+)[*_](?=\W|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/\s+/g, ' ').trim();
 const FEATURE_HEAD = /^(features?|key features|highlights?|why\b.*|what (it|you) .*|what's (in|inside)\b.*)$/i;
 const BOILER_HEAD = /^(install(ation|ing)?|getting started|quick ?start|usage|how to use|requirements|prerequisites|licen[cs]e|contributing|contributors?|development|build(ing)?|tests?|testing|changelog|faq|support|credits|acknowledg(e)?ments?|authors?|(table of )?contents|documentation|docs|api|configuration|config|setup|roadmap|security|code of conduct|sponsors?|community|links?|related|see also|examples?|status|badges)$/i;
+// An install command for this package: it names one of the package's names (a version, a range or extras cut off), or
+// installs globally, or (INSTALL_HEAD) sits under an Install-like heading. Anything else (a bare npm install in a
+// Development section, pip install -r requirements.txt) is not, and the command is made from the metadata instead.
+export const INSTALL_HEAD = /^(install(ation|ing)?|set ?up|get(ting)? started|quick ?start)\b/i;
+const GLOBAL_FLAG = /(^|\s)(-g|--global)(\s|$)|^yarn global add\b/;
+export function installsPackage(cmd, names) {
+  const want = names.map((n) => String(n).toLowerCase());
+  return String(cmd).toLowerCase().split(/\s+/).some((t) => want.includes(t.replace(/^["']|["']$/g, '').replace(/[=<>~!].*$/, '').replace(/\[.*\]$/, '').replace(/(?<=.)@[^/@]*$/, '')));
+}
 export const INSTALL_RE = /^(?:npm (?:i|install|add)|pnpm (?:add|i|install)|yarn (?:global )?add|bun (?:add|install|i)|npx|pipx? install|pip3 install|uv (?:tool )?(?:add|install)|cargo install|brew install|go install|gem install|composer (?:global )?require|deno install)\b.*|^curl\b.*\|\s*(?:ba)?sh\b.*/;
 
-export function readme(text, file) {
+// The README: its title, first sentence, install command, features and pictures. names are the package's names from its
+// metadata, for telling this package's install command from any other.
+export function readme(text, file, { names = [] } = {}) {
   const s = text.replace(/<!--[\s\S]*?-->/g, blank), lines = s.split('\n'), r = { file };
   // fenced code blocks are not prose, headings or lists; their lines are read for an install command
-  const inCode = new Array(lines.length).fill(false);
+  const inCode = new Array(lines.length).fill(false), blocks = [];
   for (let i = 0, open = null; i < lines.length; i++) {
     const f = lines[i].match(/^\s*(`{3,}|~{3,})/);
-    if (f && !open) { open = f[1][0]; inCode[i] = true; continue; }
-    if (open) { inCode[i] = true; if (f && f[1][0] === open) open = null; else if (!r.install) {
-      const cmd = lines[i].trim().replace(/^[$>%]\s+/, '');
-      if (INSTALL_RE.test(cmd)) r.install = { value: cmd, file, line: i + 1 };
-    } }
+    if (f && !open) { open = f[1][0]; inCode[i] = true; blocks.push([]); continue; }
+    if (open) { inCode[i] = true; if (f && f[1][0] === open) open = null; else blocks[blocks.length - 1].push(i); }
   }
   const heads = [];
   for (let i = 0; i < lines.length; i++) {
@@ -322,10 +356,25 @@ export function readme(text, file) {
     if (!m) { const h = lines[i].match(/<h([1-3])\b[^>]*>(.*?)<\/h\1>/i); if (h) { level = +h[1]; text = h[2]; m = true; } }
     if (m && mdText(text)) heads.push({ level, text: mdText(text), line: i + 1 });
   }
-  const h1 = heads.find((h) => h.level === 1);
-  if (h1) r.name = { value: h1.text, file, line: h1.line };
+  // the title: the first heading, at any level, when only pictures, badges and HTML come before it
+  const title = heads[0] && lines.slice(0, heads[0].line - 1).every((l, i) => !inCode[i] && /^\s*($|<|!\[|\[!\[)/.test(l)) ? heads[0] : null;
+  if (title) r.name = { value: title.text, file, line: title.line };
+  // the install command: the first one in a code block (a line ending in \ goes on to the next) that installs this
+  // package (it names it, or installs globally) or sits under an Install-like heading
+  const want = [...names, title && title.text].filter(Boolean).map((n) => String(n).toLowerCase());
+  const under = (i) => { let h = null; for (const x of heads) if (x.line - 1 < i) h = x; return h; };
+  find: for (const b of blocks) {
+    for (let k = 0; k < b.length; k++) {
+      const at = b[k];
+      let cmd = lines[at].trim().replace(/^[$>%]\s+/, '');
+      while (cmd.endsWith('\\') && k + 1 < b.length) cmd = cmd.slice(0, -1).trim() + ' ' + lines[b[++k]].trim();
+      if (!INSTALL_RE.test(cmd)) continue;
+      const h = under(at);
+      if (installsPackage(cmd, want) || GLOBAL_FLAG.test(cmd) || (h && INSTALL_HEAD.test(h.text))) { r.install = { value: cmd, file, line: at + 1 }; break find; }
+    }
+  }
   // the first paragraph of prose after the title: its first sentence
-  for (let i = h1 ? h1.line : 0, para = [], at = 0; i <= lines.length; i++) {
+  for (let i = title ? title.line : 0, para = [], at = 0; i <= lines.length; i++) {
     const l = i < lines.length && !inCode[i] ? lines[i].trim() : '';
     const prose = l && !/^(#|!\[|\[!\[|<|\||[-*+] |\d+[.)] |>|=+$|-+$)/.test(l);
     if (prose) { if (!para.length) at = i + 1; para.push(l); continue; }
@@ -339,14 +388,14 @@ export function readme(text, file) {
   // features: the list items under feature-like headings, then the other section headings that are not boilerplate
   const feats = [];
   heads.forEach((h, k) => {
-    if (!FEATURE_HEAD.test(h.text)) return;
+    if (h === title || !FEATURE_HEAD.test(h.text)) return;
     const end = k + 1 < heads.length ? heads.slice(k + 1).find((x) => x.level <= h.level)?.line ?? lines.length + 1 : lines.length + 1;
     for (let i = h.line; i < end - 1; i++) {
       const li = !inCode[i] && lines[i].match(/^\s?(?:[-*+]|\d+[.)])\s+(.+)$/);
       if (li && mdText(li[1])) feats.push({ text: mdText(li[1]), kind: 'item', file, line: i + 1 });
     }
   });
-  for (const h of heads) if (h.level >= 2 && h.level <= 3 && !FEATURE_HEAD.test(h.text) && !BOILER_HEAD.test(h.text)) feats.push({ text: h.text, kind: 'heading', file, line: h.line });
+  for (const h of heads) if (h !== title && h.level >= 2 && h.level <= 3 && !FEATURE_HEAD.test(h.text) && !BOILER_HEAD.test(h.text)) feats.push({ text: h.text, kind: 'heading', file, line: h.line });
   r.features = feats;
   r.images = [...s.matchAll(/!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)].map((m) => ({ src: m[1] || m[2], line: lineAt(s, m.index) }));
   return r;
@@ -452,8 +501,8 @@ export function scanRepo(rootArg, { cwd = ROOT, kitDir = null } = {}) {
   for (const f of fonts) f.roles = [...new Set(roles.filter((r) => r.family.toLowerCase() === String(f.family).toLowerCase()).map((r) => r.role))];
 
   const rd = ['README.md', 'readme.md', 'Readme.md', 'README.markdown', 'README.rst', 'README.txt', 'README'].find(has);
-  const R = rd ? readme(readText(byRel.get(rd)), rd) : { features: [], images: [] };
   const meta = packageMeta(root, has);
+  const R = rd ? readme(readText(byRel.get(rd)), rd, { names: meta.name ? [meta.name.value] : [] }) : { features: [], images: [] };
   const name = R.name || meta.name || { value: path.basename(root), file: null, line: null };
   const readmeRefs = R.images.filter((im) => !isRemote(im.src)).map((im) => resolveLocal(rd, im.src)).filter(Boolean);
   const images = files.map((f) => f.rel).filter((r) => IMAGE_EXT.has(path.extname(r).toLowerCase()));
@@ -484,10 +533,13 @@ export function scanRepo(rootArg, { cwd = ROOT, kitDir = null } = {}) {
 export function draftBrand(scan, kitDir, root) {
   const kit = { name: scan.name.value }, from = { name: scan.name.file ? `${scan.name.file}:${scan.name.line}` : 'the folder\'s name' }, notes = [];
   const colors = {};
-  for (const c of scan.colors) {
-    if (c.alpha != null && c.alpha < 1) continue;
-    const tok = c.kind === 'manifest' ? null : tokenFor(c.name);
-    if (tok && !colors[tok]) { colors[tok] = c.hex; from[`colors.${tok}`] = `${c.file}:${c.line} ${c.name}`; }
+  // exact names first, then the names that only hold a token's word
+  for (const read of [exactToken, tokenFor]) {
+    for (const c of scan.colors) {
+      if (c.alpha != null && c.alpha < 1) continue;
+      const tok = c.kind === 'manifest' ? null : read(c.name);
+      if (tok && !colors[tok]) { colors[tok] = c.hex; from[`colors.${tok}`] = `${c.file}:${c.line} ${c.name}`; }
+    }
   }
   const theme = scan.colors.find((c) => c.kind === 'manifest');
   if (!colors.accent && theme) { colors.accent = theme.hex; from['colors.accent'] = `${theme.file}:${theme.line} theme_color`; }

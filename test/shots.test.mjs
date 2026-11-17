@@ -19,7 +19,23 @@ const SH = await import(pathToFileURL(path.join(templateDir, 'tools', 'shots.mjs
 const lib = await import(pathToFileURL(path.join(templateDir, 'lib.js')).href);
 const P = (dir, f) => path.join(dir, f);
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const shots = (dir, args) => { const r = spawnSync(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, encoding: 'utf8', timeout: 180000 }); return { status: r.status, out: (r.stdout || '') + (r.stderr || '') }; };
+// Every child is bounded (60 s; a capture here takes a few): one that leaves Chrome open never exits, and the test fails.
+// Each runs with a TMPDIR of its piece's own, so a Chrome a killed child leaves behind is found by that path and killed.
+const childTmp = (dir) => { const t = path.join(dir, '.chrome-tmp'); fs.mkdirSync(t, { recursive: true }); return t; };
+const reap = (tmp) => spawnSync('pkill', ['-f', tmp]);
+const shots = (dir, args) => {
+  const tmp = childTmp(dir);
+  const r = spawnSync(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, encoding: 'utf8', timeout: 60000, killSignal: 'SIGKILL', env: { ...process.env, TMPDIR: tmp + path.sep } });
+  if (r.signal) reap(tmp);
+  return { status: r.signal ? `killed (${r.signal})` : r.status, out: (r.stdout || '') + (r.stderr || '') };
+};
+const spawnBounded = (dir, args) => new Promise((ok) => {
+  const tmp = childTmp(dir);
+  const p = spawn(process.execPath, ['tools/shots.mjs', ...args], { cwd: dir, env: { ...process.env, TMPDIR: tmp + path.sep } }); let s = '';
+  const t = setTimeout(() => p.kill('SIGKILL'), 60000);
+  p.stdout.on('data', (d) => (s += d)); p.stderr.on('data', (d) => (s += d));
+  p.on('close', (c, sig) => { clearTimeout(t); if (sig) reap(tmp); ok({ c: sig ? `killed (${sig})` : c, s }); });
+});
 const VP = ['--viewport', '135x240', '--dpr', '2'];
 const PAGE_H = 3000, VIEW_H = 240, DPR = 2, LANDMARKS = Array.from({ length: 14 }, (_, k) => ({ k, top: 200 * (k + 1), w: 8 + 6 * k }));
 
@@ -191,8 +207,83 @@ test('refusals: a page that is not local, a scroll past the page\'s end, a viewp
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   try {
     const url = `http://127.0.0.1:${server.address().port}/`;
-    const out = await new Promise((ok) => { const p = spawn(process.execPath, ['tools/shots.mjs', 'page', 'app', url, '--viewport', '135x240'], { cwd: dir }); let s = ''; p.stdout.on('data', (d) => (s += d)); p.stderr.on('data', (d) => (s += d)); p.on('close', (c) => ok({ c, s })); });
+    const out = await spawnBounded(dir, ['page', 'app', url, '--viewport', '135x240']);
     assert.equal(out.c, 0, out.s);
     assert.deepEqual([rgb(P(dir, 'assets/shots/app.png')).w, rgb(P(dir, 'assets/shots/app.png')).h], [135, PAGE_H]);
   } finally { server.close(); }
+});
+
+// ---------------------------------------------------------------- council round 1 (items 1 to 3)
+import os from 'node:os';
+// shots() called in a child that catches its error, as a caller does: the child exits only when no Chrome is left open.
+// Its TMPDIR is its own, so any Chrome it leaves is found (and killed) by that path.
+function inProcess(dir, args, pre = '') {
+  const tmp = P(dir, '.chrome-tmp');
+  fs.mkdirSync(tmp, { recursive: true });
+  const code = `import fs from 'node:fs'; import { shots } from './tools/shots.mjs'; ${pre}
+try { await shots(${JSON.stringify(args)}, () => {}); console.log('DONE'); } catch (e) { console.log('ERR ' + String(e.message).split('\\n')[0]); }`;
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: dir, encoding: 'utf8', timeout: 30000, killSignal: 'SIGKILL', env: { ...process.env, TMPDIR: tmp + path.sep } });
+  const left = () => execFileSync('ps', ['-ax', '-o', 'command='], { encoding: 'utf8' }).split('\n').filter((l) => l.includes(tmp)).length;
+  const out = { status: r.status, signal: r.signal, out: (r.stdout || '') + (r.stderr || ''), ms: Date.now() - t0, chrome: left() };
+  if (out.chrome) spawnSync('pkill', ['-f', tmp]);
+  return out;
+}
+
+test('R1-1 Chrome closes whatever throws after it launches: a folder that cannot be made, a temp file that cannot be removed', () => {
+  const dir = piece('shots-r1-close');
+  fs.mkdirSync(P(dir, 'assets'), { recursive: true });
+  fs.writeFileSync(P(dir, 'assets/shots'), 'a file where the shots folder goes');
+  const a = inProcess(dir, ['page', 'x', 'tall.html', '--viewport', '135x240']);
+  assert.equal(a.signal, null, `the caller hung on an open Chrome (${a.ms} ms):\n${a.out}`);
+  assert.match(a.out, /^ERR /m);
+  assert.equal(a.chrome, 0, 'no Chrome is left running');
+  fs.rmSync(P(dir, 'assets/shots'));
+  // the screenshot's temp path is a folder (so the capture fails) that the cleanup cannot remove without recursing
+  const b = inProcess(dir, ['page', 'x', 'tall.html', '--viewport', '135x240'], "fs.mkdirSync(`assets/shots/.x.tmp-${process.pid}.png/inner`, { recursive: true });");
+  assert.equal(b.signal, null, `the caller hung on an open Chrome (${b.ms} ms):\n${b.out}`);
+  assert.match(b.out, /^ERR /m);
+  assert.equal(b.chrome, 0, 'no Chrome is left running');
+  // and a capture that works still closes it
+  const c = inProcess(dir, ['seq', 's', 'tall.html', '--viewport', '135x240', '--dur', '0.1', '--scroll', '0:10']);
+  assert.deepEqual([c.signal, c.chrome], [null, 0], c.out);
+  assert.match(c.out, /^DONE$/m);
+});
+
+// A non-loopback address of this machine: a host shots.mjs must not capture, that still answers locally.
+const lan = Object.values(os.networkInterfaces()).flat().find((n) => n && n.family === 'IPv4' && !n.internal);
+test('R1-2 a local app that redirects off this machine is refused, and nothing is written', { skip: !lan && 'this machine has no non-loopback IPv4 address' }, async () => {
+  const dir = piece('shots-r1-redirect');
+  const page = fs.readFileSync(P(dir, 'tall.html'));
+  const server = http.createServer((req, res) => {
+    if (req.url === '/start') { res.writeHead(302, { location: `http://${lan.address}:${server.address().port}/page` }); return res.end(); }
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end(page);
+  });
+  await new Promise((ok) => server.listen(0, '0.0.0.0', ok));
+  const run = (args) => spawnBounded(dir, args);
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const ok = await run(['page', 'home', `${base}/page`, '--viewport', '135x240']);
+    assert.equal(ok.c, 0, `the same page, served on 127.0.0.1, is captured: ${ok.s}`);
+    for (const args of [['page', 'away', `${base}/start`, '--viewport', '135x240'], ['seq', 'away', `${base}/start`, '--viewport', '135x240', '--dur', '0.1', '--scroll', '0:10']]) {
+      const r = await run(args);
+      assert.equal(r.c, 1, `${args[0]}: ${r.s}`);
+      assert.match(r.s, new RegExp(`refused: ${base.replace(/[.]/g, '\\.')}/start went to http://${lan.address.replace(/[.]/g, '\\.')}:\\d+/page, which is not on this machine`));
+    }
+    assert.ok(!fs.existsSync(P(dir, 'assets/shots/away.png')), 'no shot of the page it went to');
+    assert.ok(!fs.existsSync(P(dir, 'assets/seq/away')), 'no sequence of it');
+  } finally { server.close(); }
+});
+
+test('R1-3 a page whose clock moves its own scroll is refused at that frame, not captured at the wrong position', () => {
+  const dir = piece('shots-r1-scroll');
+  // after its second frame callback, the page scrolls itself back to the top on every frame
+  fs.writeFileSync(P(dir, 'jumpy.html'), fs.readFileSync(P(dir, 'tall.html'), 'utf8').replace('</script>',
+    "let n = 0; const back = () => { if (++n > 1) window.scrollTo(0, 0); requestAnimationFrame(back); }; requestAnimationFrame(back);\n</script>"));
+  const r = shots(dir, ['seq', 'j', 'jumpy.html', ...VP, '--dur', '0.3', '--scroll', '100:500']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /refused: frame 1: the page moved its own scroll to 0 px when its clock ran, not \d+/);
+  assert.ok(!fs.existsSync(P(dir, 'assets/seq/j')), 'nothing written');
+  // the same page without the loop is captured
+  assert.equal(shots(dir, ['seq', 't', 'tall.html', ...VP, '--dur', '0.3', '--scroll', '100:500']).status, 0);
 });

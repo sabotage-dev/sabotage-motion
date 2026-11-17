@@ -76,16 +76,20 @@ Read the `scene.js` header before writing a scene. The rules that keep frames co
 Steps marked (voice) are skipped for silent pieces: stings, end cards, loops, overlays.
 
 **A launch video for a repo** (a CLI, a library, an app) runs this workflow with a scan in front of it; follow
-`references/launch.md`, in this order:
+`references/launch.md`, in this order. Start the piece from the template, inside the project; the `repo-launch` example
+is a reference only, never a starting point. Every file the work makes stays inside the piece (temporary ones too).
 1. **Scan** the project: `node tools/repo-scan.mjs <project>` prints its name, pitch, install command, features, colours
    (each with its file and line), fonts, logo candidates and screenshots, and never touches the network.
-2. **Write `brand.json` from what the scan found** (`--brand <project>/brand.json` writes the draft) and **show it**,
-   with the brand sheet and the scan's notes, before using it.
+2. **Write `brand.json` from what the scan found** (`--brand <project>/brand.json` writes the draft), render the kit
+   sheet (`node render.mjs brand`) and **show it**, with the scan's notes, before using it.
 3. **Write the board**: a hook, the install in a terminal (`terminal` in `code.js`), two or three feature beats with
    code or screenshots in a frame (`node tools/shots.mjs` pictures a local page), and an end card with the logo and the
    install command.
-4. **Show the board** (`node render.mjs board --slates`) before rendering.
+4. **Show the board**: render the board sheet (`node render.mjs board --slates`) before rendering.
 5. **Render, mix, `palette` and `check`**: step 10 below.
+
+Both sheets, `brand.png` and `board.png`, are always rendered before the full render, even when nobody can approve them
+now (the request asked for the finished file): go on, and name both in your reply.
 
 1. **Pin the brief.** The destination (it sets the size, fps and safe area: pick a target in `safezones.json`),
    the duration, the exact copy, and where the asset lives (a standalone clip, an overlay on footage, a website

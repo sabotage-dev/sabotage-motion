@@ -29,7 +29,8 @@
 //
 // loadSeq holds every frame decoded (w x h x 4 bytes), so a sequence over 1 GB decoded (frames x w x h x 4 bytes,
 // w and h in device pixels) is refused before anything is captured: lower the size (--viewport, --dpr) or the
-// length (--dur). A --scroll past the page's end is refused too. There is no live screen recording: every frame is
+// length (--dur). A --scroll past the page's end is refused too, and so is a page that moves its own scroll when its
+// clock runs, and a local app that redirects off this machine. There is no live screen recording: every frame is
 // set, then taken. The page's own network requests are its own; nothing here fetches anything else.
 // Exit 2 on a usage error, 1 when it refuses (nothing is written then; an older sequence of the name stays).
 import fs from 'node:fs';
@@ -60,6 +61,17 @@ export const clockAt = (i, fps) => Math.round((i * 1000) / fps);
 
 // A local source: a running local app's URL, or an HTML file in or beside the piece.
 const LOCAL_HOSTS = (h) => h === 'localhost' || h.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(h) || h === '::1' || h === '0.0.0.0';
+// Whether the URL a page ended up at is still local: a file, or an http(s) page on this machine. A local app that
+// redirects to another host is refused before anything is captured.
+export function isLocalUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol === 'file:') return true;
+  return ['http:', 'https:'].includes(u.protocol) && LOCAL_HOSTS(u.hostname.replace(/^\[|\]$/g, ''));
+}
+const stillLocal = (page, src) => {
+  if (!isLocalUrl(page.url())) throw new FramesError(`${src.label} went to ${page.url()}, which is not on this machine: shots.mjs takes pictures of local pages only`);
+};
 export function localSource(arg, root = ROOT) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(arg) && !/^file:/i.test(arg)) {
     let u;
@@ -100,6 +112,18 @@ const posNum = (o, k, def) => {
 };
 
 const launch = () => chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), headless: true });
+// Runs work(browser) on a Chrome launched inside the try, so whatever throws after the launch (a folder that cannot be
+// made, the page, a frame) closes it; Chrome closes first, then cleanup() removes the temporary files, so a cleanup that
+// throws cannot leave Chrome running either.
+async function withChrome(work, cleanup) {
+  let browser = null;
+  try {
+    browser = await launch();
+    return await work(browser);
+  } finally {
+    try { if (browser) await browser.close(); } finally { cleanup(); }
+  }
+}
 async function open(browser, src, vp, dpr, { clock = false } = {}) {
   const context = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: dpr });
   // the page's clock, installed on the context and paused before the page exists, at a time ahead of any setup, so the
@@ -108,6 +132,7 @@ async function open(browser, src, vp, dpr, { clock = false } = {}) {
   if (clock) { await context.clock.install({ time: 0 }); await context.clock.pauseAt(CLOCK0); }
   const page = await context.newPage();
   await page.goto(src.url, { waitUntil: src.http ? 'networkidle' : 'load' });
+  stillLocal(page, src);
   await page.evaluate(() => document.fonts.ready);
   return page;
 }
@@ -143,10 +168,9 @@ export async function shots(argv, log = console.log) {
 }
 
 async function pageShot(name, src, vp, dpr, log) {
-  const browser = await launch();
-  fs.mkdirSync(SHOTS_DIR, { recursive: true });
   const out = path.join(SHOTS_DIR, `${name}.png`), tmp = path.join(SHOTS_DIR, `.${name}.tmp-${process.pid}.png`);
-  try {
+  return withChrome(async (browser) => {
+    fs.mkdirSync(SHOTS_DIR, { recursive: true });
     const page = await open(browser, src, vp, dpr);
     const full = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0));
     await page.screenshot({ path: tmp, type: 'png', fullPage: true, animations: 'disabled', caret: 'hide' });
@@ -155,19 +179,15 @@ async function pageShot(name, src, vp, dpr, log) {
     log(`shots: ${name}: ${src.label} at ${vp.w}x${vp.h} (dpr ${dpr}), the full page: ${w}x${h} px (${full} CSS px tall)`);
     log(`wrote assets/shots/${name}.png`);
     return { file: path.relative(ROOT, out), w, h, cssHeight: full };
-  } finally {
-    fs.rmSync(tmp, { force: true });
-    await browser.close();
-  }
+  }, () => fs.rmSync(tmp, { force: true }));
 }
 
 async function seqShots(name, src, s, log) {
-  fs.mkdirSync(SEQ_DIR, { recursive: true });
   const tmp = path.join(SEQ_DIR, `.${name}.tmp-${process.pid}`);
-  fs.rmSync(tmp, { recursive: true, force: true });
-  fs.mkdirSync(tmp);
-  const browser = await launch();
-  try {
+  return withChrome(async (browser) => {
+    fs.mkdirSync(SEQ_DIR, { recursive: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.mkdirSync(tmp);
     const page = await open(browser, src, s.vp, s.dpr, { clock: true });
     const max = await page.evaluate(() => Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
     if (Math.max(s.from, s.to) > max) throw new FramesError(`--scroll ${s.from}:${s.to}: ${src.label} scrolls to at most ${max} px at a ${s.vp.w}x${s.vp.h} viewport`);
@@ -188,6 +208,9 @@ async function seqShots(name, src, s, log) {
           a.currentTime = (t - seen.get(a)) * 1000;
         }
       }, t);
+      // the clock step may have run page code that moved the scroll: check it again right before the picture
+      const now = await page.evaluate(() => window.scrollY);
+      if (Math.abs(now - y) > 0.01) throw new FramesError(`frame ${i}: the page moved its own scroll to ${now} px when its clock ran, not ${y}: shots.mjs cannot set the scroll of a page that sets it`);
       await page.screenshot({ path: path.join(tmp, `${String(i).padStart(3, '0')}.png`), type: 'png', animations: 'allow', caret: 'hide' });
     }
     const { w, h } = pngSize(path.join(tmp, '000.png'));
@@ -197,10 +220,7 @@ async function seqShots(name, src, s, log) {
     log(`  held decoded in memory by loadSeq: about ${(seqBytes({ frames: s.frames, w, h }) / (1 << 20)).toFixed(0)} MB`);
     log(`wrote assets/seq/${name}/000.png ... ${String(s.frames - 1).padStart(3, '0')}.png and assets/seq/manifest.json`);
     return entry;
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-    await browser.close();
-  }
+  }, () => fs.rmSync(tmp, { recursive: true, force: true }));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

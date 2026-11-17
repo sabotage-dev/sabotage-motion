@@ -125,7 +125,8 @@ test('colours from a Tailwind config, read as text and never run: nested, extend
   ]);
   assert.ok(r.json.colors.every((c) => c.kind === 'tailwind'));
   assert.ok(!fs.existsSync(path.join(dir, 'RAN')), 'the scan ran the config');
-  assert.deepEqual(r.json.brand.kit.colors, { bgA: '#5E2404', bgB: '#5E2404', accent: '#98BC0C', accent2: '#F2B8C0' });
+  // secondary is an exact name, so it takes accent2 from secondary-light, found first but only by its word
+  assert.deepEqual(r.json.brand.kit.colors, { bgA: '#5E2404', bgB: '#5E2404', accent: '#98BC0C', accent2: '#E88090' });
 });
 
 test('a web manifest\'s theme_color, with its file and line; it fills the accent only when no colour is named for it', () => {
@@ -329,4 +330,72 @@ test('it writes nothing without --brand; --brand writes the draft kit (relative 
   // usage errors
   assert.equal(scan(path.join(dir, 'nope')).status, 2);
   assert.equal(scan(dir, ['--brnad', 'x.json']).status, 2);
+});
+
+// ---------------------------------------------------------------- council round 1 (items 4 to 8)
+test('R1-4 the install command: continuations joined; only one that installs this package or sits under an Install heading', () => {
+  const pkg = '{\n  "name": "snagwick",\n  "bin": { "snagwick": "cli.js" }\n}\n';
+  // a bare npm install and a requirements install in Development are not this package's install command
+  const dev = scan(project('install-dev', { 'package.json': pkg, 'README.md': '# Snagwick\n\nIt finds TODOs.\n\n## Development\n\n```sh\nnpm install\npip install -r requirements.txt\nnpm test\n```\n' })).json;
+  assert.deepEqual(dev.install, { value: 'npm install -g snagwick', file: 'package.json', line: 2, derived: true });
+  // a command split over lines with \ is one command
+  const cont = scan(project('install-cont', { 'package.json': pkg, 'README.md': '# Snagwick\n\n## Usage\n\n```sh\n$ npm install --save-dev \\\n    snagwick\n```\n' })).json;
+  assert.deepEqual(cont.install, { value: 'npm install --save-dev snagwick', file: 'README.md', line: 6 });
+  // a global install, or any install under an Install-like heading, is taken; a versioned name is still the name
+  const glob = scan(project('install-global', { 'README.md': '# Tool\n\n## Usage\n\n```sh\nnpm i -g some-cli\n```\n' })).json;
+  assert.equal(glob.install.value, 'npm i -g some-cli');
+  const head = scan(project('install-head', { 'README.md': '# Tool\n\n## Getting started\n\n```sh\nnpm install\n```\n' })).json;
+  assert.deepEqual(head.install, { value: 'npm install', file: 'README.md', line: 6 });
+  const ver = scan(project('install-ver', { 'package.json': pkg, 'README.md': '# Snagwick\n\n## Usage\n\n```sh\nnpm install lodash\npnpm add snagwick@1.2.0\n```\n' })).json;
+  assert.equal(ver.install.value, 'pnpm add snagwick@1.2.0', 'lodash is not this package');
+  assert.equal(S.installsPackage('pip install "snagwick[cli]>=1.0"', ['snagwick']), true);
+  assert.equal(S.installsPackage('npm install snagwick-plugin', ['snagwick']), false);
+});
+
+test('R1-5 @font-face: every src is read, woff2 first, then woff, ttf, otf, and other formats last', () => {
+  const dir = project('fonts-src', {
+    'a.css': [
+      "@font-face { font-family: 'Two Src'; src: url('f/two.eot'); src: url('f/two.eot?#iefix') format('embedded-opentype'), url('f/two.woff') format('woff'), url('f/two.woff2') format('woff2'); }",
+      "@font-face { font-family: 'Eot First'; src: url(f/one.eot) format('embedded-opentype'), url(f/one.ttf) format('truetype'); }",
+    ].join('\n'),
+    'f/two.eot': 'x', 'f/two.woff': 'x', 'f/two.woff2': 'x', 'f/one.eot': 'x', 'f/one.ttf': 'x',
+  });
+  const r = scan(dir);
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(r.json.fonts.map((f) => [f.family, f.file]), [['Two Src', 'f/two.woff2'], ['Eot First', 'f/one.ttf']]);
+});
+
+test('R1-6 var(--x, <colour>) is its fallback when --x is not declared', () => {
+  const r = scan(project('var-fallback', { 'a.css': ':root {\n  --accent: var(--brand-accent, #98BC0C);\n  --bg: var(--page-bg, rgb(94, 36, 4));\n  --text: var(--ink, var(--fg, #FAEBDC));\n  --fg: #FFFFFF;\n}\n' }));
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(r.json.colors.map((c) => [c.name, c.hex, c.line]), [['--accent', '#98BC0C', 2], ['--bg', '#5E2404', 3], ['--text', '#FFFFFF', 4], ['--fg', '#FFFFFF', 5]]);
+  assert.deepEqual(r.json.colors[0].via, { name: '--brand-accent', fallback: '#98BC0C' });
+  assert.equal(r.json.colors[2].via.name, '--fg', 'a declared var in the fallback is followed');
+});
+
+test('R1-7 the name is the README\'s title at any level, and the title is not a feature', () => {
+  const pkg = '{ "name": "snagwick-cli", "description": "Every TODO, on one board." }';
+  const h2 = scan(project('title-h2', { 'package.json': pkg, 'README.md': '<p align="center"><img src="logo.svg" width="80"></p>\n\n## Snagwick\n\nSnagwick finds every TODO.\n\n## Features\n\n- Finds TODOs\n\n## How it works\n' })).json;
+  assert.deepEqual(h2.name, { value: 'Snagwick', file: 'README.md', line: 3 });
+  assert.deepEqual(h2.features.map((f) => f.text), ['Finds TODOs', 'How it works']);
+  const h3 = scan(project('title-h3', { 'README.md': '### Snagwick\nSnagwick finds every TODO.\n' })).json;
+  assert.deepEqual(h3.name, { value: 'Snagwick', file: 'README.md', line: 1 });
+  // a README that opens on prose has no title: its first section heading is not the name
+  const prose = scan(project('title-none', { 'package.json': pkg, 'README.md': 'Snagwick finds every TODO in your code.\n\n## Install\n\n```sh\nnpm i -g snagwick-cli\n```\n' })).json;
+  assert.deepEqual(prose.name, { value: 'snagwick-cli', file: 'package.json', line: 1 });
+});
+
+test('R1-8 a token\'s exact name wins over a name that only holds one of its words, whichever comes first', () => {
+  const r = scan(project('exact-names', { 'a.css': ':root {\n  --highlight: #FF0000;\n  --backdrop: #111111;\n  --copy: #000000;\n  --card: #222222;\n  --text: #FAEBDC;\n  --bg: #5E2404;\n  --accent: #98BC0C;\n  --surface: #6E2C02;\n}\n' }));
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(r.json.brand.kit.colors, { bgA: '#5E2404', bgB: '#6E2C02', ink: '#FAEBDC', accent: '#98BC0C' });
+  assert.equal(r.json.brand.from['colors.accent'], 'a.css:8 --accent');
+  // the exact names, each its token's; and still read by its words
+  for (const [tok, names] of Object.entries(S.TOKEN_EXACT)) for (const n of names) {
+    assert.equal(S.exactToken(`--${n}`), tok, n); assert.equal(S.exactToken(`--color-${n}`), tok, `color-${n}`); assert.equal(S.tokenFor(`--${n}`), tok, `words of ${n}`);
+  }
+  for (const n of ['--highlight', '--page', '--brand-tint', '--copy', '--card']) assert.equal(S.exactToken(n), null, n);
+  // with no exact name, the first name holding a word still wins
+  const words = scan(project('word-names', { 'a.css': ':root { --highlight: #FF0000; --brand-tint: #00FF00; }' })).json;
+  assert.equal(words.brand.kit.colors.accent, '#FF0000');
 });

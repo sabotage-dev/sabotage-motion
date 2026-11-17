@@ -48,6 +48,29 @@ test('repo-launch: assets/shots/app.png is the page tools/shots.mjs takes of fix
   assert.equal(w, 780, 'a 390 px viewport at dpr 2');
   assert.equal(w2, w);
   assert.ok(Math.abs(h2 - h) <= h * 0.01, `the committed shot is ${h} px tall, a fresh one ${h2}`);
+  // R1-9: the committed shot is the page, landmark by landmark. Each card is a run of rows in the kit's bgB at x = 50
+  // (inside the cards' left padding, past the body's); the fresh capture and the committed one have the same cards at the
+  // same heights (within 1% of the page, for another platform's text), and the logo's tile in the header. A blank or a
+  // wrong image of the right size fails.
+  const rgb = (f) => execFileSync('ffmpeg', ['-v', 'error', '-i', f, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 28 });
+  const near = (px, o, hex, d = 3) => C.ciede2000(C.rgbToLab(px[o], px[o + 1], px[o + 2]), C.hexToLab(hex)) <= d;
+  const landmarks = (f, height) => {
+    const px = rgb(f), runs = [];
+    for (let y = 0, from = -1; y <= height; y++) {
+      const on = y < height && near(px, (y * w + 50) * 3, kit.colors.bgB);
+      if (on && from < 0) from = y;
+      if (!on && from >= 0) { if (y - from >= 20) runs.push([from, y]); from = -1; }
+    }
+    let logo = 0;
+    for (let y = 0; y < 200; y++) for (let x = 36; x < 130; x++) if (near(px, (y * w + x) * 3, kit.colors.accent, 5)) logo++;
+    return { runs, logo };
+  };
+  const cards = (fs.readFileSync(path.join(dir, 'fixture', 'app', 'index.html'), 'utf8').match(/class="card"/g) || []).length;
+  const old = landmarks(path.join(dir, 'assets', 'shots', 'app.png'), h), fresh = landmarks(path.join(work, 'assets', 'shots', 'app.png'), h2);
+  assert.equal(fresh.runs.length, cards, `the fresh capture shows the page's ${cards} cards`);
+  assert.equal(old.runs.length, cards, `the committed shot shows ${old.runs.length} of the page's ${cards} cards`);
+  old.runs.forEach(([a], i) => assert.ok(Math.abs(a - fresh.runs[i][0]) <= h * 0.01, `card ${i + 1}: at ${a} px in the committed shot, ${fresh.runs[i][0]} in a fresh one`));
+  assert.ok(old.logo > 2000 && fresh.logo > 2000, `the logo's tile in the header: ${old.logo} and ${fresh.logo} px of the kit's accent`);
   // most of the shot is the kit's background pair
   const px = execFileSync('ffmpeg', ['-v', 'error', '-i', path.join(dir, 'assets', 'shots', 'app.png'), '-vf', 'scale=195:-1:flags=neighbor', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 26 });
   const bg = [kit.colors.bgA, kit.colors.bgB].map((x) => C.hexToLab(x));

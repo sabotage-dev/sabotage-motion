@@ -34,8 +34,11 @@ above this one):
 
 ```sh
 node tools/repo-scan.mjs fixture --brand brand.json     # the scan (JSON) and the draft kit
+node render.mjs doctor                                  # Chrome, WebGL2, ffmpeg, and the kit's files, colours and faces
+node render.mjs brand                                   # brand.png: the kit sheet, shown before anything is animated
 node tools/shots.mjs page app fixture/app/index.html --viewport 390x844 --dpr 2   # assets/shots/app.png
-node render.mjs board                                   # board.png and board.md
+node render.mjs board --slates                          # board.png as slates: the board, shown before rendering
+node render.mjs board                                   # board.png and board.md, from the finished scene
 node render.mjs contact                                 # contact.png
 node render.mjs check                                   # the source: 0 FAIL, 0 WARN
 node render.mjs palette                                 # the colour match against brand.json: pass
@@ -53,7 +56,8 @@ node render.mjs check --file out/repo-launch-final.mp4  # the master: 0 FAIL, 0 
   its files; here the project sits inside the piece instead.
 - **The shot** is one full-page screenshot of the static page at a 390x844 viewport, 2 device pixels to each CSS pixel
   (780x4284 px). The page does not move, so the scene pans the one image rather than holding a frame sequence.
-- **The board** was shown as slates (`node render.mjs board --slates`) before anything was animated.
+- **The kit sheet and the board** were rendered (`node render.mjs brand`, `node render.mjs board --slates`) and looked
+  at before anything was animated; the committed `board.png` is the later one, from the finished scene.
 
 Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-15):
 
