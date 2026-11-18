@@ -625,7 +625,7 @@ const M = [
   ["P11b-2 cuts: exactly 20% is not a cut", T + 'check.mjs', [["if (share >= E.cut.share - EPS) { confirmed.push(g); return; }", "if (share > E.cut.share + EPS) { confirmed.push(g); return; }"]], EMU],
   ["P11b-2 cuts: a cut with no shot beside it confirmed silently", T + 'check.mjs', [["    if (g.before == null || g.after == null) {\n      extra.push(", "    if (g.before == null || g.after == null) {\n      if (false) extra.push("]], EMT],
   ["P11b-2 shot: length / cuts, not cuts + 1", T + 'check.mjs', [["const shot = x.dur / (confirmed.length + 1);", "const shot = x.dur / Math.max(1, confirmed.length);"]], EMU],
-  ["P11b-2 shot: judged at the preset's tempo, not the piece's", T + 'check.mjs', [["beat = 60 / x.tempo.bpm,", "beat = 60 / ENERGY_RANGES[x.energy].bpm,"]], EMU],
+  ["P11b-2 shot: judged at the preset's tempo, not the piece's", T + 'check.mjs', [["beat = 60 / x.tempo.bpm,", "beat = 60 / ENERGY[x.energy].bpm,"]], EMU],
   ["P11b-2 motion: holds counted", T + 'check.mjs', [["    if (holds.some(([h0, h1]) => mid >= h0 - EPS && mid < h1 - EPS)) return;", ""]], EMT],
   ["P11b-2 motion: pairs at a confirmed cut counted", T + 'check.mjs', [["    if (confirmed.some((g) => meets(g.a, g.b))) return;\n", ""]], EMU],
   ["P11b-2 motion: pairs in a declared transition counted", T + 'check.mjs', [["    if (cuts.some((c) => (c.d || 0) > 0 && meets(c.t, c.t + c.d))) return;\n", ""]], EMU],
