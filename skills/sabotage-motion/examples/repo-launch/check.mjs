@@ -38,7 +38,7 @@ export const T = {
 const EPS = 1e-9;
 
 export const SOURCE_IDS = ['fonts', 'board_order', 'hook_long', 'board_copy_missing', 'board_copy_unread', 'board_sfx_missing',
-  'motion_dead', 'first_frame_empty', 'text_safe', 'text_overlap', 'audio_spike'];
+  'motion_dead', 'first_frame_empty', 'text_safe', 'text_overlap', 'audio_spike', 'energy_match'];
 export const FILE_IDS = ['provenance', 'file_spec', 'faststart', 'loudness', 'vo_delay'];
 // flash runs on the picture: the current render in a source check, the file itself with --file
 export const PICTURE_IDS = ['flash'];
@@ -1134,4 +1134,252 @@ export function lumaScan({ firstOnly = false } = {}) {
     },
     done: () => ({ frames: n, pairs, first }),
   };
+}
+
+// ---------------------------------------------------------------- energy_match (plan 23.9, Q21-Q23; P11b-2)
+// Does the piece move like the energy it states? Measured from the probe frames, never taken on the scene's word (Q21):
+//   cuts    the scene's cuts() lists its visual cuts and transitions, [{ t, d }] (d the transition's length, at most
+//           0.3 s; 0 for a hard cut). A declared cut is confirmed when the probe frames at the middles of the shots
+//           either side differ in at least 20% of their pixels by 16/255 or more (on any of R, G and B). A "shot"
+//           shorter than 0.15 s is part of the transition around it, so a flash declared as a cut is never confirmed,
+//           while an A-B-A-B run of half-beat shots is. Changes nobody declared never count; a declared cut the frames
+//           do not show is reported. Mean shot length = length / (confirmed cuts + 1).
+//   type    from ink, not boxes: each probe frame is rendered a second time with fillText and strokeText suppressed,
+//           and the pixels that differ (T.energy.ink) are the text mask, after the camera and
+//           the post chain. Each box that is not deco, mapped through the camera as text_safe maps it, cuts its part of
+//           the mask; its rows with ink split into lines (runs of inked rows separated by empty ones), and a line's
+//           ink height is its run's height. The tallest line over the piece, as a share of the frame height, is the
+//           type size, so a three-line block of small type reads as small type. A box with no ink is reported.
+//   motion  the median, over probe frame pairs outside holds, of the share of pixels whose luma changes by 16/255 or
+//           more. Only the pairs that straddle a confirmed cut or lie in a declared transition are left out.
+// It WARNs when a normal or extreme piece is calmer than its preset's floor on any of the three (mean shot longer than
+// its range, type smaller than its range, motion under its floor), or a subtle piece busier than its ceiling. The cut
+// interval is in beats of the piece's tempo: the preset's, or the board's own `bpm` within 10% of it (Q22).
+
+// The presets' ranges (plan 23.9's table and Q23): bpm, the cut interval in beats (cutBeats), the largest line's ink
+// height as a share of the frame height (inkHeight), and the motion floor (min) or ceiling (max), named as P11b-1's
+// ENERGY names them.
+// P11b-1 exports these from template/energy.js as ENERGY: whichever of P11b-1 and P11b-2 merges second replaces this
+// copy with that import.
+export const ENERGY_RANGES = Object.freeze({
+  subtle: Object.freeze({ bpm: 84, cutBeats: [4, 5], inkHeight: [0.04, 0.08], motion: Object.freeze({ max: 0.10 }) }),
+  normal: Object.freeze({ bpm: 116, cutBeats: [2, 3], inkHeight: [0.09, 0.16], motion: Object.freeze({ min: 0.02 }) }),
+  extreme: Object.freeze({ bpm: 136, cutBeats: [0.5, 1], inkHeight: [0.18, 0.35], motion: Object.freeze({ min: 0.06 }) }),
+});
+// energy_match's thresholds, tuned on the calibration fixtures (references/check.md section 4 records them):
+//   cut     a declared cut is confirmed when `share` of the pixels differ by `delta`/255 or more (any channel); a shot
+//           shorter than `shot` s is part of the transition; a declared transition lasts at most `d` s
+//   motion  a pixel moves when its luma changes by `delta`/255 or more
+//   ink     a pixel is ink when the text-off render differs from the frame (the largest difference of R, G and B) by
+//           `delta`/255 or more and by `rel` of the largest difference inside its box or more (the half-covered edge of
+//           a glyph, so a glow never joins two lines); a row has ink when `px` of its pixels inside the box do
+//   tempo   a board's own tempo may be this far from its preset's (Q22)
+T.energy = {
+  cut: { share: 0.20, delta: 16, shot: 0.15, d: 0.3 },
+  motion: { delta: 16 },
+  ink: { delta: 32, rel: 0.5, px: 1 },
+  tempo: 0.10,
+};
+const pct = (x) => `${(x * 100).toFixed(1)}%`;
+const pct0 = (x) => `${+(x * 100).toFixed(1)}%`;
+
+// The energy the piece states: --param energy, else CFG.ENERGY, else the board's `energy`, else normal (Q19), the order
+// P11b-1's energyName() resolves it in (council round 1, I2). Returns { energy, from } or { error } for a name that is
+// not a preset.
+export function energySetting({ param = null, board = null, cfg = null } = {}) {
+  const src = [['--param energy', param], ['CFG.ENERGY', cfg], ['the board', board]].find(([, v]) => v != null && v !== '');
+  if (!src) return { energy: 'normal', from: 'the default' };
+  const e = String(src[1]);
+  if (!Object.hasOwn(ENERGY_RANGES, e)) return { error: `${src[0]} is "${e}", not one of ${Object.keys(ENERGY_RANGES).join(', ')}` };
+  return { energy: e, from: src[0] };
+}
+// The tempo the cut interval is judged at (Q22): the piece's own within 10% of its preset's, else the nearer end of
+// that band; the preset's when the piece sets none. { bpm, note }
+export function energyTempo(energy, tempo = null) {
+  const R = ENERGY_RANGES[energy], k = T.energy.tempo;
+  if (tempo == null || tempo === '') return { bpm: R.bpm, note: `the preset's ${R.bpm} BPM` };
+  const x = Number(tempo);
+  if (!(Number.isFinite(x) && x > 0)) return { bpm: R.bpm, note: `tempo ${JSON.stringify(tempo)} is not a number of BPM, so the preset's ${R.bpm} BPM` };
+  const lo = R.bpm * (1 - k), hi = R.bpm * (1 + k);
+  if (x < lo - EPS || x > hi + EPS) {
+    const c = +Math.min(hi, Math.max(lo, x)).toFixed(3);
+    return { bpm: c, note: `tempo ${x} BPM is more than ${k * 100}% from the preset's ${R.bpm} (Q22), so ${c} BPM` };
+  }
+  return { bpm: x, note: `${x} BPM` };
+}
+// cuts() must return [{ t, d }]: t inside the piece, d from 0 (a hard cut) to 0.3 s. A sentence, or null when valid.
+export function validCuts(list, dur) {
+  if (!Array.isArray(list)) return `cuts() must return a list of { t, d } (d 0 for a hard cut, at most ${T.energy.cut.d} s), not ${JSON.stringify(list)}`;
+  for (const [i, c] of list.entries()) {
+    if (!c || typeof c !== 'object' || !Number.isFinite(c.t) || !(c.d == null || Number.isFinite(c.d))) return `cuts() item ${i} ${JSON.stringify(c)} is not { t, d } with finite numbers`;
+    if (c.t < 0 || c.t > dur + EPS) return `cuts() item ${i}: t ${c.t} is outside the piece (0-${dur} s)`;
+    const d = c.d ?? 0;
+    if (d < 0 || d > T.energy.cut.d + EPS) return `cuts() item ${i}: d ${d} s is not 0-${T.energy.cut.d} s (0 for a hard cut)`;
+  }
+  return null;
+}
+// The declared cuts as shots and transitions. Transitions [t, t + d] that touch are one; a "shot" shorter than
+// T.energy.cut.shot between two transitions joins them into one, and a shorter first or last one joins the transition
+// beside it, which then has no shot on that side. { shots: [[a, b]], regions: [{ a, b, cuts: [{ t, d }], before, after }] }
+// (before and after: shot indices, or null).
+export function energyRegions(cuts, dur) {
+  const S = T.energy.cut.shot;
+  const iv = cuts.map((c) => ({ a: +c.t, b: +c.t + (+c.d || 0), cuts: [{ t: +c.t, d: +c.d || 0 }] })).sort((x, y) => x.a - y.a || x.b - y.b);
+  const merged = [];
+  for (const x of iv) {
+    const m = merged[merged.length - 1];
+    if (m && x.a <= m.b + EPS) { m.b = Math.max(m.b, x.b); m.cuts.push(...x.cuts); } else merged.push(x);
+  }
+  const shots = [], regions = [];
+  let start = 0, cur = null;
+  for (const x of merged) {
+    if (x.a - start < S - EPS) {                       // too short to be a shot: part of the transition
+      if (cur) { cur.b = x.b; cur.cuts.push(...x.cuts); } else cur = { a: 0, b: x.b, cuts: [...x.cuts], before: null };
+      start = x.b;
+      continue;
+    }
+    shots.push([start, x.a]);
+    if (cur) { cur.after = shots.length - 1; regions.push(cur); }
+    cur = { a: x.a, b: x.b, cuts: [...x.cuts], before: shots.length - 1 };
+    start = x.b;
+  }
+  if (!cur) shots.push([0, dur]);
+  else if (dur - start < S - EPS) { cur.b = Math.max(cur.b, dur); cur.after = null; regions.push(cur); }
+  else { shots.push([start, dur]); cur.after = shots.length - 1; regions.push(cur); }
+  return { shots, regions };
+}
+// The probe frame nearest a shot's middle: frame f is sampled at (f + 0.25) / fps (one subframe, renderProbe).
+export const shotFrame = ([a, b], fps, n) => Math.min(n - 1, Math.max(0, Math.round(((a + b) / 2) * fps - 0.25)));
+// The frame pairs the cuts are confirmed on, one per region: [before, after], or null when a side has no shot.
+export function energyPairs({ shots, regions }, fps, n) {
+  return regions.map((g) => (g.before == null || g.after == null ? null : [shotFrame(shots[g.before], fps, n), shotFrame(shots[g.after], fps, n)]));
+}
+// The share of the pixels a histogram (counts by difference, 0-255) puts at `delta` or more.
+export function shareAtLeast(hist, npx, delta) {
+  let c = 0;
+  for (let d = delta; d < hist.length; d++) c += hist[d] || 0;
+  return npx ? c / npx : 0;
+}
+// motion: the median share of moving pixels over the probe pairs (pair k: frames k and k + 1) outside holds, leaving
+// out the pairs that straddle a confirmed cut or lie in a transition: a declared one, or a region of energyRegions that
+// spans time (hard cuts closer than a shot merged into one), confirmed or not (council round 1, E1). The pairs across
+// a lone hard cut the frames do not confirm stay in. { motion (null without a pair), pairs }
+export function energyMotion(hists, npx, { fps, holds = [], cuts = [], confirmed = [], regions = [] }) {
+  const keep = [];
+  hists.forEach((h, k) => {
+    const ta = (k + 0.25) / fps, tb = (k + 1.25) / fps, mid = (ta + tb) / 2;
+    if (holds.some(([h0, h1]) => mid >= h0 - EPS && mid < h1 - EPS)) return;
+    // a pair meets [a, b] when it overlaps it, or for a hard cut (a = b) when its first sample is before and its second at or after
+    const meets = (a, b) => (b > a + EPS ? ta < b && tb > a : ta < a && tb >= a);
+    if (confirmed.some((g) => meets(g.a, g.b))) return;
+    if (cuts.some((c) => (c.d || 0) > 0 && meets(c.t, c.t + c.d))) return;
+    if (regions.some((g) => g.b > g.a + EPS && meets(g.a, g.b))) return;
+    keep.push(shareAtLeast(h, npx, T.energy.motion.delta));
+  });
+  if (!keep.length) return { motion: null, pairs: 0 };
+  keep.sort((a, b) => a - b);
+  const m = keep.length >> 1;
+  return { motion: keep.length % 2 ? keep[m] : (keep[m - 1] + keep[m]) / 2, pairs: keep.length };
+}
+// A box's rows of ink (counts of mask pixels per row, top to bottom) as its lines' heights, in rows.
+export function inkLines(rows) {
+  const lines = [];
+  let run = 0;
+  for (const c of rows) {
+    if (c >= T.energy.ink.px) run++;
+    else if (run) { lines.push(run); run = 0; }
+  }
+  if (run) lines.push(run);
+  return lines;
+}
+// The probe rectangles to measure ink in, from the boxes at each probe frame's sample time ([{ f, cam, boxes }]): each
+// box that is not deco, mapped through the camera as text_safe maps it (visibleBox), in probe pixels (RW x RH).
+// { [f]: [{ id, text, r: [x0, y0, x1, y1] }] }
+export function energyRects(frames, W, H, RW, RH) {
+  const kx = RW / W, ky = RH / H, out = {};
+  for (const fr of frames) {
+    const list = [];
+    for (const b of fr.boxes || []) {
+      if (b.deco) continue;
+      const v = visibleBox(b, fr.cam, W, H);
+      if (!v) continue;
+      const x0 = Math.max(0, Math.floor(v.x * kx + EPS)), y0 = Math.max(0, Math.floor(v.y * ky + EPS));
+      const x1 = Math.min(RW, Math.ceil((v.x + v.w) * kx - EPS)), y1 = Math.min(RH, Math.ceil((v.y + v.h) * ky - EPS));
+      if (x1 > x0 && y1 > y0) list.push({ id: b.id, text: b.text, r: [x0, y0, x1, y1] });
+    }
+    if (list.length) out[fr.f] = list;
+  }
+  return out;
+}
+// type: the tallest line of ink over the piece, as a share of the frame height (RH probe rows), and the boxes that had
+// no ink at any frame. ink[f][i] is the row counts of rects[f][i]. { type (null with no text), best, inkless }
+export function energyType(rects, ink, RH) {
+  let best = null;
+  const seen = new Map();
+  for (const [f, list] of Object.entries(rects)) {
+    const rows = ink[f] || [];
+    list.forEach((b, i) => {
+      const lines = inkLines(rows[i] || []);
+      const e = seen.get(b.id) || { id: b.id, text: b.text, f: +f, inked: false };
+      if (lines.length) e.inked = true;
+      seen.set(b.id, e);
+      const top = Math.max(0, ...lines);
+      if (top && (!best || top > best.rows)) best = { rows: top, f: +f, id: b.id, text: b.text };
+    });
+  }
+  return { type: best ? best.rows / RH : null, best, inkless: [...seen.values()].filter((e) => !e.inked) };
+}
+// energy_match from the measurements. x: { energy, from, tempo: { bpm, note }, dur, fps, cuts, reg (energyRegions),
+// pairHists (per region: the max-channel difference histogram of its pair, or null), motionHists (per probe pair: the
+// luma difference histogram), npx (pixels a probe frame), holds, rects and ink (or null without boxes(t)), RH, why
+// (why type is not measured, when rects is null) }. Returns the results: the verdict line first, then a WARN for each
+// declared cut the frames do not show and each box with no ink.
+export function energyMatch(x) {
+  const R = ENERGY_RANGES[x.energy], beat = 60 / x.tempo.bpm, E = T.energy;
+  const shotRange = [R.cutBeats[0] * beat, R.cutBeats[1] * beat];
+  const extra = [], confirmed = [], shares = [];
+  x.reg.regions.forEach((g, i) => {
+    const at = g.cuts.map((c) => (c.d ? `${f2(c.t)}-${f2(c.t + c.d)}` : f2(c.t))).join(', ');
+    const many = g.cuts.length > 1, which = `${many ? 'the declared cuts' : 'the declared cut'} at ${at} s`;
+    if (g.before == null || g.after == null) {
+      extra.push(r('energy_match', 'source', 'WARN', `${which} cannot be confirmed: ${many ? 'they have' : 'it has'} no shot ${g.before == null ? 'before' : 'after'} ${many ? 'them' : 'it'} (a shot lasts ${E.cut.shot} s or more)`,
+        { t: +f3(g.a), threshold: E.cut.shot }));
+      return;
+    }
+    const share = shareAtLeast(x.pairHists[i] || [], x.npx, E.cut.delta);
+    shares.push(+share.toFixed(4));
+    if (share >= E.cut.share - EPS) { confirmed.push(g); return; }
+    const sa = x.reg.shots[g.before], sb = x.reg.shots[g.after];
+    extra.push(r('energy_match', 'source', 'WARN', `${which} ${many ? 'are' : 'is'} not in the frames: the middles of the shots either side (${f2((sa[0] + sa[1]) / 2)} and ${f2((sb[0] + sb[1]) / 2)} s) differ in ${pct(share)} of their pixels, under the ${pct0(E.cut.share)} a cut needs`,
+      { t: +f3(g.a), measured: +share.toFixed(4), threshold: E.cut.share }));
+  });
+  const shot = x.dur / (confirmed.length + 1);
+  const mo = energyMotion(x.motionHists, x.npx, { fps: x.fps, holds: x.holds, cuts: x.cuts, confirmed, regions: x.reg.regions });
+  const ty = x.rects ? energyType(x.rects, x.ink, x.RH) : { type: null, best: null, inkless: [] };
+  for (const e of ty.inkless) {
+    extra.push(r('energy_match', 'source', 'WARN', `box "${e.text}" (${e.id}) has no ink in any probe frame: its text is not drawn with fillText or strokeText inside the box (an image of text, drawn elsewhere, or invisible), so its size cannot be measured`,
+      { t: +f3(e.f / x.fps) }));
+  }
+  const busy = x.energy === 'subtle', off = [];
+  const shotS = `mean shot ${f2(shot)} s (${confirmed.length} confirmed cut${confirmed.length === 1 ? '' : 's'} in ${f2(x.dur)} s; range ${f2(shotRange[0])}-${f2(shotRange[1])} s, ${R.cutBeats[0]}-${R.cutBeats[1]} beats at ${x.tempo.note})`;
+  const typeS = ty.type == null ? `type not measured (${x.rects ? 'no text on screen' : x.why || 'no boxes(t)'})`
+    : `largest line ${pct(ty.type)} of the frame height ("${ty.best.text}" at ${f2(ty.best.f / x.fps)} s; range ${+(R.inkHeight[0] * 100).toFixed(1)}-${pct0(R.inkHeight[1])})`;
+  const motS = mo.motion == null ? 'motion not measured (no frame pair outside holds and transitions)'
+    : `motion ${pct(mo.motion)} of pixels a frame (median of ${mo.pairs} pairs; ${busy ? `ceiling ${pct0(R.motion.max)}` : `floor ${pct0(R.motion.min)}`})`;
+  if (busy) {
+    if (confirmed.length && shot < shotRange[0] - EPS) off.push('the shots are shorter');   // a piece with no cut is never busy on cuts
+    if (ty.type != null && ty.type > R.inkHeight[1] + EPS) off.push('the type is larger');
+    if (mo.motion != null && mo.motion > R.motion.max + EPS) off.push('it moves more');
+  } else {
+    if (shot > shotRange[1] + EPS) off.push('the shots are longer');
+    if (ty.type != null && ty.type < R.inkHeight[0] - EPS) off.push('the type is smaller');
+    if (mo.motion != null && mo.motion < R.motion.min - EPS) off.push('it moves less');
+  }
+  const head = `energy ${x.energy} (${x.from})`, body = `${shotS}; ${typeS}; ${motS}`;
+  const measured = { shot: +shot.toFixed(4), cuts: confirmed.length, type: ty.type == null ? null : +ty.type.toFixed(4), motion: mo.motion == null ? null : +mo.motion.toFixed(4), shares };
+  const threshold = { shot: shotRange.map((v) => +v.toFixed(4)), type: R.inkHeight, motion: R.motion, bpm: x.tempo.bpm };
+  const main = off.length
+    ? r('energy_match', 'source', 'WARN', `${head} is ${busy ? 'busier than its ceiling' : 'calmer than its floor'}: ${off.join(', ')} than ${x.energy} allows. ${body}`, { measured, threshold })
+    : ok('energy_match', 'source', `${head} moves like it: ${body}`, { measured, threshold });
+  return [main, ...extra];
 }

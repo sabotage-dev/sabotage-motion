@@ -600,6 +600,42 @@ function doctorWhisper(line) {
     : 'not installed (optional: to caption a clip, bring a transcript, or install whisper.cpp: brew install whisper-cpp, or build it from github.com/ggml-org/whisper.cpp)');
 }
 
+// ---------------------------------------------------------------- energy_match (plan 23.9, P11b-2)
+// Measures the piece's energy in the page (window.energyInfo, energyBoxes, energyScan in main.js) and judges it with
+// check.mjs (energyMatch). Not checked: an overlay, a scene without cuts(), or an energy that is not a preset.
+async function energyCheck(page, { INFOc, settings, BOARD, windows, sceneFail }) {
+  const SK = (why) => [{ id: 'energy_match', scope: 'source', level: 'SKIP', detail: `not checked: ${why}` }];
+  if (!INFOc || !page) return SK('the scene did not load');
+  if (settings.alpha) return SK('an alpha render is an overlay, and its energy depends on the picture under it');
+  const t0 = Date.now();
+  try {
+    const info = await page.evaluate(() => window.energyInfo());
+    if (!info.has) return SK(`${settings.scene} has no cuts(), so no cut can be confirmed: export cuts(), its visual cuts and transitions as [{ t, d }]`);
+    const bad = C.validCuts(info.cuts, INFOc.DUR);
+    if (bad) { sceneFail(`${settings.scene}: ${bad}`); return SK(bad); }
+    const params = settings.params || {};
+    const en = C.energySetting({ param: params.energy, board: BOARD && BOARD.energy, cfg: info.energy });
+    if (en.error) return SK(`no energy to judge it by: ${en.error}`);
+    const tempo = C.energyTempo(en.energy, BOARD && BOARD.bpm);   // the board's own tempo (Q22; council round 1, I1)
+    const holdsOk = !C.validHolds(INFOc.HOLDS);
+    const holds = C.holdIntervals(holdsOk ? INFOc.HOLDS : null, windows);
+    const N = Math.round(INFOc.DUR * INFOc.FPS), reg = C.energyRegions(info.cuts, INFOc.DUR), pairs = C.energyPairs(reg, INFOc.FPS, N);
+    const rects = INFOc.BOXES ? C.energyRects(await page.evaluate(() => window.energyBoxes()), INFOc.W, INFOc.H, INFOc.RW, INFOc.RH) : null;
+    const asked = pairs.filter(Boolean);
+    const scan = await page.evaluate((o) => window.energyScan(o), {
+      pairs: asked, rects: rects ? Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])) : {}, inkDelta: C.T.energy.ink.delta, inkRel: C.T.energy.ink.rel });
+    let k = 0;
+    const pairHists = pairs.map((p) => (p ? scan.pairs[k++] : null));
+    const out = C.energyMatch({ energy: en.energy, from: en.from, tempo, dur: INFOc.DUR, fps: INFOc.FPS, cuts: info.cuts.map((c) => ({ t: c.t, d: c.d || 0 })), reg,
+      pairHists, motionHists: scan.motion, npx: scan.w * scan.h, holds, rects, ink: scan.ink, RH: scan.h, why: `${settings.scene} has no boxes(t)` });
+    say(`check: energy_match measured ${scan.frames} frames${rects ? `, ${Object.keys(rects).length} of them twice (text off)` : ''} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    return out;
+  } catch (e) {
+    sceneFail(`${settings.scene} threw while energy_match measured it: ${e.message.split('\n')[0]}`);
+    return SK('the scene threw');
+  }
+}
+
 async function check() {
   const usage = (m) => { console.error(`check: ${m}`); return 2; };
   const strict = flag('strict'), plain = flag('plain'), fileArg = opt('file', null);
@@ -794,6 +830,7 @@ async function check() {
       }
     }
   }
+  if (runSource && want('energy_match')) push(await energyCheck(page, { INFOc, settings, BOARD, windows: timing && timing.ok ? windows : [], sceneFail }));   // P11b-2
   for (const m of pageErrors) sceneFail(`page error: ${m}`);
 
   // ---- flash (plan 23.9), on the picture: without --file, the piece's current render; with it, the file (below)

@@ -28,9 +28,10 @@ test('the full run: exits 1 (two FAILs), JSON results in the planned shape, ever
   }
   assert.deepEqual([...new Set(full.results.map((x) => x.id))].sort(), [...C.SOURCE_IDS, ...C.PICTURE_IDS].sort());
   // flash reads a render, and this piece has none yet: it is not checked, and says to render (test/flash.test.mjs
-  // runs it on renders, check-file.test.mjs on masters)
+  // runs it on renders, check-file.test.mjs on masters); energy_match needs the scene's cuts(), which this one has not
   assert.deepEqual(full.results.filter((x) => x.level === 'SKIP').map((x) => `${x.id}: ${x.detail}`),
-    ['flash: not checked: no render of the whole piece with these settings in out/ to look for flashes in: render it (node render.mjs full), then check again']);
+    ['energy_match: not checked: scene.js has no cuts(), so no cut can be confirmed: export cuts(), its visual cuts and transitions as [{ t, d }]',
+      'flash: not checked: no render of the whole piece with these settings in out/ to look for flashes in: render it (node render.mjs full), then check again']);
   assert.match(full.stderr, /check: scene scene\.js, 1080x1920 @ 30 fps, 19\.2 s, sub 8, safe zones fixture,? ?/);
 });
 test('the full run reports exactly the planted defects and the deliberate slam WARN, nothing else', () => {

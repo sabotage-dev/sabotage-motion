@@ -156,7 +156,7 @@ test('clean: a render of the alternate --scene, checked through its render.json,
   assert.equal(r.status, 0, r.out);
   assert.match(r.stderr, /check: scene alt\.js/);
   assert.deepEqual(r.results.filter((x) => x.level === 'FAIL' || x.level === 'WARN'), []);
-  assert.deepEqual(r.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['audio_spike', 'board_sfx_missing'], 'alt.js is silent');
+  assert.deepEqual(r.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['audio_spike', 'board_sfx_missing', 'energy_match'], 'alt.js is silent and has no cuts()');
   for (const id of ['provenance', 'flash', 'file_spec', 'faststart', 'loudness', 'vo_delay', 'motion_dead', 'first_frame_empty', 'text_safe', 'text_overlap', 'board_copy_missing', 'board_copy_unread', 'hook_long', 'board_order', 'fonts']) {
     assert.equal(one(r.results, id).level, 'OK', id);
   }
