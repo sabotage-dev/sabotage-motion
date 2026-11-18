@@ -255,7 +255,9 @@ window.renderRange = async (from, to) => {
 // page's own scale, by a whole factor (each probe pixel is the mean of a k x k block). With grain off and one
 // subframe, a frame that does not change repeats exactly, so render.mjs check can count changed pixels between frames.
 window.renderProbe = (t, opts = {}) => {
-  renderAt(t, { n: Math.max(1, Math.round(opts.sub || 1)), post: opts.post || { grain: 0 } });
+  // noText: fillText and strokeText draw nothing (energy_match's text-off render)
+  if (opts.noText) NOTEXT++;
+  try { renderAt(t, { n: Math.max(1, Math.round(opts.sub || 1)), post: opts.post || { grain: 0 } }); } finally { if (opts.noText) NOTEXT--; }
   const px = readFrame(), luma = new Uint8Array(RW * RH), rgb = opts.rgb ? new Uint8Array(RW * RH * 3) : null;
   for (let y = 0; y < RH; y++) {
     const src = (RH - 1 - y) * RW * 4, dst = y * RW;      // readPixels starts at the bottom row
@@ -603,17 +605,48 @@ window.energyBoxes = () => {
   }
   return out;
 };
-// energyScan: one pass over the probe frames.
-//   motion  per consecutive pair, the histogram of luma differences (256 counts)
-//   pairs   per [a, b] asked for, the histogram of the largest difference of R, G and B between frames a and b
-//   ink     per frame in rects ({ f: [[x0, y0, x1, y1]] }, probe pixels), the frame rendered again with fillText and
-//           strokeText suppressed; for each rectangle, per row, the pixels where the two differ (the largest difference
-//           of R, G and B) by inkDelta or more, and by inkRel of the largest difference in the rectangle or more
+// energyScan: the probe frames in two passes, so the render with text and the one without are never interleaved.
+//   pass 1, text on, every frame in order, as a render runs them:
+//     motion  per consecutive pair, the histogram of luma differences (256 counts)
+//     pairs   per [a, b] asked for, the histogram of the largest difference of R, G and B between frames a and b
+//     and the pixels of each rectangle in rects ({ f: [[x0, y0, x1, y1]] }, probe pixels), kept
+//   pass 2, text off (fillText and strokeText draw nothing), the frames in rects, in order:
+//     ink     for each rectangle, per row, the pixels where the two renders differ (the largest difference of R, G
+//             and B) by inkDelta or more, and by inkRel of the largest difference in the rectangle or more
+// Rendering each frame without its text right after rendering it with its text, frame after frame, lost the ink of
+// the extreme card's largest slam on Chrome on SwiftShader (Linux CI, P11b): deep into such a run, the two renders of
+// a frame came out the same inside its box, while a render or a short run drew it. interleave: true keeps that old
+// order, for the test that documents it; debug: true adds lumaMax, per frame and rectangle, the brightest luma of each
+// render ([on, off]).
 const maxDiff = (a, b, x) => Math.max(Math.abs(a[x] - b[x]), Math.abs(a[x + 1] - b[x + 1]), Math.abs(a[x + 2] - b[x + 2]));
-window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel }) => {
-  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {} };
+window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleave = false, debug = false }) => {
+  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {}, ...(debug ? { lumaMax: {} } : {}) };
   const last = new Map(), ends = new Map(), kept = new Map();   // a -> its last partner; b -> pair indices; a -> its rgb
   pairs.forEach(([a, b], i) => { last.set(a, Math.max(last.get(a) ?? -1, b)); if (!ends.has(b)) ends.set(b, []); ends.get(b).push(i); });
+  // a rectangle's pixels (RGB), row by row
+  const crop = (rgb, [x0, y0, x1, y1]) => {
+    const w = (x1 - x0) * 3, c = new Uint8Array(w * (y1 - y0));
+    for (let y = y0, o = 0; y < y1; y++, o += w) c.set(rgb.subarray((y * RW + x0) * 3, (y * RW + x1) * 3), o);
+    return c;
+  };
+  const lumaMax = (c) => { let m = 0; for (let i = 0; i < c.length; i += 3) m = Math.max(m, 0.2126 * c[i] + 0.7152 * c[i + 1] + 0.0722 * c[i + 2]); return Math.round(m); };
+  // per rectangle of frame f, the rows of ink between its pixels with text (on) and without (off)
+  const inkOf = (f, on, off) => {
+    if (debug) out.lumaMax[f] = on.map((c, k) => [lumaMax(c), lumaMax(off[k])]);
+    out.ink[f] = rects[f].map(([x0, y0, x1, y1], k) => {
+      const a = on[k], b = off[k], w = x1 - x0, d = new Uint8Array(w * (y1 - y0));
+      let top = 0;
+      for (let i = 0; i < d.length; i++) { d[i] = maxDiff(a, b, i * 3); if (d[i] > top) top = d[i]; }
+      const cut = Math.max(inkDelta, inkRel * top), rows = [];
+      for (let y = 0, i = 0; y < y1 - y0; y++) {
+        let c = 0;
+        for (let x = 0; x < w; x++, i++) if (d[i] >= cut) c++;
+        rows.push(c);
+      }
+      return rows;
+    });
+  };
+  const withText = new Map();   // f -> the pixels of its rectangles, text on
   let prev = null;
   for (let f = 0; f < N; f++) {
     const t = f / FPS, p = window.renderProbe(t, { rgb: true });
@@ -631,23 +664,14 @@ window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel }) => {
     }
     for (const [a, b] of last) if (b <= f) { kept.delete(a); last.delete(a); }
     const R = rects[f];
-    if (R && R.length) {
-      let q;
-      NOTEXT++;
-      try { q = window.renderProbe(t, { rgb: true }); } finally { NOTEXT--; }
-      out.ink[f] = R.map(([x0, y0, x1, y1]) => {
-        const d = new Uint8Array((x1 - x0) * (y1 - y0));
-        let top = 0;
-        for (let y = y0, i = 0; y < y1; y++) for (let x = x0; x < x1; x++, i++) { d[i] = maxDiff(p.rgb, q.rgb, (y * RW + x) * 3); if (d[i] > top) top = d[i]; }
-        const cut = Math.max(inkDelta, inkRel * top), rows = [];
-        for (let y = 0, i = 0; y < y1 - y0; y++) {
-          let c = 0;
-          for (let x = 0; x < x1 - x0; x++, i++) if (d[i] >= cut) c++;
-          rows.push(c);
-        }
-        return rows;
-      });
-    }
+    if (!R || !R.length) continue;
+    const on = R.map((r) => crop(p.rgb, r));
+    if (interleave) inkOf(f, on, R.map((r) => crop(window.renderProbe(t, { rgb: true, noText: true }).rgb, r)));
+    else withText.set(f, on);
+  }
+  for (const [f, on] of withText) {
+    const q = window.renderProbe(f / FPS, { rgb: true, noText: true });
+    inkOf(f, on, rects[f].map((r) => crop(q.rgb, r)));
   }
   return out;
 };

@@ -613,6 +613,9 @@ const M = [
   ["P11b merge card: the title beat back to 2.6 s", T + 'board.js', [["{ id: 'title', dur: 2.85,", "{ id: 'title', dur: 2.6,"]], EN],
   ["P11b merge card: normal's title set at 8% of the height", T + 'scene.js', [["E.name === 'normal' ? 0.115 : 0.12;", "E.name === 'normal' ? 0.08 : 0.12;"]], EN],
   ["P11b merge looks: the sheet's card names no energy", 'scripts/looks-sheet.mjs', [["  target: 'tiktok',\n  energy: 'subtle',\n", "  target: 'tiktok',\n"]], ['--test-name-pattern=the looks sheet', 'test/looks.test.mjs']],
+  // CI on Linux (P11b): energy_match's scan renders every frame with its text first, then the frames without it
+  ["P11b CI energyScan interleaves the text-off renders again", T + 'main.js', [["interleave = false, debug = false }) => {", "interleave = true, debug = false }) => {"]], ['--test-name-pattern=never renders a frame without', 'test/energy.test.mjs']],
+  ["P11b CI renderProbe ignores noText", T + 'main.js', [["  if (opts.noText) NOTEXT++;\n", "  if (false) NOTEXT++;\n"], ["finally { if (opts.noText) NOTEXT--; }", "finally { if (false) NOTEXT--; }"]], EMT],
   // council round 4, K1: the light looks' note, in check.md and looks.md
   ["P11b K1 docs: check.md without the light looks' note", 'skills/sabotage-motion/references/check.md', [["`brutalist` and `gradient`: every cut is confirmed, but the motion is", "`brutalist` and `gradient`: the cuts read"]], DOCS],
   ["P11b K1 docs: looks.md says to cut with the ground", 'skills/sabotage-motion/references/looks.md', [["To read as the energy on those looks, cut with layout, scale or an\n  accent block", "To read as the energy on those looks, cut with the ground's\n  brightness"]], DOCS],

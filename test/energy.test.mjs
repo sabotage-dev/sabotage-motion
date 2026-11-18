@@ -185,11 +185,11 @@ after(async () => { if (browser) await browser.close(); for (const s of servers)
 // measured everywhere it is drawn: in the card's render (the video a user gets), in a fresh page, in check's own page
 // (its query and viewport), after check's scan of every frame and box sample, and in energy_match's full scan as
 // render.mjs runs it. On failure it reports every case, so the one that loses the word names the cause.
-test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale) is on screen and measured: in its render, a fresh page, and check\'s own sequence', async () => {
+test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale) is on screen and measured: in its render, a fresh page, and check\'s own sequence', async (t) => {
   const ink = C.T.energy.ink, rep = {}, bad = [];
   const tallest = (rows) => { let best = 0, cur = 0; for (const n of rows) { cur = n >= ink.px ? cur + 1 : 0; best = Math.max(best, cur); } return best; };
   // on the page: IT's frames, its rects; the text-on frame in the middle of the slam, its bright pixels in IT's box
-  async function onPage(page, { checkScan = false, full = false } = {}) {
+  async function onPage(page, { checkScan = false, full = false, interleave = false } = {}) {
     if (checkScan) await page.evaluate(() => window.checkScan({ probe: true, samples: true }));
     const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS, DUR: window.INFO.DUR }));
     const frames = await page.evaluate(() => window.energyBoxes()), rects = C.energyRects(frames, I.W, I.H, I.RW, I.RH);
@@ -199,7 +199,7 @@ test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale)
     if (full) {   // energy_match's own scan: every box, and the pairs its cuts need (render.mjs energyCheck)
       const info = await page.evaluate(() => window.energyInfo()), N = Math.round(I.DUR * I.FPS);
       const pairs = C.energyPairs(C.energyRegions(info.cuts, I.DUR), I.FPS, N).filter(Boolean);
-      scan = await page.evaluate((o) => window.energyScan(o), { pairs, rects: Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])), inkDelta: ink.delta, inkRel: ink.rel });
+      scan = await page.evaluate((o) => window.energyScan(o), { pairs, rects: Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])), inkDelta: ink.delta, inkRel: ink.rel, interleave, debug: true });
       idx = (k) => rects[k].findIndex((x) => x.id === 'solo1');
     } else {
       scan = await page.evaluate((o) => window.energyScan(o), { pairs: [], rects: Object.fromEntries(fs1.map((k) => [k, [itRect(k)]])), inkDelta: ink.delta, inkRel: ink.rel });
@@ -211,7 +211,9 @@ test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale)
       let n = 0; for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) if (p.luma[y * RW + x] >= 160) n++;
       return n;
     }, { f: mid, r: itRect(mid) });
-    return { frames: fs1.length, mid, rect: itRect(mid), line, floor: Math.ceil(ENERGY.extreme.inkHeight[0] * I.RH), lit, RH: I.RH };
+    // with the full scan, the brightest luma in IT's box of each render, text on and off, per frame (debug)
+    const onOff = scan.lumaMax ? Object.fromEntries(fs1.map((k) => [k, scan.lumaMax[k][idx(k)]])) : undefined;
+    return { frames: fs1.length, mid, rect: itRect(mid), line, floor: Math.ceil(ENERGY.extreme.inkHeight[0] * I.RH), lit, RH: I.RH, ...(onOff ? { onOff } : {}) };
   }
   const judge = (name, x) => { rep[name] = x; if (!(x.line >= x.floor && x.lit > 0)) bad.push(name); };
   // 1. the render: out/card-extreme.mp4 (the `full` render in before(), --scale 0.25), decoded, the slam's middle frame
@@ -235,7 +237,28 @@ test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale)
   { const { page } = await checkPage(); judge('checkPage', await onPage(page)); await page.close(); }
   { const { page } = await checkPage(); judge('afterCheckScan', await onPage(page, { checkScan: true })); await page.close(); }
   { const { page } = await checkPage(); judge('checkSequence', await onPage(page, { checkScan: true, full: true })); await page.close(); }
+  // the old order (each frame rendered without its text right after it was rendered with it), reported, not judged:
+  // on Chrome on SwiftShader it lost IT's ink, and its on/off lumas show which of the two renders went wrong there
+  { const { page } = await checkPage(); const x = await onPage(page, { checkScan: true, full: true, interleave: true }); await page.close(); t.diagnostic(`the old interleaved order: ${JSON.stringify(x)}`); }
   assert.deepEqual(bad, [], `"IT" (solo1) lost in: ${bad.join(', ')}; every case: ${JSON.stringify(rep)}`);
+});
+
+// energy_match's scan renders every frame with its text first, in order, and only then the frames without it: rendering
+// a frame without its text right after rendering it with its text, frame after frame, lost ink on Chrome on SwiftShader.
+test('P11b energyScan never renders a frame without its text between frames with it: every text-on render comes first', async () => {
+  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: String(C.T.probeScale) });
+  assert.equal(ready, null);
+  const order = async (interleave) => page.evaluate(async (il) => {
+    const seen = [], orig = window.renderProbe;
+    window.renderProbe = (t, o = {}) => { seen.push(o.noText ? 'off' : 'on'); return orig(t, o); };
+    const o = { pairs: [], rects: { 3: [[0, 0, 8, 8]], 9: [[0, 0, 8, 8]] }, inkDelta: 32, inkRel: 0.5, ...(il ? { interleave: true } : {}) };
+    try { await window.energyScan(o); } finally { window.renderProbe = orig; }
+    return seen.join(' ');
+  }, interleave);
+  const N = await page.evaluate(() => Math.round(window.INFO.DUR * window.INFO.FPS));
+  assert.equal(await order(false), `${Array(N).fill('on').join(' ')} off off`, 'by default (as render.mjs calls it): all text-on renders, then the two text-off ones');
+  const il = (await order(true)).split(' ');
+  assert.deepEqual([il.length, il[4], il[11]], [N + 2, 'off', 'off'], 'the old order, kept for the test above: off right after frames 3 and 9');
 });
 
 test('P11b the interface check measures: INFO.ENERGY names the energy and where it came from, sceneCuts() returns the scene\'s cuts checked', async () => {

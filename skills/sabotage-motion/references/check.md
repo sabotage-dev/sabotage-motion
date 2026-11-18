@@ -273,7 +273,10 @@ cut, at most 0.3 s).
   glitch) never counts, and a declared cut the frames do not show is a WARN of its own. Mean shot length = the piece's
   length / (confirmed cuts + 1).
 - **Type size, from ink.** Each probe frame with text is rendered a second time with `fillText` and `strokeText`
-  drawing nothing; where the two differ is the text, after the camera and the post chain. Each box that is not
+  drawing nothing; where the two differ is the text, after the camera and the post chain. The renders without text
+  come in a second pass, after every frame has been rendered with its text in order: rendering each frame without its
+  text right after rendering it with it, frame after frame, lost the extreme card's largest slam on Chrome on
+  SwiftShader (Linux), where the two renders of a frame came out the same inside its box. Each box that is not
   `deco`, mapped through the camera as `text_safe` maps it, cuts its part of that mask; its rows with ink split into
   lines at empty rows, and a line's height is its run of rows. The tallest line over the piece, as a share of the frame
   height, is the type size: a three-line block of small type reads as small type, and a box that claims more than its
