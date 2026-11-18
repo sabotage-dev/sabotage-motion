@@ -1,0 +1,15 @@
+WEBVTT
+Kind: captions
+Language: en
+
+NOTE made by hand for the adapter tests
+
+STYLE
+::cue { color: yellow }
+
+intro
+00:00.300 --> 00:00.900 align:start position:0%
+Ready, set...
+
+00:00:01.500 --> 00:00:02.600
+<v Narrator>Now <00:00:01.900><c>go</c> &amp; win.

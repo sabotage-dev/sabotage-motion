@@ -403,6 +403,7 @@ async function doctor() {
     const fp = spawnSync('ffprobe', ['-hide_banner', '-version'], { encoding: 'utf8' });
     line(fp.status === 0, 'ffprobe', fp.status === 0 ? 'found' : 'not found on PATH', ffInstall);
   }
+  doctorWhisper(line);   // P10
 
   // Chrome and WebGL2
   let browser = null;
@@ -547,6 +548,58 @@ async function importPiece(name) {
   if (!fs.existsSync(f)) return { mod: null };
   try { return { mod: await import(pathToFileURL(f).href) }; } catch (e) { return { mod: null, error: `${name} failed to load: ${e.message}` }; }
 }
+// ---- P10: a captioned clip (plan 23.5). A composite's record (tools/clip.mjs composite) names the alpha overlay it was
+// made from; the master is bound to the overlay as well as to the composite, the text checks replay the overlay's
+// settings (alpha included), and the picture checks run on the composite's own frames, decoded with ffmpeg.
+// Adds the overlay's provenance result to `push` and returns prov with the overlay record (overlayRec) and the binding.
+function compositeBind(prov, push) {
+  const rec = prov.rec, f = { overlayFile: rec.overlayFile || null, overlaySha: rec.overlay || null, clipFile: rec.clipFile || null, clipSha: rec.clip || null };
+  if (f.overlayFile) {
+    const op = path.resolve(root, f.overlayFile);
+    f.overlayExists = fs.existsSync(op);
+    if (f.overlayExists) {
+      f.overlayShaNow = C.sha256File(op);
+      try { f.overlayRec = JSON.parse(fs.readFileSync(op, 'utf8')); } catch (e) { f.overlayRecError = e.message; }
+      if (f.overlayRec) f.sourceNow = sourceHash(recordSkips(f.overlayRec));
+    }
+  }
+  if (f.clipFile) {
+    const cp = path.resolve(root, f.clipFile);
+    f.clipExists = fs.existsSync(cp);
+    if (f.clipExists) f.clipShaNow = C.sha256File(cp);
+  }
+  const cb = C.compositeProvenance(f);
+  push(cb.result);
+  return { ...prov, bound: prov.bound && cb.bound, overlayRec: cb.overlayRec };
+}
+// The composite's frames at the probe size (check's probe: 1/2 of the design size), decoded by ffmpeg and measured as
+// the page measures its probe (C.lumaScan): { frames, pairs, first }. firstOnly reads the first frame alone.
+function decodeScan(file, W, H, firstOnly) {
+  const w = Math.round(W * C.T.probeScale), h = Math.round(H * C.T.probeScale), size = w * h * 3;
+  return new Promise((resolve, reject) => {
+    const p = spawn('ffmpeg', ['-v', 'error', '-i', file, '-map', '0:v:0', ...(firstOnly ? ['-frames:v', '1'] : []),
+      '-vf', `scale=${w}:${h}:flags=area`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const scan = C.lumaScan({ firstOnly }), frame = Buffer.alloc(size);
+    let fill = 0, err = '';
+    p.stdout.on('data', (d) => {
+      for (let o = 0; o < d.length;) {
+        const n = Math.min(size - fill, d.length - o);
+        d.copy(frame, fill, o, o + n); fill += n; o += n;
+        if (fill === size) { scan.add(frame, w, h); fill = 0; }
+      }
+    });
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('error', reject);
+    p.on('close', (c) => (c === 0 ? resolve(scan.done()) : reject(new Error(`ffmpeg could not decode ${relRoot(file)}: ${err.trim().split('\n').pop()}`))));
+  });
+}
+// whisper.cpp's whisper-cli (plan 23.5, Q18): optional; tools/clip.mjs reads a transcript either way.
+function doctorWhisper(line) {
+  const w = spawnSync('whisper-cli', ['--help'], { encoding: 'utf8' });
+  line(true, 'whisper-cli', !w.error ? 'found (optional: transcribes a clip for its captions, tools/clip.mjs)'
+    : 'not installed (optional: to caption a clip, bring a transcript, or install whisper.cpp: brew install whisper-cpp, or build it from github.com/ggml-org/whisper.cpp)');
+}
+
 async function check() {
   const usage = (m) => { console.error(`check: ${m}`); return 2; };
   const strict = flag('strict'), plain = flag('plain'), fileArg = opt('file', null);
@@ -598,10 +651,12 @@ async function check() {
       }
       prov = C.provenance(facts);
       push(prov.result);
+      if (prov.rec && prov.rec.kind === 'composite') prov = compositeBind(prov, push);   // P10: a captioned clip
       if (prov.rec) {
         const r = prov.rec;
         settings = { scene: r.scene, params: r.params || {}, fps: r.fps, sub: r.sub, alpha: r.alpha || null, target: r.target || null };
       }
+      if (prov.overlayRec) settings = { ...settings, alpha: prov.overlayRec.alpha || null, sub: prov.overlayRec.sub };   // P10: the overlay's settings
     }
   }
   const runSource = !plain && (!fileArg || prov.bound);
@@ -641,7 +696,10 @@ async function check() {
     const z = all[zoneName];
     if (!z) zoneWhy = `unknown target ${zoneName} (safezones.json has: ${Object.keys(all).join(', ')})`;
     else if (!z.safe) zoneWhy = `target ${zoneName} has no safe area`;
-    else if (INFOc && ((z.w && z.w !== INFOc.W) || (z.h && z.h !== INFOc.H))) zoneWhy = `target ${zoneName} is ${z.w}x${z.h}, but the piece is ${INFOc.W}x${INFOc.H}`;
+    else if (INFOc && lib.CLIP && (z.w !== INFOc.W || z.h !== INFOc.H) && lib.scaleTarget(z, INFOc.W, INFOc.H)) {   // P10: a clip of the target's shape
+      const s = lib.scaleTarget(z, INFOc.W, INFOc.H);
+      zone = { name: `${zoneName} scaled x${+s.scaled.toFixed(4)} to ${INFOc.W}x${INFOc.H}`, safe: s.safe, exclude: s.exclude, estimate: !!z.estimate };
+    } else if (INFOc && ((z.w && z.w !== INFOc.W) || (z.h && z.h !== INFOc.H))) zoneWhy = `target ${zoneName} is ${z.w}x${z.h}, but the piece is ${INFOc.W}x${INFOc.H}`;
     else zone = { name: zoneName, safe: z.safe, exclude: z.exclude || [], estimate: !!z.estimate };
   }
   say(`check: scene ${settings.scene}${INFOc ? `, ${INFOc.W}x${INFOc.H} @ ${fps} fps, ${dur} s, sub ${settings.sub}` : ''}` +
@@ -675,7 +733,8 @@ async function check() {
     else {
       const holdsErr = C.validHolds(INFOc.HOLDS);
       if (holdsErr) sceneFail(`${settings.scene}: ${holdsErr}`);
-      const needProbe = want('motion_dead') || want('first_frame_empty');
+      const compositeFile = prov && prov.overlayRec ? file : null;   // P10: its picture checks run on its decoded frames
+      const needProbe = !compositeFile && (want('motion_dead') || want('first_frame_empty'));
       const needBoxes = INFOc.BOXES && boxIds.some(want);
       let scan = null;
       // numbers, check ids and beat ids only: no on-screen text and no params, so a dump of a private piece can be shared
@@ -697,6 +756,16 @@ async function check() {
         if (want('motion_dead')) push(C.motionDead(scan.pairs, { fps, holds: C.holdIntervals(holdsErr ? null : INFOc.HOLDS, timing && timing.ok ? windows : []) }));
         if (settings.alpha) skipIds(['first_frame_empty'], 'source', 'an alpha render: an overlay\'s first frame is meant to be clear');
         else push(C.firstFrameEmpty(scan.first));
+      }
+      if (compositeFile && (want('motion_dead') || want('first_frame_empty'))) {   // P10: the composite's own frames
+        const t0 = Date.now();
+        try {
+          const pic = await decodeScan(compositeFile, INFOc.W, INFOc.H, !want('motion_dead'));
+          say(`check: decoded ${pic.frames} frames of ${relRoot(compositeFile)} with ffmpeg (the composite's picture, at 1/2 size) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+          const picHolds = C.holdIntervals(holdsErr ? [] : INFOc.HOLDS || [], timing && timing.ok ? windows : []);
+          if (want('motion_dead')) { push(C.motionDead(pic.pairs, { fps, holds: picHolds })); }
+          push(C.firstFrameEmpty(pic.first));
+        } catch (e) { for (const id of ['motion_dead', 'first_frame_empty']) push({ id, scope: 'source', level: 'FAIL', detail: e.message }); }
       }
       if (!INFOc.BOXES) skipIds(boxIds, 'source', `${settings.scene} has no boxes(t), so its text cannot be seen without OCR`);
       else if (scan && needBoxes) {

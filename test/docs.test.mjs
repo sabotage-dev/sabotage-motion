@@ -334,4 +334,28 @@ test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets
   assert.ok(rows[2].includes(`more than ${n(F.area)} px of a ${F.win[0]}x${F.win[1]} window, either way round, at ${F.side} px on the longer side`), rows[2]);
   assert.ok(rows[1].includes(`more than ${F.count} transitions of one kind`), rows[1]);
   assert.ok(md.includes('| `flash` | FAIL | Run on the piece\'s current render') && md.includes('| `flash` | FAIL | The rule of section 7 on the file itself'), 'a row in the source and the artifact tables');
+
+// ---------------------------------------------------------------- caption a clip (plan 23.5)
+const RATES_TOOL = await import(pathToFileURL(path.join(templateDir, 'tools', 'clip.mjs')).href);
+test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its tool and the example; delivery.md section 8; README; CI', () => {
+  const md = read('SKILL.md');
+  const at = md.indexOf('**Caption a clip**');
+  assert.ok(at > 0, 'SKILL.md has the caption-a-clip branch');
+  const branch = md.slice(at, md.indexOf('Both sheets', at));
+  for (const x of ['references/delivery.md` section 8', 'node tools/clip.mjs prepare', 'out/vo16k.wav', 'node tools/clip.mjs cues --transcript', '--scene caption.js --alpha', 'node tools/clip.mjs composite', 'node tools/mix.mjs <name> --no-sfx', 'check --file', 'whisper-cli', 'estimated']) assert.ok(branch.includes(x), `the branch: ${x}`);
+  assert.match(md, /- \*\*a captioned clip\*\*: the branch above/);
+  assert.match(md, /`clip\.mjs` \(caption a clip/);
+  const del = read('references/delivery.md');
+  assert.match(del, /^## 8\. Caption a clip$/m);
+  for (const x of ['23.976, 24, 25, 29.97, 30, 50, 59.94 and 60', 'phrase times only', '`text_safe` reported as not checked', 'scaled to it', '--scene caption.js',
+    '-f out/vo16k.wav', 'Never transcribe a separate extract', '--raw-track', '`prepare --audio <n>`', 'square pixels at its display size', 'Sync is measured on each word\'s highlight onset', 'cropped by one pixel off its right or bottom edge', 'a word that ends before the first frame is dropped']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
+  // the rounding list in the docs is the tool's
+  const K = RATES_TOOL.RATES.map((r) => +r[0].toFixed(3)).map((x) => String(x)).join(', ');
+  assert.equal(K, '23.976, 24, 25, 29.97, 30, 50, 59.94, 60');
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(readme, /^## Caption a clip$/m);
+  assert.match(readme, /^npm run test:clip /m);
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['test:clip'], /clip-units\.test\.mjs.*clip\.test\.mjs.*caption-example\.test\.mjs/);
+  assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:clip/);
 });

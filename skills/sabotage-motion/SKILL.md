@@ -1,6 +1,6 @@
 ---
 name: sabotage-motion
-description: Make motion-graphics videos in code. Kinetic typography, title and end cards, logo stings and reveals, animated captions and lower thirds, transparent overlays for existing footage, product and app promo animations, launch videos for a code repo, data and counter animations, and synthesized sound effects synced to the picture, with an optional voice-over timed word by word, a music bed, and a master for social. A scene is a pure function of time, drawn with Canvas2D over an optional WebGL2 pass and rendered frame-exact to MP4, MOV or WebM through headless Chrome and ffmpeg, then measured before it ships (safe zones, loudness, frame count, dead stretches). Use it whenever someone wants an animated video asset, a sting, an intro or outro, an end card, animated text over a clip, a storyboarded explainer, a short vertical social clip (9:16) or a website loop whose content is graphics and type rather than filmed people. Not for photoreal people or scenes (that is a generative video model), and not for animating UI inside an app (that is CSS or JS).
+description: Make motion-graphics videos in code. Kinetic typography, title and end cards, logo stings and reveals, animated captions and lower thirds, word-by-word captions on a clip with speech, transparent overlays for existing footage, product and app promo animations, launch videos for a code repo, data and counter animations, and synthesized sound effects synced to the picture, with an optional voice-over timed word by word, a music bed, and a master for social. A scene is a pure function of time, drawn with Canvas2D over an optional WebGL2 pass and rendered frame-exact to MP4, MOV or WebM through headless Chrome and ffmpeg, then measured before it ships (safe zones, loudness, frame count, dead stretches). Use it whenever someone wants an animated video asset, a sting, an intro or outro, an end card, animated text over a clip, a storyboarded explainer, a short vertical social clip (9:16) or a website loop whose content is graphics and type rather than filmed people. Not for photoreal people or scenes (that is a generative video model), and not for animating UI inside an app (that is CSS or JS).
 ---
 
 # sabotage-motion
@@ -49,12 +49,14 @@ size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a 
 | `looks.js` | The eight looks, the kit's fields, and how a style resolves (`fontStr`, `bgConfig`, `lookFiles`) | To add a look |
 | `index.html` | `@font-face` declarations; the bundled faces are in `fonts/` | Fonts only |
 | `shaders.js` | Background shaders (`SCENE`: gradient, paper, grid, crt, mesh) and the composite, bloom and post chain | To add a shader |
-| `lib.js` | Easing (`snap`, `swift`, `whip`, `anticip`), `spring`, noise, `env`, colours, the board helpers (`beatWindow`, `beatAt`, `boardDur`), `captions`, `loadSeq`/`seqAt`, `sceneTarget`, `freeSpan` | Rarely |
+| `lib.js` | Easing (`snap`, `swift`, `whip`, `anticip`), `spring`, noise, `env`, colours, the board helpers (`beatWindow`, `beatAt`, `boardDur`), `captions` and its styles (`captionStyle`, `captionStyleFor`), `loadSeq`/`seqAt`, `sceneTarget`, `scaleTarget`, `freeSpan` | Rarely |
 | `code.js` | Code and terminal motion: highlighting (`codeTheme`), typed code (`codeBlock`, `drawCode`), diffs (`diffBlock`, `drawDiff`), a terminal session (`termSession`, `terminal`), window, browser and phone frames (`drawFrame`), key ticks (`typedTimes`, `keyTicks`, `keySounds`) | Rarely |
 | `slate.js` | A placeholder card per beat, for the board sheet and the animatic | No |
+| `caption.js` | A clip's captions: word by word, in a style (`pop`, `karaoke`, `boxed`, `minimal`), with alpha on the clip's clock | Params only |
+| `clip.js` | Written by `tools/clip.mjs prepare` from a clip: its size, constant frame rate, frames and length | No |
 | `grid.js` | A labelled measuring grid at a target's size (optional, for reading safe-zone edges off screenshots) | No |
-| `cues.js`, `cues.json` | Written by `tools/cues.mjs` from a voice take; never by hand | No |
-| `tools/` | `cues.mjs` (voice timing), `voice-elevenlabs.mjs` (optional TTS), `mix.mjs` (mix and master), `frames.mjs` (footage), `repo-scan.mjs` (what a project's files say about it), `shots.mjs` (pictures of a local page) | No |
+| `cues.js`, `cues.json` | Written by `tools/cues.mjs` from a voice take (or `tools/clip.mjs` from a clip's transcript); never by hand | No |
+| `tools/` | `cues.mjs` (voice timing), `voice-elevenlabs.mjs` (optional TTS), `mix.mjs` (mix and master), `frames.mjs` (footage), `repo-scan.mjs` (what a project's files say about it), `shots.mjs` (pictures of a local page), `clip.mjs` (caption a clip: probe, prepare, composite) | No |
 | `main.js`, `render.mjs`, `check.mjs`, `gl.js`, `wav.js` | The harness, the driver, the checks | No |
 
 Every file documents itself in its header: the scene contract at the top of `scene.js`, the board fields at the top
@@ -87,6 +89,22 @@ is a reference only, never a starting point. Every file the work makes stays ins
    install command.
 4. **Show the board**: render the board sheet (`node render.mjs board --slates`) before rendering.
 5. **Render, mix, `palette` and `check`**: step 10 below.
+
+**Caption a clip** the person brings (a talking head, a screen recording with narration; "add captions to this")
+follows `references/delivery.md` section 8 instead of the steps below. The clip is never redrawn: the captions render
+with alpha on the clip's own clock and ffmpeg lays them over it; unlike an overlay, the result is mixed and mastered.
+1. **Prepare**: `node tools/clip.mjs prepare <clip> --board` (`--audio <n>` when `probe` lists several audio streams).
+   It writes `vo.wav`, the clip's sound on the picture's clock, and converts a variable frame rate or non-square pixels;
+   tell the person what it converted.
+2. **Transcript, on the clip's clock**: with `whisper-cli` installed (`doctor` says), transcribe `out/vo16k.wav` (never
+   a separate extract of the clip); otherwise ask for a transcript (SRT, WebVTT, whisper.cpp or openai-whisper JSON).
+   Then `node tools/clip.mjs cues --transcript <file>`; `--raw-track` when `prepare` says the sound starts away from
+   the first frame and the transcript was made from the raw audio track. SRT and WebVTT words are estimated within
+   their phrase: say so.
+3. **Captions, composite, mix, check**: `node render.mjs check --scene caption.js --alpha`, then
+   `node render.mjs video --scene caption.js --alpha --out out/<name>.mov` (`--param style=` for another style),
+   `node tools/clip.mjs composite <name>`, `node tools/mix.mjs <name> --no-sfx`, and
+   `node render.mjs check --file out/<name>-final.mp4`. Deliver `out/<name>-final.mp4`.
 
 Both sheets, `brand.png` and `board.png`, are always rendered before the full render, even when nobody can approve them
 now (the request asked for the finished file): go on, and name both in your reply.
@@ -135,6 +153,7 @@ now (the request asked for the finished file): go on, and name both in your repl
     - **a video**: `node render.mjs full --out out/<name>.mp4`, then `node tools/mix.mjs <name>` (voice, bed and
       effects, mastered to -14 LUFS; `--master-only` for the effects alone, also -14 LUFS; `--sting` for an asset cut
       into someone else's video, -20 LUFS), then `node render.mjs check --file out/<name>-final.mp4`;
+    - **a captioned clip**: the branch above; the overlay is composited over the clip and mixed, unlike an overlay;
     - **an overlay** (transparent, with no mix: the mixer takes only an `.mp4` picture):
       `node render.mjs video --alpha --out out/<name>.mov`, then `node render.mjs check --alpha` and
       `node render.mjs check --file out/<name>.mov --plain --alpha`. For WebM:
@@ -187,6 +206,10 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
   clean on the master.
 - `lower-third/` (5 s, 16:9, transparent): a name strap rendered `--alpha` to ProRes 4444 and WebM, and the recipe
   that composites it onto footage (`references/delivery.md`).
+- `caption-clip/` (15 s, 9:16 at 540x960): a clip made in code (a made-up screen recording, no person in it, with the
+  explainer's voice as its sound) captioned word by word from its transcript: `tools/clip.mjs prepare`, the captions
+  with alpha, the composite, the mix of the clip's own sound, and `check --file` clean (`references/delivery.md`
+  section 8).
 - `terminal-demo/` (8 s, 9:16): a made-up command-line tool installed and run in a terminal (typed commands, a progress
   bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look, and
   `check` clean on the source and the master (`references/code.md`).
@@ -240,4 +263,4 @@ measured checks, and rendering it exactly on one machine.
 - `references/launch.md`: a launch video for a repo: the scan (`tools/repo-scan.mjs`), the kit from it, pictures of the
   app (`tools/shots.mjs`: a full-page screenshot, or a frame sequence under 1 GB decoded), the board, and the checks.
 - `references/delivery.md`: sizes and safe areas, encode settings, alpha overlays, compositing recipes, loudness
-  targets, footage, previews.
+  targets, footage, previews, and captioning a clip (`tools/clip.mjs`).

@@ -85,6 +85,17 @@ and re-mix.
   (`file_spec` against the piece's settings, `faststart`, and `loudness` with `--lufs`). Run it in the piece the
   file was cut from, or one with the same size, frame rate and length: `file_spec` compares the file with the scene
   in the folder you run it in, and fails a 75 s export checked from the 3 s template.
+- **A captioned clip** (`tools/clip.mjs composite`, `references/delivery.md` section 8): the composite's render record
+  has `kind: "composite"`. `check --file` on its master binds the master to the composite as for any render, then to
+  the overlay: a second `provenance` line FAILs when the overlay record the composite names is missing, changed since
+  the composite (another render under its name), is not alpha, or was rendered from another source than the piece's
+  now (a stale overlay), or when the clip is not the one composited. The text checks replay the caption scene with the
+  overlay's settings, alpha included; `motion_dead` and `first_frame_empty` run on the composite's own frames, decoded
+  with ffmpeg at the probe's half size (the picture a viewer sees, clip and captions); `file_spec` reads the
+  composite's record (`yuv420p`, the clip's size, rate and frame count); `vo_delay` reads `VO_OFFSET` 0. In a clip
+  piece (`clip.js`), a clip of its target's shape but another size gets the target's zones scaled to it; any other
+  shape has `text_safe` reported as not checked. Check the captions themselves as an overlay:
+  `node render.mjs check --scene caption.js --alpha`.
 - **An overlay with sound** that someone else will cut into their edit: master it with `tools/mix.mjs <name> --sting`
   (which needs an `.mp4` picture), then `check --file` binds it like any master.
 
@@ -143,6 +154,7 @@ each example's README names them:
 | `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and re-cut in P11b: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
 | `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 | `repo-launch` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
+| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 4 not checked (silent, no hook, an overlay's first frame) | 14 ok, 0 WARN, 3 not checked (the scene is silent, no hook) | none |
 
 The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad` (`flash` is not checked
 until it is rendered). CI runs every source check except the two probe checks and `flash` on the examples on macOS

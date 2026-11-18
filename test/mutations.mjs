@@ -26,6 +26,8 @@ const RS = ['test/repo-scan.test.mjs'], SH = ['test/shots.test.mjs'], LE = ['tes
 const RLC = ['--test-name-pattern=repo-launch', 'test/examples-check.test.mjs'];
 // P11a: the flash check; FLU the rule on frames built in code, FLE files and the wiring in render.mjs
 const FLU = ['test/flash-units.test.mjs'], FLE = ['test/flash.test.mjs'];
+// P10: caption a clip
+const CLU = ['test/clip-units.test.mjs'], CL = ['test/clip.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -578,6 +580,60 @@ const M = [
   ["P11a R2 C1: the watchdog never fires", T + 'check.mjs', [["    if (closed || Date.now() - quiet <= stallMs) return;", "    if (true) return;"]], FLE],
   ["P11a R2 C2: the raw output keeps ffmpeg's own timestamps (no setts)", T + 'check.mjs', [["'-bsf:v', 'setts=pts=N:dts=N',", ""]], FLE],
   ["P11a R2 C3: the transition rings Int32Array, not Float64Array", T + 'check.mjs', [["const ringG = new Float64Array(n * K).fill(NONE)", "const ringG = new Int32Array(n * K).fill(NONE)"], ["const ringR = new Float64Array(red ? n * K : 0).fill(NONE)", "const ringR = new Int32Array(red ? n * K : 0).fill(NONE)"]], ['test/flash-dating.test.mjs']],
+  // ---- P10: caption a clip (plan 23.5). Unit: the adapters, the estimate flag, the rates, the clip's cues, the styles,
+  // the scaled zones, the composite's provenance, the decoded probe. Whole path: the sync fixture, the frame count, the
+  // stale overlay, the replayed settings, the decoded picture checks, the variable rate, doctor.
+  ["P10 srt: spread words not marked estimated", T + "tools/cues.mjs", [["if (spans.some(([a, b]) => w.start >= a - 1e-6 && w.start < b + 1e-6)) { w.est = true; n++; }", "if (spans.some(([a, b]) => w.start >= a - 1e-6 && w.start < b + 1e-6)) { n++; }"]], CLU],
+  ["P10 spread: by word count, not length", T + "tools/cues.mjs", [["const weight = (w) => Math.max(1, normWord(w).length);", "const weight = () => 1;"]], CLU],
+  ["P10 whispercpp: special tokens kept as words", T + "tools/cues.mjs", [["seg.tokens.filter((t) => !/^\\s*(\\[_[^\\]]*\\]|<\\|[^|]*\\|>)\\s*$/.test(String(t.text)))", "seg.tokens"]], CLU],
+  ["P10 whispercpp: a one-word segment estimated", T + "tools/cues.mjs", [["est: text.split(/\\s+/).length > 1 });", "est: true });"]], CLU],
+  ["P10 vtt: markup left in the words", T + "tools/cues.mjs", [[".join(' ').replace(/<[^>]*>/g, '')", ".join(' ')"]], CLU],
+  ["P10 vtt: a file without WEBVTT read", T + "tools/cues.mjs", [["  if (!/^\\uFEFF?WEBVTT/.test(String(text))) throw new CueError('vtt: a WebVTT file starts with WEBVTT');\n", ""]], CLU],
+  ["P10 styles: extreme gets pop", T + "lib.js", [["normal: 'pop', extreme: 'karaoke' });", "normal: 'pop', extreme: 'pop' });"]], CLU],
+  ["P10 styles: subtle by default", T + "lib.js", [["const e = energy == null || energy === '' ? 'normal' : String(energy);", "const e = energy == null || energy === '' ? 'subtle' : String(energy);"]], CLU],
+  ["P10 zones: another shape scaled too", T + "lib.js", [["if (!(W > 0 && H > 0) || Math.abs(W / H - T.w / T.h) > 0.005 * (T.w / T.h)) return null;", "if (!(W > 0 && H > 0)) return null;"]], CLU],
+  ["P10 rate: variable only past 60% off the median", T + "tools/clip.mjs", [["Math.abs(x - median) > 0.25 * median", "Math.abs(x - median) > 0.6 * median"]], CLU],
+  ["P10 rate: variable at 20% off the median", T + "tools/clip.mjs", [["Math.abs(x - median) > 0.25 * median", "Math.abs(x - median) > 0.2 * median"]], CLU],
+  ["P10 rate: 29.97 not a standard rate", T + "tools/clip.mjs", [["[30000 / 1001, '30000/1001'], ", ""]], CLU],
+  ["P10 cues: the clip's words given an offset", T + "tools/clip.mjs", [["const cues = { VO_OFFSET: 0, CUE: {}, TAKE:", "const cues = { VO_OFFSET: 0.1, CUE: {}, TAKE:"]], CLU],
+  ["P10 cues: the estimate flag dropped", T + "tools/clip.mjs", [["end: r6(w.end + shift), ...(w.est ? { est: true } : {}) }));", "end: r6(w.end + shift) }));"]], CLU],
+  ["P10 composite provenance: stale overlay passes", T + "check.mjs", [["if (!rec.source || !f.sourceNow || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the overlay", "if (!rec.source) probs.push(`the piece's source changed since the overlay"]], CLU],
+  ["P10 composite provenance: overlay record hash not compared", T + "check.mjs", [["else if (f.overlayShaNow !== f.overlaySha) probs.push", "else if (false) probs.push"]], CLU],
+  ["P10 composite provenance: an opaque overlay passes", T + "check.mjs", [["    if (!rec.alpha) probs.push(`${f.overlayFile} is not an alpha render", "    if (false) probs.push(`${f.overlayFile} is not an alpha render"]], CLU],
+  ["P10 composite provenance: the clip not compared", T + "check.mjs", [["else if (f.clipShaNow !== f.clipSha) probs.push", "else if (false) probs.push"]], CLU],
+  ["P10 decoded probe: Rec. 601 luma", T + "check.mjs", [["luma[j] = Math.round(0.2126 * rgb[i] + 0.7152 * rgb[i + 1] + 0.0722 * rgb[i + 2]);", "luma[j] = Math.round(0.299 * rgb[i] + 0.587 * rgb[i + 1] + 0.114 * rgb[i + 2]);"]], CLU],
+  ["P10 sync: the captions two frames late in the composite", T + "tools/clip.mjs", [["[1:v]setpts=N/(${fr})/TB[o]", "[1:v]setpts=(N+2)/(${fr})/TB[o]"]], CL],
+  ["P10 composite: a frame short of the clip", T + "tools/clip.mjs", [["'-frames:v', String(CLIP.frames),", "'-frames:v', String(CLIP.frames - 1),"]], CL],
+  ["P10 composite: a stale overlay composited", T + "tools/clip.mjs", [["      if (!rec.source || rec.source.hash !== now.hash) problems.push", "      if (false) problems.push"]], CL],
+  ["P10 check: the overlay not bound", T + "render.mjs", [["      if (prov.rec && prov.rec.kind === 'composite') prov = compositeBind(prov, push);   // P10: a captioned clip\n", ""]], CL],
+  ["P10 check: the overlay's settings not replayed", T + "render.mjs", [["      if (prov.overlayRec) settings = { ...settings, alpha: prov.overlayRec.alpha || null, sub: prov.overlayRec.sub };   // P10: the overlay's settings\n", ""]], CL],
+  ["P10 check: the picture checks on the page, not the composite", T + "render.mjs", [["const needProbe = !compositeFile && (want('motion_dead') || want('first_frame_empty'));", "const needProbe = want('motion_dead') || want('first_frame_empty');"]], CL],
+  ["P10 check: the zones not scaled to a clip", T + "render.mjs", [["    else if (INFOc && lib.CLIP && (z.w !== INFOc.W || z.h !== INFOc.H) && lib.scaleTarget(z, INFOc.W, INFOc.H)) {", "    else if (false) {"]], CL],
+  ["P10 prepare: a variable rate clip not converted", T + "tools/clip.mjs", [["const rate = c.vfr ? nearestRate(c.avgFps) : null,", "const rate = null,"]], CL],
+  ["P10 doctor: whisper-cli not reported", T + "render.mjs", [["  doctorWhisper(line);   // P10\n", ""]], CL],
+  ["P10 docs: SKILL.md without the caption-a-clip branch", "skills/sabotage-motion/SKILL.md", [["**Caption a clip** the person brings", "Captioning a clip someone brings"]], DOCS],
+  // ---- P10 council round 1 fold: one clock (B1), the audio track (B2), square pixels (B3), the vo.wav comparison (B4)
+  ["P10 R1 B1 vo.wav: a late sound not delayed", T + "tools/clip.mjs", [["const align = n > 0 ? `adelay=delays=${n}S:all=1,` :", "const align = n > 0 ? '' :"]], CL],
+  ["P10 R1 B1 vo.wav: an early sound not cut", T + "tools/clip.mjs", [[": n < 0 ? `atrim=start_sample=${-n},asetpts=PTS-STARTPTS,` : '';", ": '';"]], CL],
+  ["P10 R1 B1 --raw-track moves nothing", T + "tools/clip.mjs", [["return { shift: offset, why: `--raw-track", "return { shift: 0, why: `--raw-track"]], CL],
+  ["P10 R1 B1 the shift ignored by the cues", T + "tools/clip.mjs", [["start: r6(w.start + shift), end: r6(w.end + shift)", "start: r6(w.start), end: r6(w.end)"]], CLU],
+  ["P10 R1 B1 no 16 kHz copy of vo.wav for whisper-cli", T + "tools/clip.mjs", [["    whisperCopy(path.join(ROOT, 'vo.wav'), path.join(ROOT, 'out', 'vo16k.wav'));\n", ""]], CL],
+  ["P10 R1 B1 no note when the sound starts away from the picture", T + "tools/clip.mjs", [["  if (!(Math.abs(off) > 1 / fps + 1e-9)) return null;", "  return null;"]], CL],
+  ["P10 R1 B2 vo.wav from the first track whatever --audio says", T + "tools/clip.mjs", [["'-map', `0:a:${c.audio.index}`, '-vn'", "'-map', '0:a:0', '-vn'"]], CL],
+  ["P10 R1 B2 probe lists one track", T + "tools/clip.mjs", [["(c.audios.length > 1 ? `\\n  ${c.audios.length} audio streams", "(false ? `\\n  ${c.audios.length} audio streams"]], CL],
+  ["P10 R1 B2 a missing track not refused", T + "tools/clip.mjs", [["  if (ai && !au) throw new ClipError(", "  if (false) throw new ClipError("]], CL],
+  ["P10 R1 B3 pixels' aspect ignored in the display size", T + "tools/clip.mjs", [["const w = sar ? Math.round((cw * sar[0]) / sar[1]) : cw;", "const w = cw;"]], CLU],
+  ["P10 R1 B3 non-square pixels not converted", T + "tools/clip.mjs", [["size = c.sar ? [even(c.w), even(c.h)] : null;", "size = null;"]], CLU],
+  ["P10 R1 B3 a converted size left odd", T + "tools/clip.mjs", [["const even = (x) => Math.max(2, 2 * Math.round(x / 2));", "const even = (x) => Math.round(x);"]], CLU],
+  ["P10 R1 B4 vo.wav not compared with the clip's sound", T + "tools/clip.mjs", [["if (sha256File(path.join(tmp, 'vo.wav')) !== sha256File(voFile)) throw", "if (false) throw"]], CL],
+  ["P10 R1 docs: delivery.md without the sync contract", "skills/sabotage-motion/references/delivery.md", [["Sync is measured on each word's", "Sync is checked on each word's"]], DOCS],
+  // ---- P10 council round 2 fold: the re-prepared track's offset (D1), the lead words (D2), odd sizes (D3)
+  ["P10 R2 D1 a re-prepared clip keeps the old track's offset", T + "tools/clip.mjs", [["return converted ? prev : { ...prev, audio: ai, audioOffset: offset };", "return prev;"]], CLU],
+  ["P10 R2 D2 words ending before the first frame kept", T + "tools/clip.mjs", [["const words = all.filter((w) => w.end > 1e-6), lead", "const words = all, lead"]], CLU],
+  ["P10 R2 D2 a word straddling the first frame not clipped", T + "tools/clip.mjs", [["for (const w of words) if (w.start < 0) { w.start = 0; lead.clipped++; }", "for (const w of words) if (false) { w.start = 0; lead.clipped++; }"]], CLU],
+  ["P10 R2 D3 an odd size not cropped", T + "tools/clip.mjs", [["const crop = !size && (c.w % 2 || c.h % 2) ? [c.w - (c.w % 2), c.h - (c.h % 2)] : null;", "const crop = null;"]], CLU],
+  ["P10 R2 D3 the crop planned but not applied", T + "tools/clip.mjs", [["plan.crop ? `crop=${plan.crop[0]}:${plan.crop[1]}:0:0` : ''", "''"]], CL],
+  ["P10 R2 docs: delivery.md without the odd-size crop", "skills/sabotage-motion/references/delivery.md", [["right or bottom edge (no pixel is invented)", "edge (no pixel is invented)"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

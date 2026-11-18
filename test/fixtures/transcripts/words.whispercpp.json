@@ -1,0 +1,10 @@
+{
+	"systeminfo": "NEON = 1 | METAL = 1 | ",
+	"params": {"model": "models/ggml-base.en.bin", "language": "en", "translate": false},
+	"result": {"language": "en"},
+	"transcription": [
+		{"timestamps": {"from": "00:00:00,300", "to": "00:00:00,650"}, "offsets": {"from": 300, "to": 650}, "text": " Ready,"},
+		{"timestamps": {"from": "00:00:00,650", "to": "00:00:00,900"}, "offsets": {"from": 650, "to": 900}, "text": " set..."},
+		{"timestamps": {"from": "00:00:01,500", "to": "00:00:02,600"}, "offsets": {"from": 1500, "to": 2600}, "text": " now go."}
+	]
+}
