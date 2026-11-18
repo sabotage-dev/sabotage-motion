@@ -65,6 +65,12 @@ each card passes `check` with no FAIL and no WARN). DISPLAY (Archivo Black), BOD
   and harder camera moves, and a look with `glitch: false` (`paper`, `product`, `editorial`, `brutalist`, `gradient`,
   `mono` and the template's own) never glitches or flash-frames at any energy: extreme on it uses its strongest
   allowed moves (whips, punches, slams). `moves.js`'s `glitchCut` and `flash` return nothing on such a look.
+- **On a light or flat ground, cut and move with something other than the ground.** The template card's cuts swap
+  stripes in a flash-safe tone close to the ground, and on `paper`, `product`, `editorial`, `brutalist` and `gradient`
+  that is too faint for `energy_match`: at `normal` and `extreme` the card WARNs as calmer than its energy
+  (`references/check.md` section 6 has the numbers). To read as the energy on those looks, cut with layout, scale or an
+  accent block (a new framing, a punch-in, a block of the accent colour), not with the ground's brightness, and move
+  something with contrast.
 - **Do not reuse the same palette from piece to piece.** The template's own dark palette is a fallback, not a
   house style; a run of pieces in it reads as one template. Start from a look, then make it the piece's own: change
   the accent, a font, the shader, with `--param` first and in code once it is settled.

@@ -180,7 +180,24 @@ mastered with its bed stem (`--master-only`), `check --file` is 0 FAIL and 0 WAR
 px, on `paper`). On `tiktok-ad` it is 0 FAIL at every energy and 0 WARN at `subtle` and `extreme`; at `normal`
 `energy_match` WARNs that its largest line is 8.3% of the frame height, under normal's 9%: beside the button column
 the title has 660 px, and its widest word fits them at that size. A piece made for `tiktok-ad` at `normal` sets a
-shorter title or lets it break into more lines. CI runs every source check except the two probe checks and `flash` on the examples on macOS
+shorter title or lets it break into more lines.
+
+On five of the eight looks the card reads calmer than its energy, on `tiktok` too: `energy_match` WARNs at `normal`
+and at `extreme`. Its cuts swap the ground's stripes, and the stripes keep to the flash-safe tone (`energy.js`
+`groundTone`: under a 0.1 swing of relative luminance from the ground). On these grounds that tone is mostly under the
+16/255 the check needs to confirm a cut or count a pixel as moving:
+
+- `paper`, `product` and `editorial`: at `normal` none of the card's 2 cuts is confirmed (5-7% of the pixels change on
+  `product` and `editorial`, 17-19% on `paper`, under the 20% a cut needs) and its motion is 0.4-0.6% (floor 2%); at
+  `extreme` none of 11 is confirmed on `product` and `editorial` and 7 are on `paper`, and its motion is 2-5% (floor 6%).
+- `brutalist` and `gradient`: every cut is confirmed, but the motion is 0.1-0.2% at `normal` and about 2% at `extreme`.
+
+The template's own look, `neon`, `retro-crt` and `mono` read as their energy. A piece on one of those five looks reads
+as `normal` or `extreme` when it cuts with layout, scale or an accent block (a new framing, a punch-in, a block of the
+accent colour), not with the ground's brightness, and moves something with contrast. The card itself is unchanged
+here; its redesign is logged for 0.2.1.
+
+CI runs every source check except the two probe checks and `flash` on the examples on macOS
 and Linux; the probe checks, `flash` and the masters run on a Mac before a release.
 
 ## 7. Flashes: `flash`
