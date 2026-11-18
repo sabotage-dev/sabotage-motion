@@ -8,7 +8,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { chromium } from 'playwright-core';
 import { pathToFileURL } from 'node:url';
@@ -93,27 +93,37 @@ after(async () => { if (browser) await browser.close(); if (server) server.close
 
 // Type over the panel is drawn in the ground's colour, so it reads there as well as on the ground: on every look at normal
 // and extreme, the parts of the text boxes that lie over the panel have ink (energy_match's own ink pass, on those parts
-// alone). On mono, ink and accent are both white: without the recolour, type over the panel would vanish.
-test('the template card on all 8 looks at normal and extreme: type over the accent panel is legible (it has ink there)', async () => {
+// alone), through normal's iris too, where the panel shows as two masks (the one before outside the circle, the next
+// inside it: parts certainly inside, in the circle's inscribed square, and certainly outside, beyond its bounding
+// square). On mono, ink and accent are both white: without the recolour, type over the panel would vanish.
+// The parts of box b (design px) over mask m that the panel certainly covers: [{ x, y, w, h }]
+function overMask(b, m) {
+  const cut = (r, s) => { const x0 = Math.max(r.x, s.x), y0 = Math.max(r.y, s.y), x1 = Math.min(r.x + r.w, s.x + s.w), y1 = Math.min(r.y + r.h, s.y + s.h); return x1 - x0 > 8 && y1 - y0 > 8 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null; };
+  const base = cut(b, m);
+  if (!base) return [];
+  if (m.inside) { const c = m.inside, h = c.r / Math.SQRT2; return [cut(base, { x: c.x - h, y: c.y - h, w: 2 * h, h: 2 * h })].filter(Boolean); }
+  if (m.outside) {
+    const c = m.outside, big = 1e6;
+    return [{ x: -big, y: -big, w: 2 * big, h: c.y - c.r + big }, { x: -big, y: c.y + c.r, w: 2 * big, h: big }, { x: -big, y: -big, w: c.x - c.r + big, h: 2 * big }, { x: c.x + c.r, y: -big, w: big, h: 2 * big }]
+      .map((s) => cut(base, s)).filter(Boolean);
+  }
+  return [base];
+}
+test('the template card on all 8 looks at normal and extreme: type over the accent panel is legible (it has ink there), through normal\'s iris too', async () => {
   const ink = C.T.energy.ink, bad = [], seen = [];
   for (const energy of ['normal', 'extreme']) for (const look of LOOKS) {
     const { page, ready } = await openPage({ 'p.energy': energy, 'p.look': look });
     if (ready) { bad.push(`${energy}/${look}: the page did not load (${ready})`); await page.close(); continue; }
     const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS }));
-    // every frame's text boxes cut to the panel there (design px, before the camera), as boxes energyRects maps
-    const frames = await page.evaluate(async () => {
-      const m = await import('./scene.js'), out = [];
-      for (const fr of window.energyBoxes()) {
-        const p = m.panelAt(fr.f / window.INFO.FPS + 0.25 / window.INFO.FPS);
-        if (!p) continue;
-        const boxes = fr.boxes.filter((b) => !b.deco).map((b) => {
-          const x0 = Math.max(b.x, p.x), y0 = Math.max(b.y, p.y), x1 = Math.min(b.x + b.w, p.x + p.w), y1 = Math.min(b.y + b.h, p.y + p.h);
-          return x1 - x0 > 8 && y1 - y0 > 8 ? { id: b.id, text: b.text, x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
-        }).filter(Boolean);
-        if (boxes.length) out.push({ ...fr, boxes });
-      }
-      return out;
+    // every frame's text boxes cut to where the panel certainly shows (design px, before the camera), as boxes
+    // energyRects maps; an iris part is reported under its own id
+    const raw = await page.evaluate(async () => {
+      const m = await import('./scene.js');
+      return window.energyBoxes().map((fr) => ({ ...fr, masks: m.panelMasks(fr.f / window.INFO.FPS + 0.25 / window.INFO.FPS) }));
     });
+    const frames = raw.map((fr) => ({ ...fr, boxes: fr.boxes.filter((b) => !b.deco).flatMap((b) => fr.masks.flatMap((m) =>
+      overMask(b, m).map((r) => ({ id: `${b.id}${m.inside ? ':iris in' : m.outside ? ':iris out' : ''}`, text: b.text, ...r })))) })).filter((fr) => fr.boxes.length);
+    if (energy === 'normal' && !frames.some((fr) => fr.boxes.some((b) => b.id.includes(':iris')))) bad.push(`${energy}/${look}: no text over the panel in the iris (the test sees none of it)`);
     const rects = C.energyRects(frames, I.W, I.H, I.RW, I.RH);
     const scan = await page.evaluate((o) => window.energyScan(o), { pairs: [], rects: Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])), inkDelta: ink.delta, inkRel: ink.rel });
     // per box id, the probe frames where its part over the panel has ink
@@ -128,4 +138,20 @@ test('the template card on all 8 looks at normal and extreme: type over the acce
     await page.close();
   }
   assert.deepEqual(bad, [], `${bad.join('\n')}\n(all: ${seen.join(' | ')})`);
+});
+
+// The flash limit holds on the tightest extreme cells, rendered and read as files (check --file): brutalist (the most
+// too fast of all, 18,874 px of 21,824, on a Mac) and neon (its bloom; its glitch on every sixth cut: on every third it
+// is 23,465 px, over the limit)
+test('the template card at extreme on brutalist and neon passes flash as a file', () => {
+  const out = [];
+  for (const look of ['brutalist', 'neon']) {
+    const file = `out/flash-${look}.mp4`;
+    const r = spawnSync(process.execPath, ['render.mjs', 'video', '--param', 'energy=extreme', '--param', `look=${look}`, '--scale', '0.25', '--sub', '2', '--out', file], { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const c = spawnSync(process.execPath, ['render.mjs', 'check', '--file', file, '--only', 'flash', '--json'], { cwd: dir, encoding: 'utf8' });
+    const f = JSON.parse(c.stdout).find((x) => x.id === 'flash');
+    out.push(`${look}: ${f.level} ${f.detail}`);
+    assert.equal(f.level, 'OK', `${look} at extreme: ${f.detail}`);
+  }
 });

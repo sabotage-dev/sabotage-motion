@@ -265,7 +265,9 @@ cut, at most 0.3 s).
   drawing nothing; where the two differ is the text, after the camera and the post chain. The renders without text
   come in a second pass, after every frame has been rendered with its text in order: rendering each frame without its
   text right after rendering it with it, frame after frame, lost the extreme card's largest slam on Chrome on
-  SwiftShader (Linux), where the two renders of a frame came out the same inside its box. Each box that is not
+  SwiftShader (Linux), where the two renders of a frame came out the same inside its box. The pixels kept for the
+  second pass are held in runs of at most 256 MB: a piece of a few seconds is one run, a long one several, each still
+  every frame with its text first. Each box that is not
   `deco`, mapped through the camera as `text_safe` maps it, cuts its part of that mask; its rows with ink split into
   lines at empty rows, and a line's height is its run of rows. The tallest line over the piece, as a share of the frame
   height, is the type size: a three-line block of small type reads as small type, and a box that claims more than its
@@ -320,7 +322,8 @@ the text left out, and motion from the probe. This is the interface those measur
   `moves.js`'s rig clamps the camera at each `t` so every box stays inside the target's safe area after it.
 - **Cuts that read on any ground, and flash**: the card's cuts move a block of the look's accent (normal: a band that
   swaps sides, then drops to the bottom; extreme: 60% of the width sliding a fifth of it a cut, there and back, so a
-  pixel changes on at most every other cut), and type over it takes the ground's colour. Its ground's stripes, and the
+  pixel changes on at most two cuts in every four, back to back at worst in the outer fifths; `flash` holds it on
+  `brutalist` and `neon` in CI), and type over it takes the ground's colour. Its ground's stripes, and the
   stripes inside the block, stay under the flash rule's 0.1 swing of relative luminance (`energy.js` `groundTone`,
   `shotTones`): on a light ground that is too close to show, so the block carries the cut.
 

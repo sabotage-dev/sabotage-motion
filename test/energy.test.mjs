@@ -261,6 +261,29 @@ test('P11b energyScan never renders a frame without its text between frames with
   assert.deepEqual([il.length, il[4], il[11]], [N + 2, 'off', 'off'], 'the old order, kept for the test above: off right after frames 3 and 9');
 });
 
+// round 5, L1: the pixels energy_match keeps for its text-off pass are held in runs of at most a byte budget, each
+// run still every text-on render first, then its text-off ones; the measurement is the same whatever the runs. A long
+// piece is several budgets' worth; here the card is, with a budget a quarter of what it holds.
+test('P11b R5 energyScan holds at most its budget of kept pixels, in runs rendered with text first, and measures the same ink', async () => {
+  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: String(C.T.probeScale) });
+  assert.equal(ready, null);
+  const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH }));
+  const rects = C.energyRects(await page.evaluate(() => window.energyBoxes()), I.W, I.H, I.RW, I.RH);
+  const R = Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)]));
+  const total = Object.values(R).flat().reduce((n, [x0, y0, x1, y1]) => n + (x1 - x0) * (y1 - y0) * 3, 0), budget = Math.ceil(total / 4);
+  const run = (o) => page.evaluate(async (o) => {
+    const seen = [], orig = window.renderProbe;
+    window.renderProbe = (t, x = {}) => { seen.push(x.noText ? 0 : 1); return orig(t, x); };
+    try { const r = await window.energyScan(o); return { ink: r.ink, retained: r.retained, seen: seen.join('') }; } finally { window.renderProbe = orig; }
+  }, { pairs: [], rects: R, inkDelta: C.T.energy.ink.delta, inkRel: C.T.energy.ink.rel, ...o });
+  const whole = await run({}), parts = await run({ budget });
+  assert.equal(whole.retained, total, 'by default (256 MB) the card is one run: all it keeps at once');
+  assert.ok(parts.retained > 0 && parts.retained <= budget, `held at most ${parts.retained} bytes, within a budget of ${budget}`);
+  assert.deepEqual(parts.ink, whole.ink, 'the same ink, whatever the runs');
+  const offRuns = parts.seen.split(/1+/).filter(Boolean).map((x) => x.length);
+  assert.ok(offRuns.length >= 4 && offRuns.slice(0, -1).every((n) => n >= 8), `runs of text-off renders, each after its run's text-on ones: ${offRuns.join(', ')}`);
+});
+
 test('P11b the interface check measures: INFO.ENERGY names the energy and where it came from, sceneCuts() returns the scene\'s cuts checked', async () => {
   const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme' });
   assert.equal(ready, null);

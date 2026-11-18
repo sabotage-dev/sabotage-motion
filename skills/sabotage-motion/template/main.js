@@ -618,9 +618,13 @@ window.energyBoxes = () => {
 // a frame came out the same inside its box, while a render or a short run drew it. interleave: true keeps that old
 // order, for the test that documents it; debug: true adds lumaMax, per frame and rectangle, the brightest luma of each
 // render ([on, off]).
+// Memory: the pixels kept for pass 2 are held in runs of at most `budget` bytes (default 256 MB; RGB, since ink is the
+// largest difference of R, G and B). A piece of a few seconds is one run; a long one (three minutes with text over a
+// quarter of a 540x960 probe would hold about 2 GB) is several, each still every text-on render first, then that run's
+// text-off ones. out.retained is the most held at once.
 const maxDiff = (a, b, x) => Math.max(Math.abs(a[x] - b[x]), Math.abs(a[x + 1] - b[x + 1]), Math.abs(a[x + 2] - b[x + 2]));
-window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleave = false, debug = false }) => {
-  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {}, ...(debug ? { lumaMax: {} } : {}) };
+window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleave = false, debug = false, budget = 256 * 1024 * 1024 }) => {
+  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {}, retained: 0, ...(debug ? { lumaMax: {} } : {}) };
   const last = new Map(), ends = new Map(), kept = new Map();   // a -> its last partner; b -> pair indices; a -> its rgb
   pairs.forEach(([a, b], i) => { last.set(a, Math.max(last.get(a) ?? -1, b)); if (!ends.has(b)) ends.set(b, []); ends.get(b).push(i); });
   // a rectangle's pixels (RGB), row by row
@@ -646,7 +650,16 @@ window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleav
       return rows;
     });
   };
-  const withText = new Map();   // f -> the pixels of its rectangles, text on
+  const withText = new Map();   // f -> the pixels of its rectangles, text on (one run)
+  let held = 0;                  // bytes in withText
+  // the run's frames without their text, in order, then the run is let go
+  const flush = () => {
+    for (const [f, on] of withText) {
+      const q = window.renderProbe(f / FPS, { rgb: true, noText: true });
+      inkOf(f, on, rects[f].map((r) => crop(q.rgb, r)));
+    }
+    withText.clear(); held = 0;
+  };
   let prev = null;
   for (let f = 0; f < N; f++) {
     const t = f / FPS, p = window.renderProbe(t, { rgb: true });
@@ -665,13 +678,12 @@ window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleav
     for (const [a, b] of last) if (b <= f) { kept.delete(a); last.delete(a); }
     const R = rects[f];
     if (!R || !R.length) continue;
-    const on = R.map((r) => crop(p.rgb, r));
-    if (interleave) inkOf(f, on, R.map((r) => crop(window.renderProbe(t, { rgb: true, noText: true }).rgb, r)));
-    else withText.set(f, on);
+    const on = R.map((r) => crop(p.rgb, r)), bytes = on.reduce((n, c) => n + c.length, 0);
+    if (interleave) { inkOf(f, on, R.map((r) => crop(window.renderProbe(t, { rgb: true, noText: true }).rgb, r))); continue; }
+    if (held && held + bytes > budget) flush();
+    withText.set(f, on); held += bytes;
+    out.retained = Math.max(out.retained, held);
   }
-  for (const [f, on] of withText) {
-    const q = window.renderProbe(f / FPS, { rgb: true, noText: true });
-    inkOf(f, on, rects[f].map((r) => crop(q.rgb, r)));
-  }
+  flush();
   return out;
 };

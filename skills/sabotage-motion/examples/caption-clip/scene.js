@@ -299,8 +299,10 @@ function stripes(c, t, i, { tone = TONE, fast = 1 } = {}) {
 // reads on any ground. The ground's stripes cannot carry a cut on a light ground: they keep within a flash-safe tone of
 // it (groundTone), and on a light ground that tone is under the 16/255 a cut needs. Shot i's panel is PANELS[energy][i
 // mod n] as [x, y, w, h], shares of the frame: normal's swaps sides, then drops to the bottom (each cut moves half the
-// frame or more); extreme's is 60% of the width sliding a fifth of it a cut, there and back, so a pixel changes on at
-// most every other cut (about twice a second at 136 BPM: never a light-dark flicker). Inside it, stripes in a tone close
+// frame or more); extreme's is 60% of the width sliding a fifth of it a cut, there and back (0, 0.2, 0.4, 0.2 of the
+// width), so a pixel changes on at most two cuts in every four: across the middle fifth never, and in the outer
+// fifths on two cuts that may run back to back, then not for two (about twice a second at 136 BPM, never a light-dark
+// flicker: flash holds it, on brutalist and neon in CI). Inside it, stripes in a tone close
 // to the accent scroll (normal: at twice the ground's pace; extreme: at half of it, where a strong bloom, neon's, would
 // carry their swing past the flash rule's), motion that reads on any look and is never a flash. Type, the bar and the
 // frame marks over it are drawn in the ground's colour (recolour).
@@ -344,19 +346,31 @@ function ground(c, t) {
   const i = shotAt(CUTS, t);
   stripes(c, t, i); drawPanel(c, t, i);
 }
-// Where the panel is at t, in design pixels ({ x, y, w, h }), or null: at subtle, in an overlay, and inside normal's iris
-// (two panels then). A pure function of t, like boxes(t); the test that keeps type over the panel legible reads it.
-export function panelAt(t) { return iris(t) ? null : panelOf(shotAt(CUTS, t)); }
+// Where the panel shows at t, in design pixels: [{ x, y, w, h, inside?, outside? }], none at subtle or in an overlay.
+// One outside normal's iris; inside it two, the shot before's panel outside the circle ({ x, y, r }) and the next
+// shot's inside it. A pure function of t, like boxes(t): recolour() draws from it, and the test that keeps type over
+// the panel legible reads it.
+export function panelMasks(t) {
+  const ir = iris(t), circle = (r) => ({ x: CFG.W / 2, y: CFG.H / 2, r });
+  if (ir) {
+    const [j, k, r] = ir, a = panelOf(j), b = panelOf(k);
+    return [...(a ? [{ ...a, outside: circle(r) }] : []), ...(b ? [{ ...b, inside: circle(r) }] : [])];
+  }
+  const p = panelOf(shotAt(CUTS, t));
+  return p ? [p] : [];
+}
 // Whatever the layer holds over the panel, in the ground's colour (source-atop keeps each pixel's coverage)
 function recolour(g, t) {
-  if (E.name === 'subtle' || ALPHA) return;
+  const masks = panelMasks(t);
+  if (!masks.length) return;
   g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = ST.tokens.bgA;
-  const ir = iris(t), fill = (p) => p && g.fillRect(p.x, p.y, p.w, p.h);
-  if (ir) {
-    const [j, k, r] = ir;
-    g.save(); g.beginPath(); g.rect(0, 0, CFG.W, CFG.H); g.arc(CFG.W / 2, CFG.H / 2, r, 0, Math.PI * 2); g.clip('evenodd'); fill(panelOf(j)); g.restore();
-    g.save(); g.beginPath(); g.arc(CFG.W / 2, CFG.H / 2, r, 0, Math.PI * 2); g.clip(); fill(panelOf(k)); g.restore();
-  } else fill(panelOf(shotAt(CUTS, t)));
+  for (const m of masks) {
+    g.save();
+    if (m.inside) { g.beginPath(); g.arc(m.inside.x, m.inside.y, m.inside.r, 0, Math.PI * 2); g.clip(); }
+    if (m.outside) { g.beginPath(); g.rect(0, 0, CFG.W, CFG.H); g.arc(m.outside.x, m.outside.y, m.outside.r, 0, Math.PI * 2); g.clip('evenodd'); }
+    g.fillRect(m.x, m.y, m.w, m.h);
+    g.restore();
+  }
   g.restore();
 }
 
