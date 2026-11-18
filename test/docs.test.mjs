@@ -311,3 +311,28 @@ test('R2-M1 references/launch.md and repo-scan.mjs: a global flag alone is not a
   assert.doesNotMatch(src.slice(0, src.indexOf('import ')), /installs globally|--global/, 'the header no longer names a global flag');
   assert.match(md, /do not sit inside an Install-like section or one that never holds features, such as License, Contributing, Development or Changelog \(`## Installation` > `### npm` is not a feature; `## Usage` > `### Incremental scanning` is\)/);
 });
+
+// ---------------------------------------------------------------- caption a clip (plan 23.5)
+const RATES_TOOL = await import(pathToFileURL(path.join(templateDir, 'tools', 'clip.mjs')).href);
+test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its tool and the example; delivery.md section 8; README; CI', () => {
+  const md = read('SKILL.md');
+  const at = md.indexOf('**Caption a clip**');
+  assert.ok(at > 0, 'SKILL.md has the caption-a-clip branch');
+  const branch = md.slice(at, md.indexOf('Both sheets', at));
+  for (const x of ['references/delivery.md` section 8', 'node tools/clip.mjs prepare', 'out/vo16k.wav', 'node tools/clip.mjs cues --transcript', '--scene caption.js --alpha', 'node tools/clip.mjs composite', 'node tools/mix.mjs <name> --no-sfx', 'check --file', 'whisper-cli', 'estimated']) assert.ok(branch.includes(x), `the branch: ${x}`);
+  assert.match(md, /- \*\*a captioned clip\*\*: the branch above/);
+  assert.match(md, /`clip\.mjs` \(caption a clip/);
+  const del = read('references/delivery.md');
+  assert.match(del, /^## 8\. Caption a clip$/m);
+  for (const x of ['23.976, 24, 25, 29.97, 30, 50, 59.94 and 60', 'phrase times only', '`text_safe` reported as not checked', 'scaled to it', '--scene caption.js',
+    '-f out/vo16k.wav', 'Never transcribe a separate extract', '--raw-track', '`prepare --audio <n>`', 'square pixels at its display size', 'Sync is measured on each word\'s highlight onset', 'cropped by one pixel off its right or bottom edge', 'a word that ends before the first frame is dropped']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
+  // the rounding list in the docs is the tool's
+  const K = RATES_TOOL.RATES.map((r) => +r[0].toFixed(3)).map((x) => String(x)).join(', ');
+  assert.equal(K, '23.976, 24, 25, 29.97, 30, 50, 59.94, 60');
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(readme, /^## Caption a clip$/m);
+  assert.match(readme, /^npm run test:clip /m);
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts['test:clip'], /clip-units\.test\.mjs.*clip\.test\.mjs.*caption-example\.test\.mjs/);
+  assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:clip/);
+});

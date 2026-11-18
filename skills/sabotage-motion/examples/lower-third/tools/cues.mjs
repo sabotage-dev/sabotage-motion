@@ -1,6 +1,6 @@
 // tools/cues.mjs: a voice take's word or character timings -> cues.js (plan section 7).
 //
-//   node tools/cues.mjs [--from words|elevenlabs|whisper <file>] [--audio <file>] [--offset <s>] [--dry-run]
+//   node tools/cues.mjs [--from words|elevenlabs|whisper|whispercpp|srt|vtt <file>] [--audio <file>] [--offset <s>] [--dry-run]
 //
 // Reads board.js and a timing file (default: --from words take.json) and the take's audio (default
 // take-raw.wav), finds each voiced beat's anchor in the take, opens the silences the board asks for, and
@@ -21,6 +21,9 @@
 //               alignment.character_start_times_seconds, alignment.character_end_times_seconds
 //   whisper     openai-whisper's JSON output written with --word_timestamps True:
 //               segments[].words[] with word, start, end
+//   whispercpp  whisper.cpp's whisper-cli JSON (-oj, or -ojf for token times): transcription[] with offsets in ms
+//   srt, vtt    SRT or WebVTT subtitles: phrase times only, so each phrase's words are spread over it by length and
+//               marked estimated (`est: true`); tools/clip.mjs reads these too, for a clip's captions
 // Anchors match on the characters when the source has them (exact phrase, case-sensitive), else on the
 // words (case-sensitive, punctuation stripped at word edges).
 //
@@ -144,11 +147,97 @@ export function fromWhisper(json) {
   return { source: 'whisper', words, tags: tags.sort(byStart) };
 }
 
+// ---- transcripts (plan 23.5, Q18): whisper.cpp's JSON, SRT and WebVTT. SRT and WebVTT carry phrase times only, so
+// the words inside a phrase are spread over it by length (letters and digits, at least 1 each) and marked `est: true`;
+// so are the words of a whisper.cpp segment that holds more than one word and no token times. A take with any such
+// word has `estimated` set to their count.
+export function spreadPhrase(text, start, end) {
+  const toks = String(text).split(/\s+/).filter(Boolean);
+  const weight = (w) => Math.max(1, normWord(w).length);
+  const total = toks.reduce((s, w) => s + weight(w), 0);
+  let t = start;
+  return toks.map((w) => { const d = ((end - start) * weight(w)) / total, x = { text: w, start: r6(t), end: r6(t + d) }; t += d; return x; });
+}
+// Phrases [{ text, start, end, est }] -> a take: estimated phrases are spread into words, the list goes through the
+// same tag handling as every other adapter, and a word is marked estimated when its phrase was.
+function fromPhrases(phrases, source) {
+  const list = [], spans = [];
+  for (const p of phrases) {
+    const toks = String(p.text).split(/\s+/).filter(Boolean);
+    if (!toks.length) continue;
+    if (p.est && toks.length > 1) { list.push(...spreadPhrase(p.text, p.start, p.end)); spans.push([p.start, p.end]); }
+    else if (toks.length === 1) { list.push({ text: toks[0], start: p.start, end: p.end }); if (p.est) spans.push([p.start, p.end]); }
+    else list.push(...spreadPhrase(p.text, p.start, p.end));
+  }
+  checkWords(list, 'word');
+  const { words, tags } = splitWordList(list);
+  let n = 0;
+  for (const w of words) if (spans.some(([a, b]) => w.start >= a - 1e-6 && w.start < b + 1e-6)) { w.est = true; n++; }
+  return { source, words, tags: tags.sort(byStart), ...(n ? { estimated: n } : {}) };
+}
+// whisper.cpp's whisper-cli JSON (-oj, or -ojf with token times): transcription[] with offsets in milliseconds.
+// With tokens (-ojf), each word is its tokens joined (a token that starts with a space starts a new word; special
+// tokens such as [_BEG_] are left out), timed from its first token's start to its last token's end. Without them,
+// a segment of one word (whisper-cli -ml 1 -sow) is that word; a longer segment is spread and marked estimated.
+export function fromWhisperCpp(json) {
+  if (!json || !Array.isArray(json.transcription)) throw new CueError('whispercpp: no transcription[] (expected whisper-cli\'s JSON output, -oj or -ojf)');
+  const ms = (o, k) => +(o && o.offsets ? o.offsets[k] : NaN) / 1000;
+  const phrases = [];
+  for (const seg of json.transcription) {
+    const toks = Array.isArray(seg.tokens) ? seg.tokens.filter((t) => !/^\s*(\[_[^\]]*\]|<\|[^|]*\|>)\s*$/.test(String(t.text))) : null;
+    if (toks && toks.length) {
+      let cur = null;
+      for (const t of toks) {
+        const s = String(t.text);
+        if (!cur || /^\s/.test(s)) { cur = { text: s.trim(), start: ms(t, 'from'), end: ms(t, 'to') }; phrases.push(cur); }
+        else { cur.text += s; cur.end = ms(t, 'to'); }
+      }
+    } else { const text = String(seg.text || '').trim(); phrases.push({ text, start: ms(seg, 'from'), end: ms(seg, 'to'), est: text.split(/\s+/).length > 1 }); }
+  }
+  return fromPhrases(phrases.filter((p) => p.text), 'whispercpp');
+}
+// "00:01:02,500", "01:02.500" or "1:02:03.5" -> seconds
+const clockTime = (s) => {
+  const m = String(s).trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$/);
+  if (!m) return NaN;
+  return (+(m[1] || 0)) * 3600 + +m[2] * 60 + +m[3] + (m[4] ? +m[4].padEnd(3, '0') / 1000 : 0);
+};
+// The cues of an SRT or WebVTT file: [{ text, start, end }], markup (<i>, <c.x>, <00:01.200>, {\an8}) and entities
+// removed, lines of one cue joined. WebVTT's header, NOTE, STYLE and REGION blocks are skipped.
+function subtitleCues(text, what) {
+  const blocks = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split(/\n\s*\n/);
+  const out = [];
+  const ent = { amp: '&', lt: '<', gt: '>', nbsp: ' ', quot: '"', apos: "'" };
+  for (const b of blocks) {
+    const lines = b.split('\n').filter((l) => l.trim() !== '');
+    const at = lines.findIndex((l) => l.includes('-->'));
+    if (at < 0) continue;
+    const [a, z] = lines[at].split('-->');
+    const start = clockTime(a), end = clockTime(String(z).trim().split(/\s+/)[0]);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) throw new CueError(`${what}: cannot read the times "${lines[at].trim()}"`);
+    const body = lines.slice(at + 1).join(' ').replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '')
+      .replace(/&(amp|lt|gt|nbsp|quot|apos);/g, (_, k) => ent[k]).replace(/\s+/g, ' ').trim();
+    if (body) out.push({ text: body, start, end, est: true });
+  }
+  if (!out.length) throw new CueError(`${what}: no cues with times and text in this file`);
+  return out;
+}
+export const fromSrt = (text) => fromPhrases(subtitleCues(text, 'srt'), 'srt');
+export function fromVtt(text) {
+  if (!/^\uFEFF?WEBVTT/.test(String(text))) throw new CueError('vtt: a WebVTT file starts with WEBVTT');
+  return fromPhrases(subtitleCues(text, 'vtt'), 'vtt');
+}
+// The kinds whose file is text, not JSON.
+export const TEXT_KINDS = ['srt', 'vtt'];
+
 export function normalizeTake(kind, json) {
   if (kind === 'words') return fromWords(json);
   if (kind === 'elevenlabs') return fromElevenLabs(json);
   if (kind === 'whisper') return fromWhisper(json);
-  throw new CueError(`--from ${kind}: unknown timing source (words, elevenlabs or whisper)`);
+  if (kind === 'whispercpp') return fromWhisperCpp(json);
+  if (kind === 'srt') return fromSrt(json);
+  if (kind === 'vtt') return fromVtt(json);
+  throw new CueError(`--from ${kind}: unknown timing source (words, elevenlabs, whisper, whispercpp, srt or vtt)`);
 }
 
 // ---------------------------------------------------------------- audio
@@ -411,12 +500,12 @@ function writeAtomic(file, data) {
 async function main(argv) {
   const opt = (k) => { const i = argv.indexOf('--' + k); return i >= 0 ? argv[i + 1] : undefined; };
   if (argv.includes('--help') || argv.includes('-h')) {
-    console.log('usage: node tools/cues.mjs [--from words|elevenlabs|whisper <file>] [--audio <file>] [--offset <s>] [--dry-run]  (see the header)');
+    console.log('usage: node tools/cues.mjs [--from words|elevenlabs|whisper|whispercpp|srt|vtt <file>] [--audio <file>] [--offset <s>] [--dry-run]  (see the header)');
     return 0;
   }
   const fi = argv.indexOf('--from');
   const kind = fi >= 0 ? argv[fi + 1] : 'words', src = fi >= 0 ? argv[fi + 2] : 'take.json';
-  if (!kind || !src || src.startsWith('--')) { console.error('usage: --from <words|elevenlabs|whisper> <file>'); return 2; }
+  if (!kind || !src || src.startsWith('--')) { console.error('usage: --from <words|elevenlabs|whisper|whispercpp|srt|vtt> <file>'); return 2; }
   const offset = opt('offset') != null ? Number(opt('offset')) : null;
   if (offset != null && !Number.isFinite(offset)) { console.error('--offset needs a number of seconds'); return 2; }
   const srcFile = path.resolve(ROOT, src), audioFile = path.resolve(ROOT, opt('audio') || 'take-raw.wav');
@@ -426,7 +515,8 @@ async function main(argv) {
     if (!fs.existsSync(srcFile)) throw new CueError(`no timing file ${path.relative(ROOT, srcFile) || srcFile}`);
     if (!fs.existsSync(audioFile)) throw new CueError(`no audio ${path.relative(ROOT, audioFile) || audioFile} (pass --audio <file>)`);
     let json;
-    try { json = JSON.parse(fs.readFileSync(srcFile, 'utf8')); } catch (e) { throw new CueError(`${path.basename(srcFile)} is not JSON: ${e.message}`); }
+    if (TEXT_KINDS.includes(kind)) json = fs.readFileSync(srcFile, 'utf8');
+    else try { json = JSON.parse(fs.readFileSync(srcFile, 'utf8')); } catch (e) { throw new CueError(`${path.basename(srcFile)} is not JSON: ${e.message}`); }
     const take = normalizeTake(kind, json);
     const samples = readAudio(audioFile);
     const r = buildCues({ board: BOARD, take, samples, sr: SR, offset });

@@ -172,6 +172,12 @@ under `${CLAUDE_SKILL_DIR}`).
   stays inside. Between words the layout leaves room for the pop too: a plain space where the pop fits, more beside
   long words, so the spoken word never touches its neighbours (`wordGap` is the clear space it keeps, by default half
   a space plus the `stroke`). A word wider than the line is scaled down to fit it.
+- **Caption styles**: `captionStyle(name, opts)` gives `captions()` options for `pop` (the default above), `karaoke`
+  (`pop: 'none'`, `fill: 'spoken'`: the accent wipes across each word as it is said), `boxed` (`plate`: a dark box
+  behind each line) and `minimal` (no pop, no stroke, no highlight, `shadow`, smaller type). `captionStyleFor(energy)`
+  is the energy's default (`subtle` minimal, `normal` pop, `extreme` karaoke). `emphasis: ['word']` draws those words in
+  `emphColor` with a bar under them, in any style. `caption.js` uses them to caption a clip (`references/delivery.md`
+  section 8).
 - **Captions beside a platform's buttons**: pass the target's `exclude` and the block keeps to the width those
   rectangles leave free at its height (on `tiktok-ad`, the left of x 780 at the bottom), centred there. Without it
   a full line runs under TikTok's button column and `check`'s `text_safe` fails it. For other layouts, `freeSpan()`

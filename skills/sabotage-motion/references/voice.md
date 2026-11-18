@@ -40,6 +40,10 @@ A take is two files in the piece: `take-raw.wav` (the voice; any format ffmpeg r
 - **A human read, or a TTS without timings**: transcribe it with word timestamps. openai-whisper's JSON written with
   `--word_timestamps True` reads directly: `node tools/cues.mjs --from whisper read.json --audio read.wav`. Other ASR or
   forced-alignment tools convert to the `words` format.
+- **Transcripts** (the adapters `tools/clip.mjs` also uses to caption a clip): whisper.cpp's `whisper-cli` JSON
+  (`--from whispercpp`, written with `-oj -ml 1 -sow`, one word a segment, or `-ojf` with token times), SRT
+  (`--from srt`) and WebVTT (`--from vtt`). SRT and WebVTT carry phrase times only: the words inside a phrase are
+  spread over it by length and marked estimated (`est: true`), so an anchor's cue can land a little early or late.
 - **ElevenLabs** (optional, paid, your own account): `node tools/voice-elevenlabs.mjs --model <id>` joins the board's
   lines, tags included, into one request (one take keeps the delivery consistent), calls the text-to-speech "with
   timestamps" endpoint, writes `take-raw.wav` the moment the audio arrives (so a later failure does not waste the

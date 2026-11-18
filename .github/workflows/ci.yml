@@ -75,8 +75,8 @@ jobs:
           node render.mjs video --to 1 --out "$RUNNER_TEMP/bench.mp4" 2>&1 | tee "$RUNNER_TEMP/bench.txt"
           { echo "### render speed (${{ matrix.os }}, node ${{ matrix.node }})"; echo '```'; grep -E '^video:|ms/frame' "$RUNNER_TEMP/bench.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: tests (determinism, frame count and container, alpha, scene swap, board sheet, render errors, cues and board timing, mix and parity, footage, check and safe zones, looks and brand kits, code and terminal motion, a launch video for a repo, the examples, asset inventory, skill text)
-        run: npm run test:engine && npm run test:voice && npm run test:mix && npm run test:footage && npm run test:check && npm run test:looks && npm run test:code && npm run test:launch && npm run test:examples && node --test test/assets.test.mjs test/docs.test.mjs
+      - name: tests (determinism, frame count and container, alpha, scene swap, board sheet, render errors, cues and board timing, mix and parity, footage, check and safe zones, looks and brand kits, code and terminal motion, a launch video for a repo, caption a clip, the examples, asset inventory, skill text)
+        run: npm run test:engine && npm run test:voice && npm run test:mix && npm run test:footage && npm run test:check && npm run test:looks && npm run test:code && npm run test:launch && npm run test:clip && npm run test:examples && node --test test/assets.test.mjs test/docs.test.mjs
 
       # Informational only (never fails the job): which Linux GPU flags give WebGL2, and whether
       # Playwright's own Chromium works headless (plan Q5). Results go to the job summary.

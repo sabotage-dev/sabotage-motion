@@ -440,6 +440,10 @@ export const CUES = _cues.mod ? Object.freeze({
   VO_OFFSET: _cues.mod.VO_OFFSET, CUE: _cues.mod.CUE, TAKE: _cues.mod.TAKE, GAPS: _cues.mod.GAPS || [],
   HOOK_END: _cues.mod.HOOK_END, WORDS: _cues.mod.WORDS || [], BOARD_KEY: _cues.mod.BOARD_KEY,
 }) : null;
+// clip.js, written by tools/clip.mjs in a piece that captions a clip (plan 23.5): the clip's file, its display size,
+// constant frame rate, frame count and length. The caption scene (caption.js) runs on this clock. Null in any other piece.
+const _clip = await pieceModule('./clip.js');
+export const CLIP = _clip.mod && _clip.mod.CLIP ? Object.freeze({ ..._clip.mod.CLIP }) : null;
 let _timing = null;
 // The piece's board timing: { estimated, voOffset, dur, lead, tail, windows: [{ id, index, start, end, voiced, beat }] }.
 // `estimated` is true while voiced beats are timed by the estimate (no cues.js yet).
@@ -474,6 +478,16 @@ export async function sceneTarget(target) {
     const t = r.ok ? ((await r.json()).targets || {})[name] : null;
     return t ? { name, ...t } : null;
   } catch { return null; }
+}
+// A target's zones for a picture of W x H (plan 23.5): the target itself at its own size; scaled by W / target.w when
+// the picture has the target's shape (a 720x1280 clip on a 1080x1920 target), with `scaled` set to that factor; null
+// for any other shape, whose safe area is then not known (check reports text_safe as not checked). Node and page.
+export function scaleTarget(T, W, H) {
+  if (!T) return null;
+  if (!T.w || !T.h || (T.w === W && T.h === H)) return T;
+  if (!(W > 0 && H > 0) || Math.abs(W / H - T.w / T.h) > 0.005 * (T.w / T.h)) return null;
+  const k = W / T.w, s = (r) => ({ x: r.x * k, y: r.y * k, w: r.w * k, h: r.h * k });
+  return { ...T, w: W, h: H, safe: T.safe ? s(T.safe) : T.safe, exclude: (T.exclude || []).map(s), scaled: k };
 }
 // through boardInfo() whenever there is a board, so a stale cues.js is refused here too, not read past
 const pieceVoOffset = () => (BOARD ? boardInfo().voOffset : CUES ? CUES.VO_OFFSET : 0);
@@ -606,9 +620,26 @@ export function captions(ctx, WORDS, t, opts = {}) {
     : safe.y + safe.h - margin - size * 0.2;
   const ink = opts.color || '#FFFFFF', accent = opts.accent || '#FFD23F';
   const boxes = [], draw = opts.draw !== false;
+  // the caption styles (CAPTION_STYLES): pop 'none' keeps every word at its size; fill 'spoken' colours each word as it
+  // is said (karaoke: the active word wipes from ink to accent across its length), 'none' colours no word; plate draws
+  // a box behind each line; shadow (design px) a soft shadow; emphasis words take emphColor with a bar under them
+  const noPop = opts.pop === false || opts.pop === 'none', fill = opts.fill || 'active';
+  const emph = opts.emphasis && opts.emphasis.length ? new Set(opts.emphasis.map((x) => normWord(x).toLowerCase())) : null;
+  const emphColor = opts.emphColor || accent;
   ctx.save();
   ctx.font = o.font; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.globalAlpha = (ctx.globalAlpha == null ? 1 : ctx.globalAlpha) * alpha;
+  if (draw && opts.plate) {
+    const P = opts.plate, pad = (P.pad != null ? P.pad : 0.28) * size, rad = (P.radius != null ? P.radius : 0.18) * size;
+    ctx.save();
+    ctx.globalAlpha *= P.alpha != null ? P.alpha : 0.72;
+    ctx.fillStyle = P.color || '#000000';
+    g.lines.forEach((l, li) => {
+      const base = lastBase - (n - 1 - li) * lineH, x0 = cx - l.w / 2 - pad, y0 = base - size * 0.8 - pad * 0.5;
+      ctx.beginPath(); ctx.roundRect(x0, y0, l.w + 2 * pad, size + pad, rad); ctx.fill();
+    });
+    ctx.restore();
+  }
   g.lines.forEach((l, li) => {
     const base = lastBase - (n - 1 - li) * lineH;
     let x = cx - l.w / 2;
@@ -616,15 +647,24 @@ export function captions(ctx, WORDS, t, opts = {}) {
       x += w.gap;
       const on = w === active;
       const k = on ? prog(tv, w.start, w.start + popDur) : 1;
-      const s = on ? (opts.pop === 'spring' ? 1.15 - 0.15 * spring(tv - w.start, 4, 0.45) : 1.15 - 0.15 * anticip(k)) : 1;
+      const s = on && !noPop ? (opts.pop === 'spring' ? 1.15 - 0.15 * spring(tv - w.start, 4, 0.45) : 1.15 - 0.15 * anticip(k)) : 1;
       // sc: the pop times the fit of an oversized word; tx: where the word's own (unfitted) text starts
       const mx = x + w.w / 2, my = base - size * 0.35, sc = s * w.fit, tx = mx - w.raw / 2;
       if (draw) {
+        const em = emph && emph.has(normWord(w.text).toLowerCase());
+        const said = fill === 'spoken' && w.start <= tv && !on;
         ctx.save();
         ctx.translate(mx, my); ctx.scale(sc, sc); ctx.translate(-mx, -my);
+        if (opts.shadow) { ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = opts.shadow * (opts.scale || 1); }
         if (opts.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = opts.stroke; ctx.strokeStyle = opts.strokeColor || '#000000'; ctx.strokeText(w.text, tx, base); }
-        ctx.fillStyle = on ? accent : ink;
+        ctx.fillStyle = em ? emphColor : (on && fill === 'active') || said ? accent : ink;
         ctx.fillText(w.text, tx, base);
+        if (on && fill === 'spoken') {   // karaoke: the accent wipes across the active word while it is said
+          const u = clamp((tv - w.start) / Math.max(0.05, w.end - w.start));
+          ctx.save(); ctx.beginPath(); ctx.rect(tx - size, base - size * 1.2, size + w.raw * u, size * 1.6); ctx.clip();
+          ctx.fillStyle = em ? emphColor : accent; ctx.fillText(w.text, tx, base); ctx.restore();
+        }
+        if (em) { ctx.shadowBlur = 0; ctx.fillStyle = emphColor; ctx.fillRect(tx, base + size * 0.1, w.raw, Math.max(2, size * 0.07)); }
         ctx.restore();
       }
       const top = base - size * 0.8, h = size;
@@ -635,6 +675,35 @@ export function captions(ctx, WORDS, t, opts = {}) {
   });
   ctx.restore();
   return boxes;
+}
+
+// ---- caption styles (plan 23.5): named sets of captions() options, for a clip's captions (caption.js) or any scene.
+//   pop      the spoken word pops and takes the accent (captions()'s own default)
+//   karaoke  no pop; the accent wipes across each word as it is said, and said words keep it
+//   boxed    no pop; each line on a dark box; the spoken word in the accent
+//   minimal  no pop, no stroke, no highlight: smaller type with a soft shadow
+// Emphasis words (opts.emphasis: a list of words, matched case-insensitively without punctuation) take opts.emphColor
+// with a bar under them in every style. sizeK scales the style's type against the scene's size.
+export const CAPTION_STYLES = Object.freeze({
+  pop: Object.freeze({ pop: 'anticip', fill: 'active', stroke: 10, sizeK: 1 }),
+  karaoke: Object.freeze({ pop: 'none', fill: 'spoken', stroke: 10, sizeK: 1 }),
+  boxed: Object.freeze({ pop: 'none', fill: 'active', stroke: 0, sizeK: 0.92, plate: Object.freeze({ color: '#000000', alpha: 0.72, pad: 0.28, radius: 0.18 }) }),
+  minimal: Object.freeze({ pop: 'none', fill: 'none', stroke: 0, sizeK: 0.8, shadow: 10 }),
+});
+// Which style an energy setting gets by default (plan 23.9: subtle -> minimal, normal -> pop, extreme -> karaoke). The
+// energy is --param energy= or CFG.ENERGY when the scene has one; with neither it is normal. A board (captionStyle)
+// or --param style= can still name any style.
+export const ENERGY_CAPTION = Object.freeze({ subtle: 'minimal', normal: 'pop', extreme: 'karaoke' });
+export function captionStyleFor(energy) {
+  const e = energy == null || energy === '' ? 'normal' : String(energy);
+  if (!Object.prototype.hasOwnProperty.call(ENERGY_CAPTION, e)) throw new Error(`energy "${energy}": one of ${Object.keys(ENERGY_CAPTION).join(', ')}`);
+  return ENERGY_CAPTION[e];
+}
+// captions() options for a named style: the style's own, then opts over them, with size scaled by the style's sizeK.
+export function captionStyle(name, opts = {}) {
+  if (!Object.prototype.hasOwnProperty.call(CAPTION_STYLES, name)) throw new Error(`caption style "${name}": one of ${Object.keys(CAPTION_STYLES).join(', ')}`);
+  const st = CAPTION_STYLES[name], size = Math.round((opts.size || 64) * st.sizeK);
+  return { ...st, ...opts, size, style: name };
 }
 
 // ================================================================ footage (plan section 10)

@@ -2,7 +2,8 @@
 // probe pass with no FAIL and no WARN. motion_dead and first_frame_empty render every frame through WebGL, which
 // takes minutes for the 20 s, 60 fps showreel under SwiftShader on the Linux runners, so they and `check --file` on
 // the masters run on a Mac before a release (the PR records the results); see references/check.md for the WARN
-// the showreel keeps on purpose. The lower third is an overlay, so it is checked as one (--alpha).
+// the showreel keeps on purpose. The lower third is an overlay, so it is checked as one (--alpha); so are
+// caption-clip's captions (--scene caption.js --alpha), whose master test/caption-example.test.mjs checks.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -12,7 +13,7 @@ import { examplesDir, EXAMPLES } from './helpers.mjs';
 const IDS = 'fonts,board_order,hook_long,board_copy_missing,board_copy_unread,board_sfx_missing,text_safe,text_overlap,audio_spike';
 for (const ex of EXAMPLES) {
   test(`${ex}: check (${IDS.split(',').length} source checks, no probe) reports no FAIL and no WARN`, () => {
-    const args = ['render.mjs', 'check', '--json', '--only', IDS, ...(ex === 'lower-third' ? ['--alpha'] : [])];
+    const args = ['render.mjs', 'check', '--json', '--only', IDS, ...(ex === 'lower-third' ? ['--alpha'] : []), ...(ex === 'caption-clip' ? ['--scene', 'caption.js', '--alpha'] : [])];
     const r = spawnSync(process.execPath, args, { cwd: path.join(examplesDir, ex), encoding: 'utf8', timeout: 600000, killSignal: 'SIGKILL', maxBuffer: 64 << 20 });
     assert.equal(r.signal, null, `check timed out:\n${r.stderr}`);
     let results;
