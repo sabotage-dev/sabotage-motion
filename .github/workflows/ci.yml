@@ -18,7 +18,8 @@ jobs:
   engine:
     name: engine (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # 60, not 45: with P10's clip suites and P11a's flash suites the Ubuntu jobs run 40-47 minutes
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
