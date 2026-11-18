@@ -203,9 +203,9 @@ test('P10 R1 B3 display geometry: pixels\' aspect and rotation give the display 
   assert.deepEqual(K.sarOf({ sample_aspect_ratio: '64:45' }), [64, 45]);
   for (const x of ['1:1', '0:1', 'N/A', undefined]) assert.equal(K.sarOf({ sample_aspect_ratio: x }), null, String(x));
   assert.equal(K.normalizePlan({ vfr: false, sar: null }), null);
-  assert.deepEqual(K.normalizePlan({ vfr: false, sar: [64, 45], w: 1024, h: 576 }), { rate: null, size: [1024, 576] });
+  assert.deepEqual(K.normalizePlan({ vfr: false, sar: [64, 45], w: 1024, h: 576 }), { rate: null, size: [1024, 576], crop: null });
   assert.deepEqual(K.normalizePlan({ vfr: false, sar: [10, 11], w: 655, h: 480 }).size, [656, 480], 'made even for yuv420p');
-  assert.deepEqual(K.normalizePlan({ vfr: true, avgFps: 29.6, sar: null }), { rate: [30000 / 1001, '30000/1001'], size: null });
+  assert.deepEqual(K.normalizePlan({ vfr: true, avgFps: 29.6, sar: null }), { rate: [30000 / 1001, '30000/1001'], size: null, crop: null });
 });
 
 test('P10 R1 B1 a transcript moved onto the clip\'s clock: every word by the shift; a word moved before the first frame is refused', () => {
@@ -216,6 +216,22 @@ test('P10 R1 B1 a transcript moved onto the clip\'s clock: every word by the shi
   assert.equal(c.VO_OFFSET, 0, 'the shift is in the words, never in VO_OFFSET');
   assert.equal(c.TAKE.lastWordEnd, 2.5);
   assert.deepEqual(K.clipCues(take, { dur: 3, board }).WORDS[0].start, 1.0, 'no shift by default');
-  assert.throws(() => K.clipCues(take, { dur: 3, board, shift: -1.2 }), /before the clip's first frame after the -1\.200 s shift/);
+  // P10 R2 D2: words the shift puts before the first frame are dropped (ending at or before 0) or start at 0 (straddling it)
+  const lead = K.clipCues({ words: [{ text: 'um', start: 0.1, end: 0.25 }, ...take.words] }, { dur: 3, board, shift: -1.2 });
+  assert.deepEqual(lead.WORDS.map((w) => [w.text, w.start, w.end]), [['Now', 0, 0.2], ['go.', 0.5, 0.8]]);
+  assert.deepEqual(lead.lead, { dropped: 1, clipped: 1 });
+  assert.ok(!Object.keys(lead).includes('lead'), 'never written into the cues');
+  assert.throws(() => K.clipCues(take, { dur: 3, board, shift: -2.5 }), /every word ends before the clip's first frame after the -2\.500 s shift/);
   assert.throws(() => K.clipCues(take, { dur: 3, board, shift: 1.5 }), /at or after the clip's end/);
+});
+
+test('P10 R2 D3 an odd width or height is cropped by one pixel to an even size; D1 a re-prepared clip records the track it extracts', () => {
+  assert.deepEqual(K.normalizePlan({ vfr: false, sar: null, w: 321, h: 569 }), { rate: null, size: null, crop: [320, 568] });
+  assert.deepEqual(K.normalizePlan({ vfr: false, sar: null, w: 320, h: 569 }).crop, [320, 568]);
+  assert.equal(K.normalizePlan({ vfr: false, sar: null, w: 320, h: 568 }), null);
+  assert.equal(K.normalizePlan({ vfr: false, sar: [64, 45], w: 1024, h: 577 }).crop, null, 'the square-pixel scale makes it even already');
+  const prev = { file: 'two.mp4', vfr: false, avgFps: 30, audio: 0, audioOffset: 0 };
+  assert.deepEqual(K.fromAgain(prev, 1, 0.5), { ...prev, audio: 1, audioOffset: 0.5 });
+  const conv = { ...prev, convertedTo: '25/1' };
+  assert.deepEqual(K.fromAgain(conv, 0, 0.02), conv, 'a converted clip keeps the source track it was made from');
 });

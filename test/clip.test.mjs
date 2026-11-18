@@ -208,7 +208,56 @@ test('P10 R1 B1 a clip whose sound starts 0.3 s before its picture: vo.wav is cu
   const p = ok(tool(d, ['prepare', 'src.mp4', '--board']));
   assert.match(p.out, /starts 0\.\d+ s before its first frame/);
   const vo = monoSamples(path.join(d, 'vo.wav')), i = vo.findIndex((v) => Math.abs(v) > 0.25);
-  assert.ok(Math.abs((i / 48000) * FPS - 30) <= 1, `the tone at ${(i / 48000).toFixed(4)} s in vo.wav, frame 30 of the picture`);
+  assert.ok(Math.abs((i / 48000) * FPS - 30) <= 1, `the tone at ${(i / 48000).toFixed(4)} s in vo.wav, frame 30 of the picture`);  // P10 R2 D2: a transcript of the raw track, with words in the 0.3 s lead the picture does not show: the one that ends in
+  // it is dropped, the one that straddles the first frame starts at 0, the tone's word lands on frame 30; nothing refused
+  fs.writeFileSync(path.join(d, 'raw.json'), JSON.stringify({ words: [{ text: 'so', start: 0.05, end: 0.2 }, { text: 'right', start: 0.2, end: 0.6 }, { text: 'now.', start: 1.3, end: 1.6 }] }));
+  const c = ok(tool(d, ['cues', '--transcript', 'raw.json', '--raw-track']));
+  assert.match(c.out, /before the first frame \(sound the picture does not show\): 1 word dropped, 1 clipped to start at 0/);
+  const W = JSON.parse(fs.readFileSync(path.join(d, 'cues.json'), 'utf8')).WORDS;
+  assert.deepEqual(W.map((w) => w.text), ['right', 'now.']);
+  assert.equal(W[0].start, 0);
+  assert.ok(Math.abs(W[1].start * FPS - 30) <= 1, `"now." at ${W[1].start} s`);
+});
+
+test('P10 R2 D1 prepare run again on the prepared clip with another --audio: --raw-track moves by the new track\'s offset', async () => {
+  const d = piece('clip-retrack');
+  ff(['-f', 'lavfi', '-i', 'testsrc2=s=320x568:r=30:d=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(d, 'v.mp4')]);
+  ff(['-f', 'lavfi', '-i', 'sine=f=220:d=3:sample_rate=48000', path.join(d, 'a0.wav')]);
+  ff(['-f', 'lavfi', '-i', 'sine=f=440:d=2.5:sample_rate=48000', path.join(d, 'a1.wav')]);
+  // track 0 starts with the picture, track 1 0.5 s after it
+  ff(['-i', path.join(d, 'v.mp4'), '-i', path.join(d, 'a0.wav'), '-itsoffset', '0.5', '-i', path.join(d, 'a1.wav'), '-map', '0:v', '-map', '1:a', '-map', '2:a',
+    '-c:v', 'copy', '-c:a', 'aac', path.join(d, 'original.mp4')]);
+  ok(tool(d, ['prepare', 'original.mp4', '--audio', '0', '--board']));
+  const p = ok(tool(d, ['prepare', 'clip.mp4', '--audio', '1', '--board']));
+  assert.match(p.out, /starts 0\.4\d+ s after its first frame/);
+  const clip = (await import(path.join(d, 'clip.js') + '?d1')).CLIP;
+  assert.equal(clip.from.file, 'original.mp4', 'where the clip came from is kept');
+  assert.equal(clip.from.audio, 1);
+  assert.ok(Math.abs(clip.from.audioOffset - 0.48) < 0.03, `the offset is track 1's (${clip.from.audioOffset})`);
+  fs.writeFileSync(path.join(d, 'track1.json'), JSON.stringify({ words: [{ text: 'hello', start: 1.0, end: 1.4 }] }));
+  const c = ok(tool(d, ['cues', '--transcript', 'track1.json', '--raw-track']));
+  assert.match(c.out, /moved \+0\.4\d+ s/);
+  const W = JSON.parse(fs.readFileSync(path.join(d, 'cues.json'), 'utf8')).WORDS;
+  assert.ok(Math.abs(W[0].start - 1.48) < 0.03, `"hello" at ${W[0].start} s on the clip's clock`);
+});
+
+test('P10 R2 D3 a clip with an odd size (321x569) is cropped by one pixel to an even size, says so, and composites', async () => {
+  const d = piece('clip-odd');
+  // (testsrc2 rounds its size to even; a colour source keeps 321x569, with a moving box on it)
+  ff(['-f', 'lavfi', '-i', "color=c=gray:s=321x569:r=30:d=1,drawbox=x='mod(t*270,280)':y=200:w=30:h=30:color=white:t=fill", '-f', 'lavfi', '-i', 'sine=f=440:d=1:sample_rate=48000', '-c:v', 'libx264', '-pix_fmt', 'yuv444p',
+    '-c:a', 'aac', '-shortest', path.join(d, 'odd.mp4')]);
+  assert.match(ok(tool(d, ['probe', 'odd.mp4'])).out, /prepare crops it by one pixel to an even size first \(320x568\)/);
+  fs.writeFileSync(path.join(d, 't.srt'), '1\n00:00:00,100 --> 00:00:00,800\nodd clip\n');
+  const p = ok(tool(d, ['prepare', 'odd.mp4', '--transcript', 't.srt', '--board']));
+  assert.match(p.out, /odd size 321x569: cropping one pixel off the right edge and one pixel off the bottom edge to 320x568/);
+  assert.match(p.out, /note: the clip was 321x569, an odd size; clip\.mp4 is 320x568, cropped by one pixel/);
+  const v = videoStream(ffprobe(path.join(d, 'clip.mp4')));
+  assert.deepEqual([v.width, v.height, v.pix_fmt], [320, 568, 'yuv420p']);
+  const clip = (await import(path.join(d, 'clip.js') + '?d3')).CLIP;
+  assert.deepEqual([clip.w, clip.h, clip.frames, clip.from.croppedTo], [320, 568, 30, [320, 568]]);
+  render(d, ['video', '--scene', 'caption.js', '--alpha', '--sub', '1', '--out', 'out/odd.mov']);
+  ok(tool(d, ['composite', 'odd']));
+  assert.equal(countFrames(path.join(d, 'out/odd.mp4')), 30);
 });
 
 test('P10 R1 B4 composite refuses a vo.wav that is not the clip\'s sound, with a current overlay (so the comparison itself is reached)', () => {

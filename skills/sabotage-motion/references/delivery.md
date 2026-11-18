@@ -173,12 +173,16 @@ node render.mjs check --file out/talk-final.mp4                      # the maste
 - **A transcript timed to something else.** One timed to the picture (an editor's SRT) needs nothing. When the sound
   starts more than a frame away from the first video frame, `probe` and `prepare` say so, and a transcript made from
   the clip's raw audio track (its 0 is the sound's first sample) must be moved by that offset: `--raw-track` on
-  `prepare` or `cues` does it, or `--transcript-offset <s>` moves it by any amount.
+  `prepare` or `cues` does it (by the offset of the track `prepare` last extracted), or `--transcript-offset <s>` moves it
+  by any amount. When the sound starts before the picture, the words in that lead are not captioned: a word that ends
+  before the first frame is dropped, one that straddles it starts at 0, and `cues` says how many.
 - **Several audio tracks** (a phone's two microphones, a second language): `probe` lists every audio stream, and
   `prepare --audio <n>` picks the clip's sound (0, the first, by default); it says which it used. `vo.wav`, the
   transcript and the master all use that one.
 - **Non-square pixels** (a 720x576 clip with pixels 64:45 displays at 1024x576): `prepare` converts the clip to square
   pixels at its display size (`clip.mp4`) and says so; the captions are laid out, and the target chosen, on that size.
+- **An odd width or height** (321x569): yuv420p video needs even ones, so `prepare` converts the clip, cropped by one
+  pixel off its right or bottom edge (no pixel is invented), and says so.
 - **A variable frame rate clip** (phones record them) is converted to a constant rate first: its average rate, rounded
   to the nearest of 23.976, 24, 25, 29.97, 30, 50, 59.94 and 60, written as `clip.mp4`. `prepare` prints it; tell the
   person the master is at that rate.

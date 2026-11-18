@@ -325,7 +325,7 @@ test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its too
   const del = read('references/delivery.md');
   assert.match(del, /^## 8\. Caption a clip$/m);
   for (const x of ['23.976, 24, 25, 29.97, 30, 50, 59.94 and 60', 'phrase times only', '`text_safe` reported as not checked', 'scaled to it', '--scene caption.js',
-    '-f out/vo16k.wav', 'Never transcribe a separate extract', '--raw-track', '`prepare --audio <n>`', 'square pixels at its display size', 'Sync is measured on each word\'s highlight onset']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
+    '-f out/vo16k.wav', 'Never transcribe a separate extract', '--raw-track', '`prepare --audio <n>`', 'square pixels at its display size', 'Sync is measured on each word\'s highlight onset', 'cropped by one pixel off its right or bottom edge', 'a word that ends before the first frame is dropped']) assert.ok(del.replace(/\n\s*/g, ' ').includes(x), `delivery.md: ${x}`);
   // the rounding list in the docs is the tool's
   const K = RATES_TOOL.RATES.map((r) => +r[0].toFixed(3)).map((x) => String(x)).join(', ');
   assert.equal(K, '23.976, 24, 25, 29.97, 30, 50, 59.94, 60');
