@@ -89,6 +89,15 @@ test('a punch-in to 1.5x on type whose ink is 12% measures 18%, after the camera
   typeNear(x, 0.18);
   assert.ok(x.main.measured.type > 0.12 + 20 * ROW, 'the camera scales the ink');
 });
+test('type whose glyphs are over 256 px at the probe scale (Skia draws them as paths) is ink too, drawn directly or through an offscreen layer', () => {
+  // "IT" at 45% of the frame height: 288 probe rows of ink, past Skia's 256 px glyph atlas (the extreme card's slam is
+  // there); on the layer it is drawn as the template card draws its type. CI on Linux found no ink in such a slam.
+  for (const params of [{}, { layer: 1 }]) {
+    const x = run('huge', params);
+    assert.deepEqual(x.extra, [], `${JSON.stringify(params)}: ${JSON.stringify(x.extra)}`);
+    typeNear(x, 0.45);
+  }
+});
 test('outlined type (strokeText alone) is ink too; type drawn from an image has none and its box is reported', () => {
   const s = run('bigbox', { stroke: 1 });
   assert.deepEqual(s.extra, []);

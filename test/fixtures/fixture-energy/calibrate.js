@@ -12,6 +12,9 @@
 //   bigbox   one line whose ink is 5% of the frame height, in a box that claims 30%
 //   punch    one line whose ink is 12% of the frame height; the camera punches in to 1.5x at 0.8-1.0 s and holds
 //   stroke=1 (with any kind that draws a line) outlines it with strokeText (4 px) instead of filling it
+//   huge     one word ("IT") whose ink is `size` of the frame height (default 0.45): at check's probe scale its glyphs
+//            are over 256 px, where Skia draws glyphs as paths rather than from its atlas (the extreme card's slam);
+//            layer=1 draws it on an offscreen canvas composited with drawImage, as the template card draws its type
 //   badcuts  A, declaring a 0.5 s transition (longer than cuts() allows)
 //   cached   the line of `bigbox`, drawn from an image made in init (no fillText while frames draw): no ink
 //   layer    A, and from 1.0 s a B panel over its lower `area` of the frame (default 0.25): a swapped layer, declared as a cut
@@ -55,6 +58,10 @@ export async function init({ ctx: c, scale, params }) {
   if (K === 'small') TYPE.lines = ['Small type set', 'in three lines', 'reads as small'].map((s) => fit(s, 0.03));
   if (K === 'bigbox' || K === 'cached') TYPE.line = fit('Big claim', 0.05);
   if (K === 'punch') TYPE.line = fit('GO', 0.12);
+  if (K === 'huge') {
+    TYPE.line = fit('IT', num('size', 0.45));
+    if (P.layer === '1') { IMG = document.createElement('canvas'); IMG.width = c.canvas.width; IMG.height = c.canvas.height; }
+  }
   if (K === 'pace') TYPE.line = fit('PACE', num('size', 0.1));
   if (K === 'swap') { TYPE.a = fit('NOW', 0.25); TYPE.b = fit('WOW', 0.25); }
   if (K === 'cached') {
@@ -74,10 +81,10 @@ function card(k, dx = 0, dy = 0) {
     ctx.beginPath(); ctx.arc(60 + i * 110 + dx + (j % 2) * 55, 60 + j * 110 + dy, 22 + 10 * hash(i * 13 + j), 0, Math.PI * 2); ctx.fill();
   }
 }
-function line(L, x = CFG.W / 2, cy = CFG.H / 2) {   // a line centred on (x, cy), its ink centred too
-  ctx.font = `${L.fs}px DISPLAY`; ctx.fillStyle = '#f4f1de'; ctx.strokeStyle = '#f4f1de'; ctx.lineWidth = 4; ctx.textAlign = 'center';
-  if (P.stroke === '1') ctx.strokeText(L.text, x, cy + (L.asc - L.desc) / 2); else ctx.fillText(L.text, x, cy + (L.asc - L.desc) / 2);
-  ctx.textAlign = 'left';
+function line(L, x = CFG.W / 2, cy = CFG.H / 2, g = ctx) {   // a line centred on (x, cy), its ink centred too
+  g.font = `${L.fs}px DISPLAY`; g.fillStyle = '#f4f1de'; g.strokeStyle = '#f4f1de'; g.lineWidth = 4; g.textAlign = 'center';
+  if (P.stroke === '1') g.strokeText(L.text, x, cy + (L.asc - L.desc) / 2); else g.fillText(L.text, x, cy + (L.asc - L.desc) / 2);
+  g.textAlign = 'left';
 }
 
 export function frame(t, jit) {
@@ -134,6 +141,15 @@ export function frame(t, jit) {
       line(TYPE.line);
       if (K === 'punch') cam = [1 + 0.5 * smooth(prog(t, 0.8, 1.0)), 0, 0, 0];
       break;
+    case 'huge':
+      c.fillStyle = '#14213d'; c.fillRect(0, 0, CFG.W, CFG.H);
+      if (IMG) {   // the template card's way: type on an offscreen layer, cleared and redrawn each frame, then drawImage
+        const g = IMG.getContext('2d');
+        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, IMG.width, IMG.height); g.setTransform(S, 0, 0, S, 0, 0);
+        line(TYPE.line, CFG.W / 2, CFG.H / 2, g);
+        c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(IMG, 0, 0); c.setTransform(S, 0, 0, S, 0, 0);
+      } else line(TYPE.line);
+      break;
     case 'cached':
       c.fillStyle = '#14213d'; c.fillRect(0, 0, CFG.W, CFG.H);
       c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(IMG, 0, 0); c.setTransform(S, 0, 0, S, 0, 0);
@@ -178,6 +194,7 @@ export function boxes(t) {
     }
     case 'bigbox': case 'cached': return [box('claim', TYPE.line, CFG.W / 2, CFG.H / 2, 0.30 * CFG.H)];
     case 'punch': return [box('go', TYPE.line, CFG.W / 2, CFG.H / 2)];
+    case 'huge': return [box('it', TYPE.line, CFG.W / 2, CFG.H / 2)];
     case 'pace': return [box('pace', TYPE.line, CFG.W / 2, CFG.H * 0.35)];
     default: return [];
   }
