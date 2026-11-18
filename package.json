@@ -13,7 +13,7 @@
     "test:voice": "node --test --test-concurrency=1 test/cues.test.mjs test/board-timing.test.mjs test/voice-elevenlabs.test.mjs test/voice-live.test.mjs",
     "test:mix": "node --test --test-concurrency=1 test/mix.test.mjs test/parity.test.mjs",
     "test:footage": "node --test --test-concurrency=1 test/footage.test.mjs",
-    "test:check": "node --test --test-concurrency=1 test/check-units.test.mjs test/check.test.mjs test/check-file.test.mjs test/safezones.test.mjs test/flash-units.test.mjs test/flash-dating.test.mjs test/flash.test.mjs",
+    "test:check": "node --test --test-concurrency=1 test/check-units.test.mjs test/check.test.mjs test/check-file.test.mjs test/safezones.test.mjs test/flash-units.test.mjs test/flash-dating.test.mjs test/flash.test.mjs test/energy-units.test.mjs test/energy.test.mjs",
     "test:examples": "node --test --test-concurrency=1 test/examples.test.mjs test/examples-check.test.mjs",
     "test:looks": "node --test --test-concurrency=1 test/looks-units.test.mjs test/looks.test.mjs",
     "test:code": "node --test --test-concurrency=1 test/code-units.test.mjs test/code.test.mjs test/code-example.test.mjs",

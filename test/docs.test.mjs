@@ -336,6 +336,32 @@ test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets
   assert.ok(md.includes('| `flash` | FAIL | Run on the piece\'s current render') && md.includes('| `flash` | FAIL | The rule of section 7 on the file itself'), 'a row in the source and the artifact tables');
 });
 
+test('P11b-2 references/check.md: energy_match\'s rule, its thresholds and the presets\' ranges as check.mjs sets them', async () => {
+  const md = read('references/check.md'), { T, ENERGY_RANGES: R } = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  const E = T.energy, flat = md.replace(/\s+/g, ' '), sec = flat.slice(flat.indexOf('## 8. Energy: `energy_match`'));
+  assert.ok(md.includes('8. Energy: `energy_match`\n') && sec.length > 1000, 'section 8, listed in the contents');
+  const p = (x) => `${Math.round(x * 100)}%`;
+  for (const want of [`differ in ${p(E.cut.share)} of their pixels or more, by ${E.cut.delta}/255 or more on any of R, G and B`,
+    `A "shot" shorter than ${E.cut.shot} s is part of the transition`, `pixels whose luma changes by ${E.motion.delta}/255 or more`,
+    'at most 0.3 s', 'a flash declared as a cut (or as two, in and out) is never confirmed', 'never on the scene\'s word']) {
+    assert.ok(sec.includes(want), `section 8 says "${want}"`);
+  }
+  assert.equal(E.cut.d, 0.3);
+  const rows = md.split('\n').filter((l) => l.startsWith('| energy: '));
+  assert.equal(rows.length, 5, 'five threshold rows');
+  assert.ok(rows[0].includes(`differ in ${p(E.cut.share)} of their pixels or more, by ${E.cut.delta}/255 or more`), rows[0]);
+  assert.ok(rows[1].includes(`${E.cut.shot} s or longer`), rows[1]);
+  assert.ok(rows[2].includes(`changes by ${E.motion.delta}/255 or more`), rows[2]);
+  assert.ok(rows[3].includes(`by ${E.ink.delta}/255 or more on any channel, and by half the largest difference`) && E.ink.rel === 0.5 && E.ink.px === 1, rows[3]);
+  const preset = (n) => { const x = R[n]; return `${n}: ${x.beats.join('-')} beat${x.beats[1] > 1 ? 's' : ''} at ${x.bpm} BPM`; };
+  for (const n of ['subtle', 'normal', 'extreme']) assert.ok(rows[4].includes(preset(n)), `${rows[4]} has ${preset(n)}`);
+  const range = ([lo, hi]) => `${Math.round(lo * 100)}-${p(hi)}`;
+  assert.ok(rows[4].includes(`type ${range(R.subtle.type)}, motion at most ${p(R.subtle.motion.max)}`) && rows[4].includes(`${range(R.normal.type)}, at least ${p(R.normal.motion.min)}`)
+    && rows[4].includes(`${range(R.extreme.type)}, at least ${p(R.extreme.motion.min)}`), rows[4]);
+  assert.ok(rows[4].includes(`within ${E.tempo * 100}% of it`), rows[4]);
+  assert.ok(md.includes('| `energy_match` | WARN | Section 8.'), 'a row in the source table');
+});
+
 // ---------------------------------------------------------------- caption a clip (plan 23.5)
 const RATES_TOOL = await import(pathToFileURL(path.join(templateDir, 'tools', 'clip.mjs')).href);
 test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its tool and the example; delivery.md section 8; README; CI', () => {

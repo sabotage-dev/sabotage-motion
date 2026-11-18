@@ -34,11 +34,13 @@ const FONT_PROBLEMS = [], FACES = [];
 // drawHud), on any 2D context, offscreen ones included. Parsed once per font string.
 const FONTS_USED = new Set(), famCache = new Map();
 let RECORD = 0;
+let NOTEXT = 0;   // P11b-2 energy_match: while set, fillText and strokeText draw nothing (the text-off render)
 for (const K of [globalThis.CanvasRenderingContext2D, globalThis.OffscreenCanvasRenderingContext2D]) {
   if (!K) continue;
   for (const m of ['fillText', 'strokeText']) {
     const orig = K.prototype[m];
     K.prototype[m] = function (...a) {
+      if (NOTEXT) return undefined;
       if (RECORD) {
         const f = this.font;
         let fams = famCache.get(f);
@@ -532,4 +534,77 @@ window.renderBrandSheet = async () => {
   });
   return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, swatches, grounds: out,
     brand: B ? B.name : null, look: S.look, logos: Object.keys(logos) };
+};
+
+// ---------------------------------------------------------------- energy_match (plan 23.9, P11b-2)
+// What render.mjs check measures for energy_match (check.mjs has the rule). The probe is check's: renderProbe(t) of
+// every frame at the page's scale (1/2), one subframe, grain off, sampled at t + 0.25 / FPS.
+// energyInfo: whether the scene exports cuts(), its list, and CFG.ENERGY and CFG.TEMPO after init.
+window.energyInfo = () => {
+  const has = typeof scene.cuts === 'function';
+  return { has, cuts: has ? JSON.parse(JSON.stringify(scene.cuts() ?? null)) : null, energy: CFG.ENERGY ?? null, tempo: CFG.TEMPO ?? null };
+};
+// energyBoxes: for every probe frame, the scene's boxes at the probe's sample time and the camera frame() returns
+// there: [{ f, cam, boxes: [{ id, text, x, y, w, h, deco? }] }], frames with no box left out.
+window.energyBoxes = () => {
+  const N = Math.round(CFG.DUR * FPS), out = [];
+  for (let f = 0; f < N; f++) {
+    const ts = subTime(f / FPS, 0, 1);
+    prep(c2ctx);
+    const cfg = scene.frame(ts, subJit(0)) || {};
+    const raw = scene.boxes(ts);
+    if (!Array.isArray(raw)) throw new Error(`boxes(${ts.toFixed(4)}) did not return a list`);
+    const boxes = raw.filter((b) => b && ['x', 'y', 'w', 'h'].every((k) => Number.isFinite(b[k])))
+      .map((b) => ({ id: String(b.id), text: String(b.text), x: b.x, y: b.y, w: b.w, h: b.h, ...(b.deco ? { deco: true } : {}) }));
+    if (boxes.length) out.push({ f, cam: Array.isArray(cfg.cam) ? cfg.cam.map(Number) : [1, 0, 0, 0], boxes });
+  }
+  return out;
+};
+// energyScan: one pass over the probe frames.
+//   motion  per consecutive pair, the histogram of luma differences (256 counts)
+//   pairs   per [a, b] asked for, the histogram of the largest difference of R, G and B between frames a and b
+//   ink     per frame in rects ({ f: [[x0, y0, x1, y1]] }, probe pixels), the frame rendered again with fillText and
+//           strokeText suppressed; for each rectangle, per row, the pixels where the two differ (the largest difference
+//           of R, G and B) by inkDelta or more, and by inkRel of the largest difference in the rectangle or more
+const maxDiff = (a, b, x) => Math.max(Math.abs(a[x] - b[x]), Math.abs(a[x + 1] - b[x + 1]), Math.abs(a[x + 2] - b[x + 2]));
+window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel }) => {
+  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {} };
+  const last = new Map(), ends = new Map(), kept = new Map();   // a -> its last partner; b -> pair indices; a -> its rgb
+  pairs.forEach(([a, b], i) => { last.set(a, Math.max(last.get(a) ?? -1, b)); if (!ends.has(b)) ends.set(b, []); ends.get(b).push(i); });
+  let prev = null;
+  for (let f = 0; f < N; f++) {
+    const t = f / FPS, p = window.renderProbe(t, { rgb: true });
+    if (prev) {
+      const h = new Array(256).fill(0);
+      for (let i = 0; i < p.luma.length; i++) h[Math.abs(p.luma[i] - prev[i])]++;
+      out.motion.push(h);
+    }
+    prev = p.luma;
+    if (last.has(f)) kept.set(f, p.rgb);
+    for (const i of ends.get(f) || []) {
+      const a = kept.get(pairs[i][0]) || p.rgb, h = new Array(256).fill(0);
+      for (let x = 0; x < a.length; x += 3) h[maxDiff(a, p.rgb, x)]++;
+      out.pairs[i] = h;
+    }
+    for (const [a, b] of last) if (b <= f) { kept.delete(a); last.delete(a); }
+    const R = rects[f];
+    if (R && R.length) {
+      let q;
+      NOTEXT++;
+      try { q = window.renderProbe(t, { rgb: true }); } finally { NOTEXT--; }
+      out.ink[f] = R.map(([x0, y0, x1, y1]) => {
+        const d = new Uint8Array((x1 - x0) * (y1 - y0));
+        let top = 0;
+        for (let y = y0, i = 0; y < y1; y++) for (let x = x0; x < x1; x++, i++) { d[i] = maxDiff(p.rgb, q.rgb, (y * RW + x) * 3); if (d[i] > top) top = d[i]; }
+        const cut = Math.max(inkDelta, inkRel * top), rows = [];
+        for (let y = 0, i = 0; y < y1 - y0; y++) {
+          let c = 0;
+          for (let x = 0; x < x1 - x0; x++, i++) if (d[i] >= cut) c++;
+          rows.push(c);
+        }
+        return rows;
+      });
+    }
+  }
+  return out;
 };
