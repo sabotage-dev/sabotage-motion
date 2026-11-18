@@ -31,15 +31,23 @@
 // (speaking rate for the estimate before a take exists, default 3.0), hookMax (the hook's last word
 // must end before this picture time), lead (0.10 s: a voiced beat opens this long before its anchor)
 // and tail (0.40 s: the last voiced beat closes this long after its last word).
+// energy: subtle, normal or extreme (plan 23.9, energy.js): how much the piece moves. Name it on every
+// board, and say which you chose and why; subtle is a choice, not the default (--param energy= overrides
+// it for a render). bpm: the piece's own tempo, within 10% of its energy's (84, 116 or 136 BPM). bed:
+// false makes the bed stem silent (subtle only). A board with no voice snaps each beat's dur to a whole
+// number of musical beats at its tempo once an energy is chosen anywhere (here, --param energy= or
+// CFG.ENERGY): the nearest, at least one, never shorter than its copy needs to be read. A voiced board
+// never snaps: the voice sets every window.
 //
-// This template's board is the example scene: a silent 3 s title card in two beats.
+// This template's board is the example scene: a silent title card of about 3 s in two beats, at normal.
 export const BOARD = {
   title: 'Make it move',
   target: 'tiktok',
+  energy: 'normal',   // a title card that should read as made: bigger type, cuts on the beat; subtle for a quiet brand
   beats: [
-    { id: 'title', dur: 2.45, on: ['Make it move', 'rendered from code, frame by frame'],
-      look: 'title words rise in one by one, the accent bar snaps in, a light sweep crosses the title',
-      sfx: 'a whoosh and a tick per word, a thump under the bar, a shimmer on the sweep' },
-    { id: 'out', dur: 0.55, on: [], look: 'everything whips out upward', sfx: 'a falling whoosh' },
+    { id: 'title', dur: 2.85, on: ['Make it move', 'rendered from code, frame by frame'],
+      look: 'title words land one by one on the beat, the accent bar snaps in, the ground cuts on the beat grid',
+      sfx: 'a whoosh and a hit per word, a thump under the bar, whooshes on the cuts' },
+    { id: 'out', dur: 0.55, on: [], look: 'everything leaves at the cut', sfx: 'a falling whoosh' },
   ],
 };

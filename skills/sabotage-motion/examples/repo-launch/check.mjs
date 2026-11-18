@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { ENERGY, TEMPO_SLACK, energyName, boardBpm, tempoRange } from './energy.js';
 
 // ---------------------------------------------------------------- thresholds
 // Starting values from the plan, tuned in P3 (references/check.md records the measurement behind each).
@@ -414,13 +415,27 @@ export function spikeStats(wav) {
   const p90 = loud.length ? loud[Math.floor(T.spike.pct * (loud.length - 1))] : 0;
   return { peak, at, p90, over: loud.length ? db(peak) - db(p90) : 0, rms: Math.sqrt(sum / Math.max(1, wav.n)), loud: loud.length };
 }
-export function audioSpike(wav) {
+// what: what was measured, for the line (default: the effects stem; with a bed stem, the two summed at the mixer's
+// gains, plan 23.9, so a preset's hits are judged against the beat under them).
+export function audioSpike(wav, { what = 'the effects stem' } = {}) {
   const s = spikeStats(wav);
-  if (!s.loud) return ok('audio_spike', 'source', 'the effects stem is silent', { threshold: T.spike.db });
+  if (!s.loud) return ok('audio_spike', 'source', `${what} is silent`, { threshold: T.spike.db });
   return s.over > T.spike.db + EPS
-    ? r('audio_spike', 'source', 'WARN', `the peak at ${f2(s.at)} s is ${s.over.toFixed(1)} dB above the 90th-percentile window: likely a click, or a gain envelope that starts after its source`,
+    ? r('audio_spike', 'source', 'WARN', `${what}: the peak at ${f2(s.at)} s is ${s.over.toFixed(1)} dB above the 90th-percentile window: likely a click, or a gain envelope that starts after its source`,
       { t: +f2(s.at), measured: +s.over.toFixed(2), threshold: T.spike.db })
-    : ok('audio_spike', 'source', `no spike: the loudest 50 ms window is ${s.over.toFixed(1)} dB above the 90th percentile`, { measured: +s.over.toFixed(2), threshold: T.spike.db });
+    : ok('audio_spike', 'source', `no spike in ${what}: the loudest 50 ms window is ${s.over.toFixed(1)} dB above the 90th percentile`, { measured: +s.over.toFixed(2), threshold: T.spike.db });
+}
+// Stems summed at gains, as the mixer sums them before its limiter: parts [{ wav, gain, gainAt? }] (readWav's
+// { sr, L, R, n }), all at one sample rate, from sample 0; gainAt(i), when given, is the gain at sample i (a bed's
+// mutes) and replaces gain. The sum is as long as the longest; one part alone is that stem at its gain.
+export function mixWavs(parts) {
+  const sr = parts[0].wav.sr;
+  if (parts.some((p) => p.wav.sr !== sr)) throw new Error('mixWavs: the stems have different sample rates');
+  const n = Math.max(...parts.map((p) => p.wav.n)), L = new Float32Array(n), R = new Float32Array(n);
+  for (const { wav, gain, gainAt } of parts) {
+    for (let i = 0; i < wav.n; i++) { const k = gainAt ? gainAt(i) : gain; L[i] += wav.L[i] * k; R[i] += wav.R[i] * k; }
+  }
+  return { sr, L, R, n };
 }
 
 // ---------------------------------------------------------------- 6.5 board checks with a verdict from lib.js
@@ -483,9 +498,10 @@ export function provenance(f) {
     if (!rec.source || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the render (${mj.render.file}): the master is stale, render and mix again`);
     if (!rec.video || !mj.master || !mj.master.video || rec.video.hash !== mj.master.video.hash) probs.push('the master\'s decoded picture does not hash the same as its render\'s: the mixer did not copy the picture untouched');
     if (f.effectsProblem) probs.push(f.effectsProblem);
+    if (f.bedProblem) probs.push(f.bedProblem);
   }
   if (probs.length) return { result: P('FAIL', probs.join('; ')), rec: f.recExists && !f.recError ? f.rec : null, mj, bound: false };
-  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render${(mj.stems || []).some((x) => x.role === 'effects') ? '; its effects stem came from a render of this source' : ''}`), rec, mj, bound: true };
+  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render${(mj.stems || []).some((x) => x.role === 'effects') ? '; its effects stem came from a render of this source' : ''}${(mj.stems || []).some((x) => x.role === 'bed' && x.generated) ? '; its bed stem too' : ''}`), rec, mj, bound: true };
 }
 
 // The effects stem a master was mixed with must be one a render made from this source (P2 round 1, folded in P3):
@@ -513,6 +529,22 @@ export function effectsLink(stem, candidates, pic = null) {
   }
   if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
     return `the effects stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
+  }
+  return null;
+}
+
+// The generated bed stem a master was mixed with (plan 23.9: master.json's stem with role 'bed' and generated: true)
+// must be one a render of this source made, like the effects stem: a record whose bedSha256 is the stem's (the
+// picture's own record from `full`) or whose audioSha256 is (out/<name>.bed.wav.render.json from `audio`), made with the
+// picture's scene, params, fps and length, from the source as it is now. Returns a problem sentence, or null.
+export function bedLink(stem, candidates, pic = null) {
+  if (!stem) return null;
+  const hits = candidates.filter((c) => c.rec && (c.rec.bedSha256 === stem.sha256 || (c.rec.role === 'bed' && c.rec.audioSha256 === stem.sha256)));
+  if (!hits.length) return `the bed stem ${stem.file} is not one a render recorded (no render record has its SHA-256): render it again (full, or audio) and mix again`;
+  const match = pic ? hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];
+  if (!match) return `the bed stem ${stem.file} was rendered with other settings than the picture (${soundDiff(hits[0].rec, pic).join(', ')}): render it again and mix again`;
+  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
+    return `the bed stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
   }
   return null;
 }
@@ -1156,16 +1188,8 @@ export function lumaScan({ firstOnly = false } = {}) {
 // its range, type smaller than its range, motion under its floor), or a subtle piece busier than its ceiling. The cut
 // interval is in beats of the piece's tempo: the preset's, or the board's own `bpm` within 10% of it (Q22).
 
-// The presets' ranges (plan 23.9's table and Q23): bpm, the cut interval in beats (cutBeats), the largest line's ink
-// height as a share of the frame height (inkHeight), and the motion floor (min) or ceiling (max), named as P11b-1's
-// ENERGY names them.
-// P11b-1 exports these from template/energy.js as ENERGY: whichever of P11b-1 and P11b-2 merges second replaces this
-// copy with that import.
-export const ENERGY_RANGES = Object.freeze({
-  subtle: Object.freeze({ bpm: 84, cutBeats: [4, 5], inkHeight: [0.04, 0.08], motion: Object.freeze({ max: 0.10 }) }),
-  normal: Object.freeze({ bpm: 116, cutBeats: [2, 3], inkHeight: [0.09, 0.16], motion: Object.freeze({ min: 0.02 }) }),
-  extreme: Object.freeze({ bpm: 136, cutBeats: [0.5, 1], inkHeight: [0.18, 0.35], motion: Object.freeze({ min: 0.06 }) }),
-});
+// The presets' ranges (plan 23.9's table and Q23) are energy.js's ENERGY: bpm, the cut interval in beats (cutBeats), the
+// largest line's ink height as a share of the frame height (inkHeight), and the motion floor (min) or ceiling (max).
 // energy_match's thresholds, tuned on the calibration fixtures (references/check.md section 4 records them):
 //   cut     a declared cut is confirmed when `share` of the pixels differ by `delta`/255 or more (any channel); a shot
 //           shorter than `shot` s is part of the transition; a declared transition lasts at most `d` s
@@ -1173,39 +1197,37 @@ export const ENERGY_RANGES = Object.freeze({
 //   ink     a pixel is ink when the text-off render differs from the frame (the largest difference of R, G and B) by
 //           `delta`/255 or more and by `rel` of the largest difference inside its box or more (the half-covered edge of
 //           a glyph, so a glow never joins two lines); a row has ink when `px` of its pixels inside the box do
-//   tempo   a board's own tempo may be this far from its preset's (Q22)
+//   tempo   a board's own tempo may be this far from its preset's (Q22): energy.js's TEMPO_SLACK
 T.energy = {
   cut: { share: 0.20, delta: 16, shot: 0.15, d: 0.3 },
   motion: { delta: 16 },
   ink: { delta: 32, rel: 0.5, px: 1 },
-  tempo: 0.10,
+  tempo: TEMPO_SLACK,
 };
 const pct = (x) => `${(x * 100).toFixed(1)}%`;
 const pct0 = (x) => `${+(x * 100).toFixed(1)}%`;
 
-// The energy the piece states: --param energy, else CFG.ENERGY, else the board's `energy`, else normal (Q19), the order
-// P11b-1's energyName() resolves it in (council round 1, I2). Returns { energy, from } or { error } for a name that is
-// not a preset.
+// The energy the piece states: --param energy, else CFG.ENERGY, else the board's `energy`, else normal (Q19), as
+// energy.js's energyName() resolves it for the page (council round 1, I2). Returns { energy, from } or { error } for a
+// name that is not a preset.
+const ENERGY_FROM = { '--param': '--param energy', 'CFG.ENERGY': 'CFG.ENERGY', 'board.js': 'the board', default: 'the default' };
 export function energySetting({ param = null, board = null, cfg = null } = {}) {
-  const src = [['--param energy', param], ['CFG.ENERGY', cfg], ['the board', board]].find(([, v]) => v != null && v !== '');
-  if (!src) return { energy: 'normal', from: 'the default' };
-  const e = String(src[1]);
-  if (!Object.hasOwn(ENERGY_RANGES, e)) return { error: `${src[0]} is "${e}", not one of ${Object.keys(ENERGY_RANGES).join(', ')}` };
-  return { energy: e, from: src[0] };
+  try {
+    const { name, from } = energyName({ params: { energy: param }, CFG: { ENERGY: cfg }, BOARD: { energy: board } });
+    return { energy: name, from: ENERGY_FROM[from] };
+  } catch (e) { return { error: e.message }; }
 }
-// The tempo the cut interval is judged at (Q22): the piece's own within 10% of its preset's, else the nearer end of
-// that band; the preset's when the piece sets none. { bpm, note }
+// The tempo the cut interval is judged at (Q22): the piece's own within 10% of its preset's (energy.js's boardBpm()),
+// else the nearer end of that band; the preset's when the piece sets none. { bpm, note }
 export function energyTempo(energy, tempo = null) {
-  const R = ENERGY_RANGES[energy], k = T.energy.tempo;
-  if (tempo == null || tempo === '') return { bpm: R.bpm, note: `the preset's ${R.bpm} BPM` };
+  const P = ENERGY[energy].bpm;
+  if (tempo == null || tempo === '') return { bpm: P, note: `the preset's ${P} BPM` };
   const x = Number(tempo);
-  if (!(Number.isFinite(x) && x > 0)) return { bpm: R.bpm, note: `tempo ${JSON.stringify(tempo)} is not a number of BPM, so the preset's ${R.bpm} BPM` };
-  const lo = R.bpm * (1 - k), hi = R.bpm * (1 + k);
-  if (x < lo - EPS || x > hi + EPS) {
-    const c = +Math.min(hi, Math.max(lo, x)).toFixed(3);
-    return { bpm: c, note: `tempo ${x} BPM is more than ${k * 100}% from the preset's ${R.bpm} (Q22), so ${c} BPM` };
+  if (!(Number.isFinite(x) && x > 0)) return { bpm: P, note: `tempo ${JSON.stringify(tempo)} is not a number of BPM, so the preset's ${P} BPM` };
+  try { return { bpm: boardBpm({ bpm: x }, energy), note: `${x} BPM` }; } catch {
+    const [lo, hi] = tempoRange(energy), c = Math.min(hi, Math.max(lo, x));
+    return { bpm: c, note: `tempo ${x} BPM is more than ${TEMPO_SLACK * 100}% from the preset's ${P} (Q22), so ${c} BPM` };
   }
-  return { bpm: x, note: `${x} BPM` };
 }
 // cuts() must return [{ t, d }]: t inside the piece, d from 0 (a hard cut) to 0.3 s. A sentence, or null when valid.
 export function validCuts(list, dur) {
@@ -1335,7 +1357,7 @@ export function energyType(rects, ink, RH) {
 // (why type is not measured, when rects is null) }. Returns the results: the verdict line first, then a WARN for each
 // declared cut the frames do not show and each box with no ink.
 export function energyMatch(x) {
-  const R = ENERGY_RANGES[x.energy], beat = 60 / x.tempo.bpm, E = T.energy;
+  const R = ENERGY[x.energy], beat = 60 / x.tempo.bpm, E = T.energy;
   const shotRange = [R.cutBeats[0] * beat, R.cutBeats[1] * beat];
   const extra = [], confirmed = [], shares = [];
   x.reg.regions.forEach((g, i) => {

@@ -15,16 +15,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The suites run in six shards per OS and node, so each job ends in about 20 minutes: on Ubuntu, installing ffmpeg
+  # alone has taken from 1 to 13 minutes, and the suites took 28 minutes in one job at P11a. Each shard runs whole
+  # npm test groups; test/docs.test.mjs checks that every test file is in a group a shard runs. The doctor, the render
+  # speed and the informational steps run once per OS and node, in the engine shard.
   engine:
-    name: engine (${{ matrix.os }}, node ${{ matrix.node }})
+    name: engine (${{ matrix.os }}, node ${{ matrix.node }}, ${{ matrix.shard.name }})
     runs-on: ${{ matrix.os }}
-    # 60, not 45: with P10's clip suites and P11a's flash suites the Ubuntu jobs run 40-47 minutes
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: [22, 24]
+        shard:
+          - name: engine
+            what: determinism, frame count and container, alpha, scene swap, board sheet, render errors, cues and board timing, footage, code and terminal motion, a launch video for a repo, the examples, asset inventory, skill text
+            run: npm run test:engine && npm run test:voice && npm run test:footage && npm run test:code && npm run test:launch && npm run test:examples && node --test test/assets.test.mjs test/docs.test.mjs
+          - name: check
+            what: check's detectors, fixture-check and the safe zones, the flash check
+            run: npm run test:check && npm run test:flash
+          - name: masters
+            what: check --file on mixed masters, and flash as a file on the template card's tightest extreme looks
+            run: npm run test:check-file
+          - name: looks and mix
+            what: looks and brand kits, mix and parity
+            run: npm run test:looks && npm run test:mix
+          - name: clip
+            what: caption a clip
+            run: npm run test:clip
+          - name: energy
+            what: the energy presets, the template card at each one, the bed stem
+            run: npm run test:energy
+          # the template card on all 8 looks, one shard per energy: about a minute a cell on Ubuntu's SwiftShader
+          - name: card looks subtle
+            what: the template card on every look at subtle
+            run: npm run test:card-looks-subtle
+          - name: card looks normal
+            what: the template card on every look at normal, and type over its accent panel
+            run: npm run test:card-looks-normal
+          - name: card looks extreme
+            what: the template card on every look at extreme, and type over its accent panel
+            run: npm run test:card-looks-extreme
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -62,6 +94,7 @@ jobs:
       - run: npm ci
 
       - name: doctor
+        if: matrix.shard.name == 'engine'
         shell: bash
         run: |
           set -o pipefail
@@ -69,6 +102,7 @@ jobs:
           { echo "### doctor (${{ matrix.os }}, node ${{ matrix.node }})"; echo '```'; cat doctor.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: ms per frame at full size (1080x1920, 8 subframes, 1 s of the default scene)
+        if: matrix.shard.name == 'engine'
         shell: bash
         working-directory: skills/sabotage-motion/template
         run: |
@@ -76,13 +110,13 @@ jobs:
           node render.mjs video --to 1 --out "$RUNNER_TEMP/bench.mp4" 2>&1 | tee "$RUNNER_TEMP/bench.txt"
           { echo "### render speed (${{ matrix.os }}, node ${{ matrix.node }})"; echo '```'; grep -E '^video:|ms/frame' "$RUNNER_TEMP/bench.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: tests (determinism, frame count and container, alpha, scene swap, board sheet, render errors, cues and board timing, mix and parity, footage, check and safe zones, looks and brand kits, code and terminal motion, a launch video for a repo, caption a clip, the examples, asset inventory, skill text)
-        run: npm run test:engine && npm run test:voice && npm run test:mix && npm run test:footage && npm run test:check && npm run test:looks && npm run test:code && npm run test:launch && npm run test:clip && npm run test:examples && node --test test/assets.test.mjs test/docs.test.mjs
+      - name: tests (${{ matrix.shard.what }})
+        run: ${{ matrix.shard.run }}
 
       # Informational only (never fails the job): which Linux GPU flags give WebGL2, and whether
       # Playwright's own Chromium works headless (plan Q5). Results go to the job summary.
       - name: WebGL2 flag variants (Linux, informational)
-        if: runner.os == 'Linux' && matrix.node == 24
+        if: runner.os == 'Linux' && matrix.node == 24 && matrix.shard.name == 'engine'
         continue-on-error: true
         shell: bash
         run: |
@@ -93,7 +127,7 @@ jobs:
           done
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Playwright's own Chromium (Q5, informational)
-        if: matrix.node == 24
+        if: matrix.node == 24 && matrix.shard.name == 'engine'
         continue-on-error: true
         shell: bash
         run: |

@@ -5,6 +5,11 @@
 // safezones.json), scale, fps, sub, alpha=1, check=1 (render.mjs check: a missing font is reported, not
 // thrown), and p.<key>=<value> for each --param key=value.
 //
+// The energy (energy.js, plan 23.9): --param energy, else CFG.ENERGY, else the board's energy, else normal, resolved
+// once here into the preset (tempo, cut interval, camera, type scale, easing, post, sound) and handed to init({ energy })
+// and to audio.js. window.INFO.ENERGY says which, at what tempo, and from where; window.sceneCuts() returns the scene's
+// declared cuts (its cuts() export) checked, for check's energy measurements.
+//
 // The style (looks.js, plan 23.2): before the scene's init, the harness resolves the look (--param look, else
 // CFG.LOOK, else brand.json's look) and the brand kit (brand.json beside index.html) into one style, registers
 // the look's and the kit's font files with FontFace and adds their families to CFG.FONTS, and hands the style to
@@ -14,6 +19,7 @@
 import { createPipeline } from './gl.js';
 import { encodeWav } from './wav.js';
 import * as LK from './looks.js';
+import { resolveEnergy } from './energy.js';
 
 const q = new URLSearchParams(location.search);
 const params = {};                                    // --param k=v from render.mjs arrive as p.k
@@ -27,7 +33,7 @@ const ALPHA = q.get('alpha') === '1';
 const CHECK = q.get('check') === '1';
 const halton = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
 
-let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx, STYLE = null, BRAND = null;
+let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx, STYLE = null, BRAND = null, ENERGY = null;
 const FONT_PROBLEMS = [], FACES = [];
 
 // fonts_used: the families of ctx.font at every fillText and strokeText while the scene draws (its init, frame and
@@ -85,6 +91,13 @@ async function boot() {
   if (!/^[\w][\w./-]*\.m?js$/.test(SCENE_FILE) || SCENE_FILE.includes('..')) throw new Error(`bad scene file name: ${SCENE_FILE}`);
   scene = await import('./' + SCENE_FILE);
   CFG = scene.CFG;
+  // CFG.ENERGY sets the beat grid too (plan 23.9). The scene timed itself from the board (CFG.DUR = boardDur(), its TL
+  // from beatWindow) before its CFG existed; when CFG names an energy that re-times the board (lib.js retimeFor), the
+  // scene is evaluated again, as a fresh module on the same lib.js, so its length and timeline are the re-timed board's.
+  if (CFG && CFG.ENERGY && !params.energy) {
+    const lib = await import('./lib.js');
+    if (lib.retimeFor(CFG.ENERGY)) { scene = await import('./' + SCENE_FILE + '?energy=' + encodeURIComponent(CFG.ENERGY)); CFG = scene.CFG; }
+  }
   if (!CFG) throw new Error(`${SCENE_FILE} does not export CFG`);
   const T = await loadTarget(TARGET);
   if (T) {
@@ -138,14 +151,18 @@ async function boot() {
     if (problem && !CHECK) throw new Error(problem);
     if (problem) FONT_PROBLEMS.push(problem);
   }
-  if (scene.init) await recordingAsync(() => scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T, style: STYLE }));
+  // the energy: the board comes from lib.js (the scene has imported it, or it loads here), CFG.ENERGY from the scene
+  const lib = await import('./lib.js');
+  ENERGY = resolveEnergy({ params, CFG, BOARD: lib.BOARD });
+  if (scene.init) await recordingAsync(() => scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T, style: STYLE, energy: ENERGY }));
   pipe = createPipeline(canvas, RW, RH, { alpha: ALPHA });
   // DUR is read after init, so a scene may set CFG.DUR there (from a param or a board).
   window.INFO = { RW, RH, W: CFG.W, H: CFG.H, FPS, DUR: CFG.DUR, ALPHA, SCALE, SUB, SCENE: SCENE_FILE,
     TARGET, SILENT: !!scene.silent, FONTS: CFG.FONTS || [], FONT_PROBLEMS, FACES,
     STYLE: { look: STYLE.look, lookFrom: params.look ? '--param look' : CFG.LOOK ? 'CFG.LOOK' : BRAND && BRAND.look ? 'brand.json' : null, brand: STYLE.brand, tokens: STYLE.tokens, bg: STYLE.bg, sources: STYLE.sources,
       fonts: Object.fromEntries(LK.ROLES.map((r) => [r, { family: STYLE.fonts[r].family, file: STYLE.fonts[r].file || null, from: STYLE.fonts[r].from }])) },
-    HOLDS: scene.HOLDS === undefined ? null : JSON.parse(JSON.stringify(scene.HOLDS)), BOXES: typeof scene.boxes === 'function' };
+    HOLDS: scene.HOLDS === undefined ? null : JSON.parse(JSON.stringify(scene.HOLDS)), BOXES: typeof scene.boxes === 'function',
+    ENERGY: { name: ENERGY.name, from: ENERGY.from, bpm: ENERGY.bpm }, CUTS: typeof scene.cuts === 'function' };
   return true;
 }
 
@@ -238,7 +255,9 @@ window.renderRange = async (from, to) => {
 // page's own scale, by a whole factor (each probe pixel is the mean of a k x k block). With grain off and one
 // subframe, a frame that does not change repeats exactly, so render.mjs check can count changed pixels between frames.
 window.renderProbe = (t, opts = {}) => {
-  renderAt(t, { n: Math.max(1, Math.round(opts.sub || 1)), post: opts.post || { grain: 0 } });
+  // noText: fillText and strokeText draw nothing (energy_match's text-off render)
+  if (opts.noText) NOTEXT++;
+  try { renderAt(t, { n: Math.max(1, Math.round(opts.sub || 1)), post: opts.post || { grain: 0 } }); } finally { if (opts.noText) NOTEXT--; }
   const px = readFrame(), luma = new Uint8Array(RW * RH), rgb = opts.rgb ? new Uint8Array(RW * RH * 3) : null;
   for (let y = 0; y < RH; y++) {
     const src = (RH - 1 - y) * RW * 4, dst = y * RW;      // readPixels starts at the bottom row
@@ -339,6 +358,18 @@ window.frameHash = async (t) => {
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', readFrame()));
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
 };
+// The scene's declared visual cuts and transitions (plan 23.9): scene.cuts() as [{ t, d }] in picture time, each with a
+// finite t inside the piece and d from 0 to 0.3 s, sorted; null when the scene exports no cuts(). Throws on a bad entry.
+window.sceneCuts = () => {
+  if (typeof scene.cuts !== 'function') return null;
+  const list = scene.cuts();
+  if (!Array.isArray(list)) throw new Error(`${SCENE_FILE}: cuts() did not return a list`);
+  return list.map((c, i) => {
+    const ok = c && Number.isFinite(c.t) && Number.isFinite(c.d ?? 0) && (c.d ?? 0) >= 0 && (c.d ?? 0) <= 0.3 + 1e-9 && c.t >= 0 && c.t <= CFG.DUR;
+    if (!ok) throw new Error(`${SCENE_FILE}: cuts() item ${i} ${JSON.stringify(c)}: each cut needs t inside the piece and d from 0 to 0.3 s`);
+    return { t: c.t, d: c.d ?? 0 };
+  }).sort((a, b) => a.t - b.t);
+};
 // The soundtrack. audio.js gets the SELECTED scene's TL and CFG, after that scene's init, and is
 // imported only when needed: a scene that exports `silent = true` renders silence and never loads it.
 window.renderSound = async () => {
@@ -348,11 +379,24 @@ window.renderSound = async () => {
     buf = new AudioBuffer({ numberOfChannels: 2, length: Math.ceil(sr * dur), sampleRate: sr });
   } else {
     const { renderAudio } = await import('./audio.js');
-    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE });
+    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE, energy: ENERGY });
   }
   const wav = encodeWav(buf);
   await fetch('/audio', { method: 'POST', body: wav });
   return wav.length;
+};
+// The bed stem (plan 23.9): audio.js's renderBed, the preset's beat pattern on its grid over the picture's full length,
+// posted to /bed. Returns { bytes, silent } (silent: the board asked for no bed at subtle), or null when the scene is
+// silent or its audio.js has no renderBed (a piece from before the presets: it has no bed stem).
+window.renderBedSound = async () => {
+  if (scene.silent) return null;
+  const A = await import('./audio.js');
+  if (typeof A.renderBed !== 'function') return null;
+  const sr = 48000, dur = CFG.DUR;
+  const buf = await A.renderBed({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE, energy: ENERGY });
+  const wav = encodeWav(buf);
+  await fetch('/bed', { method: 'POST', body: wav });
+  return { bytes: wav.length, silent: !!ENERGY.silentBed };
 };
 
 // The board sheet (render.mjs board, plan 6.2): one panel per board beat, the frame at the beat's key time
@@ -414,7 +458,8 @@ window.renderBoard = async ({ cols, safe }) => {
   const n = info.windows.length, rows = Math.ceil(n / cols);
   const rowCap = Array.from({ length: rows }, (_, r) => Math.max(...caps.slice(r * cols, r * cols + cols).map((c) => c.h)));
   const metaBits = [info.estimated ? 'estimated timing (no cues.js yet)'
-    : lib.CUES ? `timing from cues.js: VO_OFFSET ${info.voOffset.toFixed(2)} s, take ${lib.CUES.TAKE.duration.toFixed(2)} s` : 'silent board: the beats\' own durations',
+    : lib.CUES ? `timing from cues.js: VO_OFFSET ${info.voOffset.toFixed(2)} s, take ${lib.CUES.TAKE.duration.toFixed(2)} s`
+    : info.snapped ? `silent board: the beats on ${ENERGY.name}'s beat grid, ${info.bpm} BPM` : 'silent board: the beats\' own durations',
     `scene ${SCENE_FILE}`, `${n} beats, ${info.dur.toFixed(2)} s`, zone ? `safe zones: ${zone.name}${zone.estimate ? ' (estimate)' : ''}` : ''].filter(Boolean);
   const metaLines = wrapTokens(words(metaBits.join('  |  '), C.muted), F.meta, cols * pw + (cols - 1) * gap);
   const headH = gap + 34 * u + metaLines.length * LH.body + gap * 0.5;
@@ -449,7 +494,7 @@ window.renderBoard = async ({ cols, safe }) => {
     y += ph + rowCap[r] + gap;
   }
   return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, rows: rowsOut, title: B.title || null,
-    estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null,
+    estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null, grid: info.snapped ? { bpm: info.bpm, energy: ENERGY.name } : null,
     cfgDur: CFG.DUR, order: lib.boardOrder(info, CFG.DUR, FPS), scene: SCENE_FILE, safe: zone ? { target: zone.name, estimate: zone.estimate } : null };
 };
 
@@ -560,17 +605,61 @@ window.energyBoxes = () => {
   }
   return out;
 };
-// energyScan: one pass over the probe frames.
-//   motion  per consecutive pair, the histogram of luma differences (256 counts)
-//   pairs   per [a, b] asked for, the histogram of the largest difference of R, G and B between frames a and b
-//   ink     per frame in rects ({ f: [[x0, y0, x1, y1]] }, probe pixels), the frame rendered again with fillText and
-//           strokeText suppressed; for each rectangle, per row, the pixels where the two differ (the largest difference
-//           of R, G and B) by inkDelta or more, and by inkRel of the largest difference in the rectangle or more
+// energyScan: the probe frames in two passes, so the render with text and the one without are never interleaved.
+//   pass 1, text on, every frame in order, as a render runs them:
+//     motion  per consecutive pair, the histogram of luma differences (256 counts)
+//     pairs   per [a, b] asked for, the histogram of the largest difference of R, G and B between frames a and b
+//     and the pixels of each rectangle in rects ({ f: [[x0, y0, x1, y1]] }, probe pixels), kept
+//   pass 2, text off (fillText and strokeText draw nothing), the frames in rects, in order:
+//     ink     for each rectangle, per row, the pixels where the two renders differ (the largest difference of R, G
+//             and B) by inkDelta or more, and by inkRel of the largest difference in the rectangle or more
+// Rendering each frame without its text right after rendering it with its text, frame after frame, lost the ink of
+// the extreme card's largest slam on Chrome on SwiftShader (Linux CI, P11b): deep into such a run, the two renders of
+// a frame came out the same inside its box, while a render or a short run drew it. interleave: true keeps that old
+// order, for the test that documents it; debug: true adds lumaMax, per frame and rectangle, the brightest luma of each
+// render ([on, off]).
+// Memory: the pixels kept for pass 2 are held in runs of at most `budget` bytes (default 256 MB; RGB, since ink is the
+// largest difference of R, G and B). A piece of a few seconds is one run; a long one (three minutes with text over a
+// quarter of a 540x960 probe would hold about 2 GB) is several, each still every text-on render first, then that run's
+// text-off ones. out.retained is the most held at once.
 const maxDiff = (a, b, x) => Math.max(Math.abs(a[x] - b[x]), Math.abs(a[x + 1] - b[x + 1]), Math.abs(a[x + 2] - b[x + 2]));
-window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel }) => {
-  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {} };
+window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel, interleave = false, debug = false, budget = 256 * 1024 * 1024 }) => {
+  const N = Math.round(CFG.DUR * FPS), out = { frames: N, w: RW, h: RH, motion: [], pairs: pairs.map(() => null), ink: {}, retained: 0, ...(debug ? { lumaMax: {} } : {}) };
   const last = new Map(), ends = new Map(), kept = new Map();   // a -> its last partner; b -> pair indices; a -> its rgb
   pairs.forEach(([a, b], i) => { last.set(a, Math.max(last.get(a) ?? -1, b)); if (!ends.has(b)) ends.set(b, []); ends.get(b).push(i); });
+  // a rectangle's pixels (RGB), row by row
+  const crop = (rgb, [x0, y0, x1, y1]) => {
+    const w = (x1 - x0) * 3, c = new Uint8Array(w * (y1 - y0));
+    for (let y = y0, o = 0; y < y1; y++, o += w) c.set(rgb.subarray((y * RW + x0) * 3, (y * RW + x1) * 3), o);
+    return c;
+  };
+  const lumaMax = (c) => { let m = 0; for (let i = 0; i < c.length; i += 3) m = Math.max(m, 0.2126 * c[i] + 0.7152 * c[i + 1] + 0.0722 * c[i + 2]); return Math.round(m); };
+  // per rectangle of frame f, the rows of ink between its pixels with text (on) and without (off)
+  const inkOf = (f, on, off) => {
+    if (debug) out.lumaMax[f] = on.map((c, k) => [lumaMax(c), lumaMax(off[k])]);
+    out.ink[f] = rects[f].map(([x0, y0, x1, y1], k) => {
+      const a = on[k], b = off[k], w = x1 - x0, d = new Uint8Array(w * (y1 - y0));
+      let top = 0;
+      for (let i = 0; i < d.length; i++) { d[i] = maxDiff(a, b, i * 3); if (d[i] > top) top = d[i]; }
+      const cut = Math.max(inkDelta, inkRel * top), rows = [];
+      for (let y = 0, i = 0; y < y1 - y0; y++) {
+        let c = 0;
+        for (let x = 0; x < w; x++, i++) if (d[i] >= cut) c++;
+        rows.push(c);
+      }
+      return rows;
+    });
+  };
+  const withText = new Map();   // f -> the pixels of its rectangles, text on (one run)
+  let held = 0;                  // bytes in withText
+  // the run's frames without their text, in order, then the run is let go
+  const flush = () => {
+    for (const [f, on] of withText) {
+      const q = window.renderProbe(f / FPS, { rgb: true, noText: true });
+      inkOf(f, on, rects[f].map((r) => crop(q.rgb, r)));
+    }
+    withText.clear(); held = 0;
+  };
   let prev = null;
   for (let f = 0; f < N; f++) {
     const t = f / FPS, p = window.renderProbe(t, { rgb: true });
@@ -588,23 +677,13 @@ window.energyScan = async ({ pairs = [], rects = {}, inkDelta, inkRel }) => {
     }
     for (const [a, b] of last) if (b <= f) { kept.delete(a); last.delete(a); }
     const R = rects[f];
-    if (R && R.length) {
-      let q;
-      NOTEXT++;
-      try { q = window.renderProbe(t, { rgb: true }); } finally { NOTEXT--; }
-      out.ink[f] = R.map(([x0, y0, x1, y1]) => {
-        const d = new Uint8Array((x1 - x0) * (y1 - y0));
-        let top = 0;
-        for (let y = y0, i = 0; y < y1; y++) for (let x = x0; x < x1; x++, i++) { d[i] = maxDiff(p.rgb, q.rgb, (y * RW + x) * 3); if (d[i] > top) top = d[i]; }
-        const cut = Math.max(inkDelta, inkRel * top), rows = [];
-        for (let y = 0, i = 0; y < y1 - y0; y++) {
-          let c = 0;
-          for (let x = 0; x < x1 - x0; x++, i++) if (d[i] >= cut) c++;
-          rows.push(c);
-        }
-        return rows;
-      });
-    }
+    if (!R || !R.length) continue;
+    const on = R.map((r) => crop(p.rgb, r)), bytes = on.reduce((n, c) => n + c.length, 0);
+    if (interleave) { inkOf(f, on, R.map((r) => crop(window.renderProbe(t, { rgb: true, noText: true }).rgb, r))); continue; }
+    if (held && held + bytes > budget) flush();
+    withText.set(f, on); held += bytes;
+    out.retained = Math.max(out.retained, held);
   }
+  flush();
   return out;
 };

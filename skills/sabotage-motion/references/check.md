@@ -27,6 +27,7 @@ The colour match against a brand kit is its own mode, `node render.mjs palette`,
 6. The examples' results
 7. Flashes: `flash`
 8. Energy: `energy_match`
+9. Energy: what a scene gives the energy measurements
 
 ## 1. Source checks
 Run on the piece as it is now, at half size with one subframe and grain off (the probe), and on the scene's text
@@ -44,7 +45,7 @@ boxes at every subframe time the render uses.
 | `first_frame_empty` | WARN | The first frame's luma standard deviation is under 4/255: a flat frame, a blank thumbnail. Skipped for alpha renders. | Nothing to switch off: open on content, or keep the WARN (it does not fail without `--strict`). |
 | `text_safe` | FAIL, or WARN on an estimate | Each text box, mapped through the camera `frame(t)` returns at every subframe sample, is outside the safe area (or inside an `exclude` rectangle). More than 0.25 s of exposure in one beat is a FAIL on a measured target; less (a slam, a whip) is a WARN. On an estimate target it is always a WARN. Needs `boxes(t)`. | `deco: true` on a box that is decoration, not reading text. |
 | `text_overlap` | WARN | Two boxes from different groups overlap by more than 2% of the smaller one's area, at the same sample. | Put text that is meant to touch in one `group`, or mark decoration `deco: true`. |
-| `audio_spike` | WARN | The loudest 50 ms window of the effects stem peaks more than 18 dB above the 90th percentile of the windows that are not silent (peak above -60 dBFS): a click, or a gain envelope that starts after its source. | Fix the envelope (`envGain` in `audio.js` starts at 0 for this reason); section 5 has its blind spot. |
+| `audio_spike` | WARN | The loudest 50 ms window of what is heard peaks more than 18 dB above the 90th percentile of the windows that are not silent (peak above -60 dBFS): a click, or a gain envelope that starts after its source. What is heard is the effects stem, and with a bed stem (`audio.js` `renderBed`, plan 23.9) the effects and the bed summed at the mixer's own gains. With `--file`, each stem at the gain the master's `master.json` records for it, alone as well as summed (the -60 dBFS floor is absolute, so a gain moves quiet windows across it), and the bed with the `--mute` windows it records. A stem the mix left out (`--no-sfx`, `--no-bed`, `--sting`) counts as zero, and so does a bed from a file (`--bed`): the master holds that one, but it is not a stem the check can render again, so it can neither hide a spike nor raise one. Without a master, `tools/mix.mjs`'s defaults (a voiced board: effects 0.9, bed 0.22; otherwise effects 1.0, bed 0.5). So an extreme piece's hits are judged against the beat under them, and a click over the bed still stands out. | Fix the envelope (`envGain` in `audio.js` starts at 0 for this reason); section 5 has its blind spot. |
 | `energy_match` | WARN | Section 8. The piece's cuts (declared by `cuts()` and confirmed by the frames), its largest line of type (from ink) and its motion, measured on the probe, against the ranges of the energy it states (`--param energy`, else `CFG.ENERGY`, else the board's `energy`, else `normal`): a `normal` or `extreme` piece calmer than its floor, or a `subtle` one busier than its ceiling. A declared cut the frames do not show, and a box with no ink, are a WARN each. Not checked without `cuts()`, on an overlay (`--alpha`), or with an energy that is not a preset; a `cuts()` list that is not `[{ t, d }]` with d 0-0.3 s is a scene FAIL. | Nothing to switch off: state the energy the piece has, or cut, size and move it like the energy it states. |
 | `flash` | FAIL | Run on the piece's current render: the newest `video` or `full` render in `out/` of the whole piece, with the scene, params and frame rate being checked, whose render record still matches the file and the source. Something flashes more than three times a second over too large an area (section 7). With no such render (none yet, only part of the piece, or the source changed since), it is not checked and says to render. An `--alpha` check is not checked: an overlay's flashes depend on what it is laid over. | Nothing: keep it to three flashes a second or fewer, make the flashing area smaller, or lower its contrast. |
 
@@ -58,7 +59,7 @@ A master is only as good as the source it came from, so these first prove which 
 
 | Check | Level | Rule |
 |---|---|---|
-| `provenance` | FAIL | `out/<name>.master.json` exists; the SHA-256 of the whole file equals the master hash it records (so any other mix of the same picture fails); the render record it names exists and matches its recorded hash; the piece's source hash now equals the record's (otherwise the master is stale: re-render); the decoded video of the master equals the render's (the mixer copied the picture untouched); and the effects stem it mixed matches a render of this source. Only then do the source checks run, replaying the render's scene, params, fps, subframes and alpha mode from its record rather than the command line. |
+| `provenance` | FAIL | `out/<name>.master.json` exists; the SHA-256 of the whole file equals the master hash it records (so any other mix of the same picture fails); the render record it names exists and matches its recorded hash; the piece's source hash now equals the record's (otherwise the master is stale: re-render); the decoded video of the master equals the render's (the mixer copied the picture untouched); and the effects stem it mixed, and the bed stem when it mixed one (`out/<name>.bed.wav`), each match a render of this source made with the picture's scene, params, fps and length (the picture's own record from `full`, or the stem's record from `audio`). Only then do the source checks run, replaying the render's scene, params, fps, subframes and alpha mode from its record rather than the command line. |
 | `file_spec` | FAIL | ffprobe: width, height, fps and pixel format match the render record; the frame count equals `round(DUR x FPS)`; the duration matches within one frame; an audio stream exists unless the scene is `silent`. |
 | `faststart` | WARN | In an `.mp4`, the `moov` atom comes before `mdat`, so playback starts before the download ends. |
 | `loudness` | FAIL | Integrated loudness within 1 LU of the target `master.json` records (or `--lufs`), and true peak at or under -1.0 dBTP (or `--tp`). Without either, not checked. |
@@ -86,7 +87,7 @@ and re-mix.
 - **A file made elsewhere** (an export from an editor, a re-encode): `--plain` checks it as a plain file
   (`file_spec` against the piece's settings, `faststart`, and `loudness` with `--lufs`). Run it in the piece the
   file was cut from, or one with the same size, frame rate and length: `file_spec` compares the file with the scene
-  in the folder you run it in, and fails a 75 s export checked from the 3 s template.
+  in the folder you run it in, and fails a 75 s export checked from the template's 3 s card.
 - **A captioned clip** (`tools/clip.mjs composite`, `references/delivery.md` section 8): the composite's render record
   has `kind: "composite"`. `check --file` on its master binds the master to the composite as for any render, then to
   the overlay: a second `provenance` line FAILs when the overlay record the composite names is missing, changed since
@@ -160,18 +161,32 @@ each example's README names them:
 
 | Example | `check` (source) | `check --file` | Kept on purpose |
 |---|---|---|---|
-| `explainer-beat` | 12 ok, 0 WARN | 17 ok, 0 WARN | none |
-| `lower-third` (`--alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
-| `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and re-cut in P11b: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
-| `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
-| `repo-launch` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
-| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | 15 ok, 0 WARN, 3 not checked (the scene is silent, no hook); `flash` ok on the composite (the most too fast: 63 px) | none |
+| `explainer-beat` | 12 ok, 0 WARN, 1 not checked (no `cuts()`) | 17 ok, 0 WARN, 1 not checked (no `cuts()`) | none |
+| `lower-third` (`--alpha`) | 7 ok, 6 not checked (silent, no hook, an overlay's first frame, its flashes and its energy) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
+| `showreel` | 7 ok, 0 WARN, 6 not checked (no `boxes(t)`: the four text checks; no `hookMax`; no `cuts()`) | 11 ok, 0 WARN, 7 not checked (the same, and no voice); `flash` ok (the most too fast: 12,718 px, general, at 7.28 s) | none. Re-cut in P11b so it passes `flash`: its README says how. |
+| `terminal-demo` | 11 ok, 0 WARN, 2 not checked (no `hookMax`, no `cuts()`) | 15 ok, 0 WARN, 3 not checked (no `hookMax`, no voice, no `cuts()`) | none |
+| `repo-launch` (at `normal`) | 12 ok, 0 WARN, 1 not checked (no `hookMax`); `energy_match` ok | 16 ok, 0 WARN, 2 not checked (no `hookMax`, no voice); `flash` ok (12,685 px at most); `audio_spike` over the effects and the bed stem | none |
+| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 6 not checked (silent, no hook, an overlay's first frame, its flashes and its energy) | 15 ok, 0 WARN, 4 not checked (the scene is silent, no hook, an overlay's energy); `flash` ok on the composite (the most too fast: 63 px) | none |
 
-Since P11b-2 each source check above also reports `energy_match` as not checked: no example declares `cuts()` yet, and
-the lower third and the captions are overlays besides.
+Each source check above includes `energy_match` (section 8). `repo-launch` is OK at `normal`: a mean shot of 1.25 s
+(11 confirmed cuts in 15 s; range 1.03-1.55 s), its largest line 9.7% of the frame height (range 9-16%), motion 3.9%
+(floor 2%). The others report it as not checked: `showreel`, `explainer-beat` and `terminal-demo` declare no `cuts()`,
+and the lower third and the captions are overlays.
 
-The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad` (`flash` is not checked
-until it is rendered). CI runs every source check except the two probe checks and `flash` on the examples on macOS
+The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` at every energy, `energy_match` OK and inside
+its preset's ranges at each (section 9 has the numbers; `flash` is not checked until it is rendered); rendered and
+mastered with its bed stem (`--master-only`), `check --file` is 0 FAIL and 0 WARN at each, `flash` included
+(`test/energy.test.mjs`). On `tiktok-ad` it is 0 FAIL at every energy and 0 WARN at `subtle` and `extreme`; at `normal`
+`energy_match` WARNs that its largest line is 8.3% of the frame height, under normal's 9%: beside the button column
+the title has 660 px, and its widest word fits them at that size. A piece made for `tiktok-ad` at `normal` sets a
+shorter title or lets it break into more lines.
+
+On every look the card reads at its energy: on all eight at `subtle`, `normal` and `extreme`, its source check is 0 FAIL
+and 0 WARN with `energy_match` inside the preset's ranges and every cut changing at least 40% of the frame
+(`test/card-looks-subtle.test.mjs`, `-normal` and `-extreme`, a CI shard each), and rendered and mastered, `check --file` is 0 FAIL and 0 WARN, `flash` included (the most
+too fast: 18,874 px, on `brutalist` at `extreme`). Its cuts move a block of the look's accent, which reads against any
+ground, while the ground's own stripes keep to their flash-safe tone (`groundTone`), too close to a light ground to show.
+CI runs every source check except the two probe checks and `flash` on the examples on macOS
 and Linux; the probe checks, `flash` and the masters run on a Mac before a release.
 
 ## 7. Flashes: `flash`
@@ -247,7 +262,12 @@ cut, at most 0.3 s).
   glitch) never counts, and a declared cut the frames do not show is a WARN of its own. Mean shot length = the piece's
   length / (confirmed cuts + 1).
 - **Type size, from ink.** Each probe frame with text is rendered a second time with `fillText` and `strokeText`
-  drawing nothing; where the two differ is the text, after the camera and the post chain. Each box that is not
+  drawing nothing; where the two differ is the text, after the camera and the post chain. The renders without text
+  come in a second pass, after every frame has been rendered with its text in order: rendering each frame without its
+  text right after rendering it with it, frame after frame, lost the extreme card's largest slam on Chrome on
+  SwiftShader (Linux), where the two renders of a frame came out the same inside its box. The pixels kept for the
+  second pass are held in runs of at most 256 MB: a piece of a few seconds is one run, a long one several, each still
+  every frame with its text first. Each box that is not
   `deco`, mapped through the camera as `text_safe` maps it, cuts its part of that mask; its rows with ink split into
   lines at empty rows, and a line's height is its run of rows. The tallest line over the piece, as a share of the frame
   height, is the type size: a three-line block of small type reads as small type, and a box that claims more than its
@@ -262,7 +282,7 @@ cut, at most 0.3 s).
   cuts). Type or motion that cannot be measured (no `boxes(t)`, no text, every pair held) is said so and not judged.
   The ranges are section 4's.
 
-The calibration fixtures (`test/fixtures/fixture-energy/energy.js`, 720x1280 at 30 fps) build their ground truth in:
+The calibration fixtures (`test/fixtures/fixture-energy/calibrate.js`, 720x1280 at 30 fps) build their ground truth in:
 a hard cut, a 0.3 s wipe and a 0.25 s whip between two cards (one cut each), an A-B-A-B run at extreme's half-beat
 shot (14 cuts), a shake and a full-frame flash (no cut, declared or not), a static card with a declared cut (reported),
 a new angle and a swapped layer (cuts), a swapped word and a 12/255 shift (not cuts), a slow drift and a slow push
@@ -272,3 +292,49 @@ flash, declared `extreme`, WARNs; so do a `normal` board rendered calm and an `e
 
 It takes about 4 s for a 15 s, 1080x1920, 30 fps piece with text on every frame (an Apple-silicon Mac, 2026-11-17):
 two probe renders a frame with text, one without.
+
+## 9. Energy: what a scene gives the energy measurements
+A piece's energy (`subtle`, `normal` or `extreme`, plan 23.9) is measured from its frames, never taken on the scene's
+word: cuts the scene declares count only when the frames confirm them, type size comes from the ink of a render with
+the text left out, and motion from the probe. This is the interface those measurements read, and it stays exactly so:
+
+- **The energy**: `--param energy=<name>`, else `CFG.ENERGY` in the scene, else the board's `energy`, else `normal`
+  (`energy.js` `energyName`). A `CFG.ENERGY` and a board energy that disagree stop the render. The page reports it as
+  `window.INFO.ENERGY = { name, from, bpm }` (`from`: `--param`, `CFG.ENERGY`, `board.js` or `default`; `bpm`: the
+  board's own tempo when it sets one, within 10% of the preset's, else the preset's), and the render record keeps it
+  as `energy`.
+- **The ranges**: `energy.js` exports `ENERGY`, one entry per preset (`check.mjs` imports it; it keeps no copy), `{ bpm, cutBeats: [min, max], inkHeight:
+  [min, max], motion: { min?, max? } }` (subtle has a motion ceiling, `max: 0.10`; normal and extreme a floor, `min:
+  0.02` and `min: 0.06`), plus what the scene's moves use (`camera`, `transitions`, `ease`, `post`, `sound`,
+  `caption`, `shotStep`). Shot lengths are judged in beats at the piece's own tempo (Q22). What confirms a cut and what
+  counts as a pixel moving are `energy_match`'s thresholds, recorded in section 8; `energy.js` holds no threshold of
+  its own.
+- **The cuts**: a scene exports `cuts()`, its declared visual cuts and transitions as `[{ t, d }]` in picture time:
+  `d` 0 for a hard cut, at most 0.3 s for a transition from `t` to `t + d`. The page gives them, checked and sorted, as
+  `window.sceneCuts()` (null when the scene exports no `cuts()`; a bad entry throws), and `window.INFO.CUTS` says
+  whether the scene has one. `moves.js` `cutGrid` lays cuts on the beat grid inside beat windows.
+- **The text**: `boxes(t)`, unchanged (section 1). Word-by-word slams return one box per word, all under the phrase's
+  shared `group`: the whole board copy string (`moves.js` `slamWords`).
+- **The beat grid**: picture time 0 is beat 0 of the piece's tempo, and the bed stem plays on it. A board with no voice
+  snaps each beat to a whole number of beats once an energy is chosen anywhere (`--param energy`, `CFG.ENERGY`, or the
+  board's `energy` or `bpm`); with none anywhere it keeps its lengths, and a voiced board never snaps.
+- **Text and the camera**: whips happen only on a cut between beats, with no copy on screen; for every other move
+  `moves.js`'s rig clamps the camera at each `t` so every box stays inside the target's safe area after it.
+- **Cuts that read on any ground, and flash**: the card's cuts move a block of the look's accent (normal: a band that
+  swaps sides, then drops to the bottom; extreme: 60% of the width sliding a fifth of it a cut, there and back, so a
+  pixel changes on at most two cuts in every four, back to back at worst in the outer fifths; `flash` holds it on
+  `brutalist` and `neon` in CI), and type over it takes the ground's colour. Its ground's stripes, and the
+  stripes inside the block, stay under the flash rule's 0.1 swing of relative luminance (`energy.js` `groundTone`,
+  `shotTones`): on a light ground that is too close to show, so the block carries the cut.
+
+`energy_match` on the template card at each preset (the same card, `node render.mjs check --param energy=<name>` on
+its own target, `tiktok`, an Apple-silicon Mac); `test/energy.test.mjs` holds each inside its preset's ranges:
+
+| Preset | Length | Declared cuts, confirmed | Mean shot (range) | Largest line (range) | Motion, median (bound) |
+|---|---|---|---|---|---|
+| `subtle` | 3.571 s (5 beats at 84 BPM) | 0, 0 | 3.57 s, 5 beats (2.86-3.57 s) | 6.3% (4-8%) | 0.0% (at most 10%) |
+| `normal` | 3.621 s (7 beats at 116 BPM) | 2, 2 | 1.21 s, 2.33 beats (1.03-1.55 s) | 11.5% (9-16%) | 6.6% (at least 2%) |
+| `extreme` | 3.088 s (7 beats at 136 BPM) | 11, 11 | 0.26 s, 0.58 beats (0.22-0.44 s) | 28.9% (18-35%) | 14.5% (at least 6%) |
+
+A card with no cuts is one shot as long as the piece, so `subtle`'s mean shot is its whole length, 5 beats, the top of
+its range (`subtle` is judged only on being busier than its ceiling, so a longer shot is never a WARN).

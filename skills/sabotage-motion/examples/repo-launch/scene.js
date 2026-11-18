@@ -9,9 +9,14 @@
 // The base look is product (quiet post, snap entrances, no glitch); the kit's colours and faces win over it. Windows
 // and the phone fade or rise in place, so no text leaves the safe area. boxes(t) returns every text box, with the
 // helpers' layout-only calls, so check sees all of it; the logo and the screenshot are pictures, not text.
+// The energy is normal (board.js, plan 23.9): the beats sit on 116 BPM's grid, a cut every two beats inside each beat (a
+// new ground and a new framing while the terminal, the code or the phone stays on screen), a push across each shot and a
+// punch on each hit from moves.js's rig, which keeps every text box inside the safe area. The end card holds, uncut.
 import { clamp, prog, snap, swift, whip, spring, beatWindow, boardDur, sceneTarget } from './lib.js';
 import { bgConfig, fontStr } from './looks.js';
 import { codeTheme, frameLayout, drawFrame, termSession, terminal, codeBlock, drawCode, typedTimes, keyTicks, fitSize } from './code.js';
+import { groundTone, relLum } from './energy.js';
+import { rig, cutGrid, cutList, shotAt, shotRand } from './moves.js';
 
 export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['MONO'], LOOK: 'product' };
 
@@ -24,6 +29,7 @@ export const TL = {
   lights: [F0 + 0.7, F0 + 1.25, F0 + 1.8],
   rise: B0 + 0.05, pan: [B0 + 0.65, B1 - 0.35],
   land: E0 + 0.04, end: CFG.DUR,
+  shots: [],   // the cuts inside the beats (init)
 };
 
 const INSTALL = 'npm install -g snagwick';
@@ -40,12 +46,12 @@ export async function login(user, pass) {
 const HEADS = [['Install it.', I0], ['It finds every TODO.', F0], ['Sorted on one board.', B0]];
 const HOOK = ['Your TODOs,', 'on one board.'];
 
-let ctx, S = 1, ALPHA = false, ST, TH, SAFE, CX, TWIN, TERM, CWIN, CODE, PHONE, LOGO, SHOT, HEAD, HK, END;
+let ctx, S = 1, ALPHA = false, ST, TH, SAFE, CX, TWIN, TERM, CWIN, CODE, PHONE, LOGO, SHOT, HEAD, HK, END, E, CUTS = [], R, TONE;
 
 async function image(src) { const im = new Image(); im.src = src; await im.decode(); return im; }
 
-export async function init({ ctx: c, scale, alpha, target, style }) {
-  ctx = c; S = scale; ALPHA = alpha; ST = style;
+export async function init({ ctx: c, scale, alpha, target, style, energy }) {
+  ctx = c; S = scale; ALPHA = alpha; ST = style; E = energy;
   const T = await sceneTarget(target);
   SAFE = T && T.safe ? T.safe : { x: 44, y: 130, w: 896, h: 1306 };
   CX = SAFE.x + SAFE.w / 2;
@@ -75,14 +81,53 @@ export async function init({ ctx: c, scale, alpha, target, style }) {
   for (;;) { ctx.font = fontStr(ST, 'display', hs); if (Math.max(...HOOK.map((h) => ctx.measureText(h).width)) <= SAFE.w - 80 || hs <= 60) break; hs -= 4; }
   const hm = ctx.measureText(HOOK[1]);
   HK = { fs: hs, asc: hm.fontBoundingBoxAscent, desc: hm.fontBoundingBoxDescent, w: HOOK.map((h) => ctx.measureText(h).width), base: [960, 960 + hs * 1.12] };
-  ctx.font = fontStr(ST, 'display', 150);
+  // the end card's name: as big as 88% of the safe width allows (normal's type is 9 to 16% of the height)
+  let ef = 150;
+  for (;;) { ctx.font = fontStr(ST, 'display', ef + 4); if (ctx.measureText('Snagwick').width > SAFE.w * 0.92 || ef >= 240) break; ef += 4; }
+  ctx.font = fontStr(ST, 'display', ef);
   const em = ctx.measureText('Snagwick');
   ctx.font = `40px "${TH.family}"`;
-  END = { fs: 150, w: em.width, asc: em.fontBoundingBoxAscent, desc: em.fontBoundingBoxDescent, base: 980, pill: { w: ctx.measureText('$ ' + INSTALL).width + 72, h: 92, y: 1060 } };
+  const eBase = 790 + em.actualBoundingBoxAscent;   // the name's ink starts 30 px under the logo (640 + 120)
+  END = { fs: ef, w: em.width, asc: em.fontBoundingBoxAscent, desc: em.fontBoundingBoxDescent, base: eBase,
+    pill: { w: ctx.measureText('$ ' + INSTALL).width + 72, h: 92, y: eBase + em.fontBoundingBoxDescent + 30 } };
   // the sound's timeline, from the blocks themselves
   TL.keys = keyTicks(typedTimes(TERM));
   const bar = TERM.rows.find((r) => r.type === 'bar');
   TL.bar = [bar.at, bar.at + bar.dur]; TL.installed = bar.at + bar.dur;
+  // the cuts: each beat change (the content leaves over 0.22 s and the next rises), and a cut every cutBeats[0] beats of
+  // the grid inside each beat but the end card, kept 0.3 s clear of the changes so no shot is a flicker
+  const changes = TL.cuts.map((b) => ({ t: b - 0.22, d: 0.3 }));
+  const inside = [[H0, H1], [I0, F0], [F0, B0], [B0, E0]].flatMap(([a, b]) => cutGrid(a, b, E.spb, E.cutBeats[0]))
+    .filter((t) => changes.every((c) => t < c.t - 0.3 || t > c.t + c.d + 0.3));
+  CUTS = cutList([...changes, ...inside.map((t) => ({ t, d: 0 }))]);
+  TL.shots = inside;
+  // the second ground: lighter than both of the kit's (its gradient runs bgA to bgB) by enough to read as a cut on every
+  // pixel, and close enough never to swing 0.1 of luminance against either (no flash)
+  TONE = groundTone(relLum(ST.tokens.bgB) > relLum(ST.tokens.bgA) ? ST.tokens.bgB : ST.tokens.bgA, 0.035);
+  // the camera: a push across each shot, a new framing on every other one, and a punch on each hit
+  const hits = [TL.pop + 0.22, TL.installed, ...TL.lights, TL.land].map((t) => ({ t, kind: 'punch', amp: E.camera.punch, d: 0.35 }));
+  R = rig({ W: CFG.W, H: CFG.H, safe: SAFE, exclude: (T && T.exclude) || [], hits, base: (t) => [baseZoom(t), 0, 0, 0] });
+}
+
+// The scene's visual cuts and transitions, [{ t, d }] (plan 23.9; check confirms each one on the frames).
+export const cuts = () => CUTS.map((c) => ({ ...c }));
+// The shot t is in: the ground swaps on every cut between the kit's own and a tone close to it (energy.js groundTone: a
+// cut, never a flash), crossed by narrow drifting stripes in the other one at a new angle; odd shots are framed closer.
+// The end card's beat holds (its stripes drift slower), so its shot is the last.
+const shot = (t) => shotAt(CUTS, t);
+const ANG = [-0.5, 0.42, -1.1, 0.7, -0.2, 1.15, -0.8, 0.1];
+function ground(c, t) {
+  const i = shot(t), period = 150, speed = t >= E0 ? 30 : 100, a = ANG[i % ANG.length], diag = Math.hypot(CFG.W, CFG.H);
+  const off = (shotRand(i, 5) * period + speed * t) % period, odd = i % 2 === 1;
+  if (odd) { c.fillStyle = TONE; c.fillRect(0, 0, CFG.W, CFG.H); }
+  c.save(); c.translate(CFG.W / 2, CFG.H / 2); c.rotate(a); c.fillStyle = odd ? ST.tokens.bgA : TONE;
+  for (let x = -diag / 2 - period + off; x < diag / 2; x += period) c.fillRect(x, -diag / 2, period * 0.3, diag);
+  c.restore();
+}
+function baseZoom(t) {
+  if (t >= E0) return 1 + 0.02 * clamp((t - E0) / (CFG.DUR - E0));
+  const i = shot(t), from = i ? CUTS[i - 1].t : 0, to = i < CUTS.length ? CUTS[i].t : E0;
+  return 1 + (i % 2) * 0.035 + E.camera.push * swift(prog(t, from, to));
 }
 
 // ---------------------------------------------------------------- each part's state at t
@@ -132,6 +177,7 @@ function drawPhoneShot(c, t, L, alpha) {
 
 export function frame(t, jit) {
   const c = ctx, tk = ST.tokens;
+  if (!ALPHA) ground(c, t);
   // hook: the logo and the pitch
   if (t < H1) {
     const g = hookLogo(t);
@@ -190,7 +236,7 @@ export function frame(t, jit) {
   }
   return {
     t, jit, use2D: true, ...bgConfig(ST, { alpha: ALPHA }),
-    cam: [1 + 0.02 * clamp(t / CFG.DUR), 0, 0, 0],   // a slow push, for life on the holds
+    cam: R.at(t, boxes(t)),   // pushes and punches, clamped so the text stays in the safe area
   };
 }
 
@@ -245,5 +291,5 @@ export function post(t) {
 // More subframes while the headlines whip out and the end card springs in.
 export function subBoost(t) {
   const near = (x, a = 0.3) => Math.abs(t - x) < a;
-  return TL.cuts.some((x) => near(x)) || near(TL.land, 0.4) ? 2 : 1;
+  return TL.cuts.some((x) => near(x)) || near(TL.land, 0.4) || [TL.pop + 0.22, TL.installed, ...TL.lights].some((x) => near(x, 0.15)) ? 2 : 1;
 }

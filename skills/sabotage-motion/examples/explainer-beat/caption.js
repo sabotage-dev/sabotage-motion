@@ -9,7 +9,8 @@
 //   node render.mjs check --file out/<name>-final.mp4
 // It reads clip.js (CLIP: size, constant frame rate, length) and cues.js (WORDS at the clip's own times, VO_OFFSET 0).
 // The style: --param style=<pop|karaoke|boxed|minimal>, else the board's captionStyle, else the energy's default
-// (captionStyleFor: --param energy=subtle|normal|extreme, else CFG.ENERGY, else normal -> pop). Emphasis words:
+// (captionStyleFor on the energy the harness resolved, as every scene gets it: --param energy=subtle|normal|extreme,
+// else CFG.ENERGY, else the board's energy, else normal -> pop). Emphasis words:
 // --param emphasis=word,word or the board's emphasis list. --param size=<px at 1080 wide> (default 64), pos=bottom|
 // center|top, accent=#hex (the spoken word), emph=#hex (emphasis words). The captions keep inside the target's safe area
 // (the board's target), scaled to the clip when the clip has the target's shape (scaleTarget in lib.js).
@@ -20,15 +21,16 @@ export const CFG = CLIP
   ? { W: CLIP.w, H: CLIP.h, FPS: CLIP.fps, DUR: CLIP.dur, FONTS: ['DISPLAY'] }
   : { W: 1080, H: 1920, FPS: 30, DUR: 3, FONTS: ['DISPLAY'] };
 export const silent = true;
-export const TL = {};
+export const TL = {};   // TL.style: the style init picked
 
 let ctx, OPTS = null;
 const WORDS = CUES ? CUES.WORDS : [];
 
-export async function init({ ctx: c, scale, params, target, style }) {
+export async function init({ ctx: c, scale, params, target, style, energy }) {
   ctx = c;
   if (!CLIP) throw new Error('caption.js captions a clip: run node tools/clip.mjs prepare <clip> --board first (it writes clip.js)');
-  const name = params.style || (BOARD && BOARD.captionStyle) || captionStyleFor(params.energy || CFG.ENERGY);
+  const name = params.style || (BOARD && BOARD.captionStyle) || captionStyleFor(energy.name);
+  TL.style = name;
   const k = CFG.W / 1080;   // sizes are given at 1080 wide and scale with the clip
   const T = scaleTarget(await sceneTarget(target), CFG.W, CFG.H);
   const safe = T && T.safe ? T.safe : { x: CFG.W * 0.08, y: CFG.H * 0.08, w: CFG.W * 0.84, h: CFG.H * 0.84 };

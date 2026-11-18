@@ -10,6 +10,7 @@ scene's timeline, the board sheet and four of `check`'s checks all come from it.
 4. Beat timing
 5. Board checks
 6. Writing a good board
+7. Energy
 
 ## 1. The board format
 `board.js` is an ES module that exports `BOARD` and imports nothing, so the browser and the Node tools both load it.
@@ -18,6 +19,7 @@ scene's timeline, the board sheet and four of `check`'s checks all come from it.
 export const BOARD = {
   title: 'What a skill is',
   target: 'tiktok',          // a safezones.json target: the slate's size and safe area, and check's default
+  energy: 'normal',          // subtle, normal or extreme: how much it moves (section 7); name it, and say why
   wps: 3.0,                  // speaking rate for estimates before a take exists (words per second)
   hookMax: 4.0,              // optional: the hook's last word must end before this picture time
   beats: [
@@ -45,7 +47,9 @@ export const BOARD = {
 | `key` | Seconds into the beat the board sheet shows. Default: 60% of the way through. |
 
 Board fields: `title`, `target`, `wps` (default 3.0), `hookMax`, `lead` (0.10 s: a voiced beat's window opens this
-long before its anchor) and `tail` (0.40 s: the last voiced beat's window closes this long after its last word).
+long before its anchor) and `tail` (0.40 s: the last voiced beat's window closes this long after its last word), and
+the energy fields (section 7): `energy` (`subtle`, `normal` or `extreme`), `bpm` (the piece's own tempo, within 10% of
+its energy's) and `bed: false` (a silent bed stem, at `subtle` only).
 
 A `[...]` span in a `vo` line (`[curious]`, `[short pause]`, `[chuckles]`) is a delivery tag: it goes to the TTS as
 written and shows on the board sheet as direction, but it is never a word, an anchor or a caption
@@ -102,6 +106,15 @@ All windows are picture time (seconds from the first frame), half-open, contiguo
 `words / wps + 0.25` s (tags are not words), a silent beat its `dur`. The voice would start after any leading
 silent beats plus `lead`.
 
+**A board with no voice, on the beat grid.** When a board has no voiced beat and an energy is chosen anywhere (its own
+`energy` or `bpm`, `--param energy=`, or the scene's `CFG.ENERGY`), each beat's `dur` snaps to a whole number of musical
+beats at its tempo: the nearest, at least one, and never shorter than
+its copy needs to be read (`max(1.0, 0.25 x words)` for its longest `on` string). The template's `title` (2.6 s) and
+`out` (0.55 s) are 4 and 1 beats at subtle's 84 BPM, 5 and 1 at normal's 116, 6 and 1 at extreme's 136. The grid is
+the energy in effect, so `--param energy=extreme` re-times the board at 136 BPM. A voiced board never snaps: the voice
+sets every window, and the grid only places the visual cuts and hits inside them. A clip's board never snaps either
+(its clip sets the length), and a board with no energy anywhere keeps its lengths as written.
+
 **Once `cues.js` exists.** The take is the only source for voiced beats:
 
 - `VO_OFFSET`, the picture time where `vo.wav` starts, is written once, by `tools/cues.mjs`: the leading silent
@@ -138,6 +151,31 @@ and silent beats after the last line, can change freely.
 - A hook beat with `hookMax` makes the hook a measured promise: `tools/cues.mjs` refuses a take that breaks it.
 - End cards get `hold: true` and no exit.
 - Write voice lines the way they will be spoken: the anchors are matched against the take's words.
+- Name the energy, and say in your reply which you chose and why (section 7). `subtle` is a choice, not the default.
 - The examples have boards to copy: `examples/explainer-beat/board.js` (voiced, a hook gate, a `gapBefore`, an end
   card), `examples/lower-third/board.js` (silent, an overlay, sound off on purpose) and `examples/showreel/board.js`
   (silent sections that mirror a music-locked timeline).
+
+## 7. Energy
+`energy` on the board (or `--param energy=` for one render, or `CFG.ENERGY` in a scene that has no board to name it)
+says how much the piece moves: `subtle`, `normal` (the default) or `extreme` (`energy.js`, plan 23.9). The look decides
+the kind of motion it allows (a look with `glitch: false` never glitches or flash-frames); the energy decides the
+amount.
+
+| | subtle | normal | extreme |
+|---|---|---|---|
+| Tempo of the beat grid and the bed | 84 BPM | 116 BPM | 136 BPM |
+| Cut interval, in beats (shot length) | 4 to 5 (2.8 to 3.6 s) | 2 to 3 (1.0 to 1.6 s) | a half to one (0.2 to 0.45 s), inside beats that still hold their copy |
+| Camera | a slow push, a drift | push-ins, a punch on each hit | punch-ins, whips between beats, shake on impacts, zoom bounces |
+| Transitions | crossfade, soft wipe | mask wipe, slide, whip | whip, glitch cut and flash frame (where the look allows), speed ramp |
+| Largest line of type (ink height / frame height) | 4 to 8% | 9 to 16% | 18 to 35% |
+| Easing | gentle springs | snap, swift | overshoot, anticipation, whip |
+| Post | low bloom and grain | the look's | chromatic aberration on hits, within the flash limit |
+| Sound | a soft pad, few hits | a beat bed, whooshes on cuts, hits | a driving beat, impacts, risers and drops |
+
+Pick it on purpose and say why in your reply: a launch or a hook that has to stop the scroll is `extreme`; most
+explainers and title cards are `normal`; a calm brand, a lower third or a long read is `subtle`. Beats and shots are
+different things: a beat holds its copy at least as long as `check` needs to read it, at every energy, and the cuts
+happen inside it (a new angle, a new ground, a punch-in) while the copy stays on screen, so extreme's short shots never
+shorten a read. `moves.js` has the helpers (`references/techniques.md` section 13), and `audio.js`'s `renderBed` writes
+the energy's bed stem, which `tools/mix.mjs` mixes under the piece.

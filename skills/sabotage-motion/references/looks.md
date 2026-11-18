@@ -60,6 +60,15 @@ each card passes `check` with no FAIL and no WARN). DISPLAY (Archivo Black), BOD
 - **Without one, pick a look on purpose, and say which and why**: "editorial, because the brief is a news-style
   quote card: serif, one red accent, hard cuts". Match the vocabulary to the subject (warm and human: `paper`, no
   glitch; tech and night: `neon` or `retro-crt`; a product UI: `product`).
+- **The look decides the kind of motion; the energy decides the amount** (plan 23.9). Any look takes any energy
+  (`references/storyboard.md` section 7): `paper` at `extreme` is still springs and serif, with bigger type, more cuts
+  and harder camera moves, and a look with `glitch: false` (`paper`, `product`, `editorial`, `brutalist`, `gradient`,
+  `mono` and the template's own) never glitches or flash-frames at any energy: extreme on it uses its strongest
+  allowed moves (whips, punches, slams). `moves.js`'s `glitchCut` and `flash` return nothing on such a look.
+- **Every look reads at its energy.** The template card reads as `subtle`, `normal` and `extreme` on all eight looks
+  (`references/check.md` section 6): its cuts move a block of the look's accent, and its motion comes from stripes
+  inside that block. Do the same in a piece of your own on a light or flat ground: cut with layout, scale or an accent
+  block, not with the ground's brightness, which a flash-safe tone (`groundTone`) keeps too close there to read.
 - **Do not reuse the same palette from piece to piece.** The template's own dark palette is a fallback, not a
   house style; a run of pieces in it reads as one template. Start from a look, then make it the piece's own: change
   the accent, a font, the shader, with `--param` first and in code once it is settled.

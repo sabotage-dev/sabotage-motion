@@ -1,206 +1,548 @@
-// energy_match (plan 23.9, P11b-2) on the calibration fixtures (test/fixtures/fixture-energy/energy.js), each with its
-// ground truth built in, through `render.mjs check --only energy_match`: the cuts counted exactly (a hard cut, a wipe,
-// a whip, an A-B-A-B run at extreme's half-beat shot), a shake and a flash counted as no cut whether or not they are
-// declared, a declared cut with no change reported, ink measured as built (a multi-line block of small type, a box
-// that claims more than its ink, a punch-in on large type, outlined type, and type drawn from an image, which has no
-// ink), motion (a static card, a slow drift and a slow push read as calm), the acceptance cases (a static card with one
-// full-frame flash declared extreme WARNs; a normal board rendered calm and an extreme board at normal pace WARN), and
-// when it is not checked. The fixtures are 720x1280, so the probe is 360x640 and one probe row is 1/640 of the height.
-import { test } from 'node:test';
+// The energy presets in a browser (plan 23.9, P11b-1): the template card at each energy, rendered, mastered with its bed
+// stem and checked on the source and the master (0 FAIL, 0 WARN, flash included); the bed stem through the mixer
+// (generated, on the beat grid, ducked under a voice, refused when missing or changed) and check --file's provenance of
+// it; the scene interface check's energy measurements read (sceneCuts, INFO.ENERGY); the energy reaching init, audio.js
+// and a clip's caption style; and a CFG.ENERGY that disagrees with the board's.
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { makePiece } from './helpers.mjs';
-import { C, runCheck, byId } from './check-helpers.mjs';
+import { chromium } from 'playwright-core';
+import { makePiece, render, countFrames, repoRoot, templateDir, sha256File } from './helpers.mjs';
+import { SR, mixTool, runMix, writeCues, monoWav, toneBursts, decode, gainOf, db } from './mix-helpers.mjs';
+import { pathToFileURL } from 'node:url';
 
-const dir = makePiece('energy', 'fixture-energy');
-fs.rmSync(path.join(dir, 'board.js'));            // the template's board describes the template's scene
-const ROW = 1 / 640;
+const { ENERGY } = await import(pathToFileURL(path.join(templateDir, 'energy.js')).href);
+const C = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
 
-// energy_match's results for a fixture: { main (the verdict line), extra (the other lines), status, out }
-function run(kind, params = {}, args = [], at = dir) {
-  const p = Object.entries({ kind, ...params }).flatMap(([k, v]) => ['--param', `${k}=${v}`]);
-  const r = runCheck(at, ['--scene', 'energy.js', ...p, '--only', 'energy_match', ...args]);
-  assert.ok(Array.isArray(r.results), r.out);
-  const xs = byId(r.results, 'energy_match');
-  return { main: xs[0], extra: xs.slice(1), all: r.results, status: r.status, out: r.out };
+const P = (dir, f) => path.join(dir, f);
+const ok = (r) => assert.equal(r.status, 0, r.out);
+const json = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
+const LEN = { subtle: 5 * 60 / 84, normal: 7 * 60 / 116, extreme: 7 * 60 / 136 };
+// the card is rendered small (quarter size, two subframes): the checks measure in design pixels and on the decoded file
+const R = ['--scale', '0.25', '--sub', '2'];
+const work = path.join(repoRoot, 'test', '.work');
+
+// One piece: the template as it ships, rendered at each energy (out/card-<energy>.mp4 and its stems), mastered alone.
+let card = null;
+before(() => {
+  card = makePiece('energy-card', 'fixture-clean');
+  for (const f of ['scene.js', 'audio.js', 'board.js']) fs.copyFileSync(path.join(templateDir, f), P(card, f));   // the template's own card
+  for (const e of Object.keys(LEN)) {
+    render(card, ['full', '--param', `energy=${e}`, ...R, '--out', `out/card-${e}.mp4`]);
+    ok(runMix(card, ['card-' + e, '--master-only']));
+  }
+});
+
+for (const e of Object.keys(LEN)) {
+  test(`P11b the template card at ${e}: its length on the beat grid, a bed stem, and 0 FAIL, 0 WARN in check and check --file, flash included`, () => {
+    const rec = json(P(card, `out/card-${e}.mp4.render.json`));
+    assert.deepEqual(rec.energy, { name: e, from: '--param', bpm: { subtle: 84, normal: 116, extreme: 136 }[e] });
+    assert.equal(countFrames(P(card, `out/card-${e}.mp4`)), Math.round(LEN[e] * 30));
+    // the bed stem: recorded with the picture, the picture's length, on the grid
+    assert.equal(rec.bed, `out/card-${e}.bed.wav`);
+    assert.equal(rec.bedSha256, sha256File(P(card, rec.bed)));
+    const bed = decode(P(card, rec.bed));
+    assert.ok(Math.abs(bed.length / 2 / SR - LEN[e]) < 1 / SR * 2, `the bed is ${bed.length / 2 / SR} s, not the picture's ${LEN[e]}`);
+    const mj = json(P(card, `out/card-${e}.master.json`)), bs = mj.stems.find((x) => x.role === 'bed');
+    assert.deepEqual([bs.file, bs.generated, bs.start, bs.fade, bs.gain], [`out/card-${e}.bed.wav`, true, 0, 0, 0.5]);
+    for (const args of [['check', ...R], ['check', '--file', `out/card-${e}-final.mp4`]]) {
+      const r = render(card, [...args.slice(0, 1), '--param', `energy=${e}`, ...args.slice(1), '--json'], { allowFail: true });
+      const res = JSON.parse(r.stdout), bad = res.filter((x) => x.level === 'FAIL' || x.level === 'WARN').map((x) => `${x.level} ${x.id}: ${x.detail}`);
+      assert.deepEqual(bad, [], `${args.join(' ')}`);
+      assert.equal(res.find((x) => x.id === 'flash').level, 'OK', `${args.join(' ')}: flash ran`);
+      const sp = res.find((x) => x.id === 'audio_spike');
+      assert.equal(sp.level, 'OK'); assert.match(sp.detail, /the bed stem \(x0\.5\) summed/, 'audio_spike hears the bed at the mixer\'s gain');
+      if (args.includes('--file')) assert.match(res.find((x) => x.id === 'provenance').detail, /its bed stem too/);
+      if (args.includes('--file')) continue;
+      // the acceptance cross-check (23.9): energy_match measures the card and finds it inside its preset's ranges
+      const em = res.find((x) => x.id === 'energy_match'), m = em.measured, PR = ENERGY[e], spb = 60 / PR.bpm;
+      assert.equal(em.level, 'OK', em.detail);
+      const inside = (x, [lo, hi], what) => assert.ok(x >= lo - 1e-3 && x <= hi + 1e-3, `${e}: ${what} ${x} is outside ${lo}-${hi}: ${em.detail}`);
+      inside(m.shot, [PR.cutBeats[0] * spb, PR.cutBeats[1] * spb], 'the mean shot (s)');
+      inside(m.type, PR.inkHeight, 'the largest line');
+      inside(m.motion, [PR.motion.min ?? 0, PR.motion.max ?? 1], 'the motion');
+      assert.equal(m.cuts, { subtle: 0, normal: 2, extreme: 11 }[e], `${e}: every declared cut confirmed`);
+    }
+  });
 }
-const typeNear = (x, truth) => assert.ok(Math.abs(x.main.measured.type - truth) <= 1.5 * ROW, `type ${x.main.measured.type}, built ${truth}`);
 
-// ---------------------------------------------------------------- cuts
-test('a hard cut, a wipe (0.3 s) and a whip (0.25 s) between two cards are one confirmed cut each', () => {
-  for (const k of ['hardcut', 'wipe', 'whip']) {
-    const x = run(k);
-    assert.deepEqual(x.extra, [], `${k}: ${JSON.stringify(x.extra)}`);
-    assert.equal(x.main.measured.cuts, 1, k); assert.equal(x.main.measured.shot, 1, k);
-    assert.ok(x.main.measured.shares[0] > 0.9, `${k}: ${x.main.measured.shares}`);
-    assert.equal(x.main.measured.motion, 0, `${k}: the cards are still and the transition's pairs are left out`);
+test('P11b an unvoiced --master-only mix carries the bed stem on the beat grid: a kick on every beat of normal\'s 116 BPM', () => {
+  const pre = decode(P(card, 'out/card-normal.bed.wav')), spb = 60 / 116;
+  const rms = (a, b) => { let s = 0, n = 0; for (let j = Math.round(a * SR); j < Math.round(b * SR); j++) { s += pre[2 * j] ** 2; n++; } return Math.sqrt(s / Math.max(1, n)); };
+  // an onset: the 25 ms after a time against the 25 ms before it; on every beat, at least 6 dB and twice what the same
+  // measure gives a third of a beat later (off the grid)
+  const onset = (t) => rms(t, t + 0.025) / rms(t - 0.025, t);
+  for (let k = 1; k * spb < LEN.normal - 0.1; k++) {
+    const t = k * spb;
+    assert.ok(db(onset(t)) > 6 && onset(t) > 2 * onset(t + spb / 3), `no onset on beat ${k} at ${t.toFixed(3)} s (${onset(t).toFixed(2)} vs ${onset(t + spb / 3).toFixed(2)} off the grid)`);
   }
+  // and the mix carries it from its first sample, at the --master-only bed gain
+  const dir = path.join(work, 'energy-bedmix');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  ok(runMix(dir, ['card-normal', '--master-only', '--no-sfx', '--keep-premix']));
+  const m = decode(P(dir, 'out/card-normal.premix.wav')), ref = decode(P(dir, 'out/card-normal.bed.wav'));
+  const g = gainOf(m, ref, Math.round(0.5 * SR), Math.round(2.5 * SR));
+  assert.ok(Math.abs(g - 0.5) < 0.05, `the bed is in the premix at x${g.toFixed(3)} from its first sample, not x0.5`);
 });
-test('an A-B-A-B run at extreme\'s half-beat shot (0.22 s at 136 BPM): fourteen cuts, every one confirmed', () => {
-  const x = run('abab', { energy: 'extreme' });
-  assert.deepEqual(x.extra, []);
-  assert.equal(x.main.measured.cuts, 14); assert.equal(x.main.measured.shot, +(60 / 136 / 2).toFixed(4));
-  assert.match(x.main.detail, /mean shot 0\.22 s \(14 confirmed cuts in 3\.31 s; range 0\.22-0\.44 s, 0\.5-1 beats at the preset's 136 BPM\)/);
+
+test('P11b a voiced mix ducks the bed stem under the voice, at the bed gain for a voice (x0.22)', () => {
+  const dir = path.join(work, 'energy-duck');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  fs.writeFileSync(P(dir, 'vo.wav'), monoWav(toneBursts(2.2, [[1.0, 2.0]])));
+  writeCues(dir, { VO_OFFSET: 0.2, CUE: { a: 1.0 } });   // the voice plays 1.2-2.2 s
+  ok(runMix(dir, ['card-normal', '--no-sfx', '--keep-premix']));
+  const mj = json(P(dir, 'out/card-normal.master.json')), bs = mj.stems.find((x) => x.role === 'bed');
+  assert.deepEqual([bs.generated, bs.gain, bs.start, bs.fade], [true, 0.22, 0, 0]);
+  assert.ok(mj.chain.duck, 'the voice ducks the bed');
+  const pre = decode(P(dir, 'out/card-normal.premix.wav')), ref = decode(P(dir, 'out/card-normal.bed.wav'));
+  const g = (a, b) => gainOf(pre, ref, Math.round(a * SR), Math.round(b * SR));
+  const before = g(0.1, 1.1), inside = g(1.6, 2.1);
+  assert.ok(Math.abs(before - 0.22) < 0.03, `the bed before the voice is x${before.toFixed(3)}`);
+  assert.ok(db(before / inside) >= 10, `the bed is only ${db(before / inside).toFixed(1)} dB lower under the voice`);
 });
-test('a shake and a full-frame flash are no cut: undeclared they count nothing, declared they are reported and do not count', () => {
-  for (const k of ['shake', 'flash']) {
-    const x = run(k);
-    assert.equal(x.main.measured.cuts, 0, k); assert.deepEqual(x.extra, [], k);
-    const d = run(k, { declare: 1 });
-    assert.equal(d.main.measured.cuts, 0, k);
-    assert.equal(d.extra.length, 1, `${k}: ${JSON.stringify(d.extra)}`);
-    assert.equal(d.extra[0].level, 'WARN'); assert.equal(d.extra[0].t, 1);
-    assert.match(d.extra[0].detail, /^the declared cut at 1\.00 s is not in the frames: the middles of the shots either side \(0\.50 and 1\.50 s\) differ in 0\.0% of their pixels, under the 20% a cut needs$/);
+
+test('P11b a missing or changed bed stem is refused, never left out; --no-bed mixes without it; it is never moved', () => {
+  const dir = path.join(work, 'energy-stale');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  const bed = P(dir, 'out/card-normal.bed.wav'), keep = fs.readFileSync(bed);
+  fs.rmSync(bed);
+  let r = runMix(dir, ['card-normal', '--master-only']);
+  assert.equal(r.status, 1); assert.match(r.out, /the bed stem out\/card-normal\.bed\.wav that out\/card-normal\.mp4's render wrote is missing/);
+  fs.writeFileSync(bed, Buffer.concat([keep, Buffer.from([0, 0, 0, 0])]));
+  r = runMix(dir, ['card-normal', '--master-only']);
+  assert.equal(r.status, 1); assert.match(r.out, /changed after the render that wrote it/);
+  ok(runMix(dir, ['card-normal', '--master-only', '--no-bed']));
+  assert.equal(json(P(dir, 'out/card-normal.master.json')).stems.some((x) => x.role === 'bed'), false);
+  fs.writeFileSync(bed, keep);
+  for (const o of [['--bed-at', '0.5'], ['--bed-skip', '0.2']]) {
+    r = runMix(dir, ['card-normal', '--master-only', ...o]);
+    assert.equal(r.status, 1, r.out); assert.match(r.out, /on the picture's beat grid from 0, so it is never moved/);
   }
-  // the flash declared as two cuts (in and out, one frame apart): one transition, still no cut
-  const two = run('flash', { declare: 2 });
-  assert.equal(two.main.measured.cuts, 0); assert.equal(two.extra.length, 1);
-  // council R1 E1: the merged transition's two pairs (29 and 30, which overlap 1.00-1.03 s) are left out of motion
-  assert.equal(two.main.measured.motion, 0); assert.match(two.main.detail, /median of 57 pairs/);
-  assert.match(two.extra[0].detail, /^the declared cuts at 1\.00, 1\.03 s are not in the frames/);
-});
-test('a declared cut on a card that does not change is reported', () => {
-  const x = run('static', { declare: 1 });
-  assert.equal(x.main.measured.cuts, 0); assert.equal(x.main.measured.shot, 2);
-  assert.deepEqual(x.extra.map((e) => [e.level, e.t, e.measured]), [['WARN', 1, 0]]);
-});
-test('calibration: a new angle and a swapped layer over a quarter of the frame are cuts; a word swapped and a 12/255 shift are not', () => {
-  const angle = run('angle'), layer = run('layer', { area: 0.25 }), swap = run('swap'), dim12 = run('dim', { step: 12 }), dim24 = run('dim', { step: 24 });
-  assert.equal(angle.main.measured.cuts, 1); assert.ok(angle.main.measured.shares[0] > 0.3 && angle.main.measured.shares[0] < 0.35, String(angle.main.measured.shares));
-  assert.equal(layer.main.measured.cuts, 1); assert.ok(Math.abs(layer.main.measured.shares[0] - 0.25) < 0.005, String(layer.main.measured.shares));
-  assert.equal(swap.main.measured.cuts, 0); assert.ok(swap.extra[0].measured < 0.1, String(swap.extra[0].measured));
-  assert.equal(dim12.main.measured.cuts, 0); assert.ok(dim12.extra[0].measured < 0.02, String(dim12.extra[0].measured));
-  assert.equal(dim24.main.measured.cuts, 1);
+  // a bed stem with no record at all (not from this render, not from `audio`) is refused too
+  fs.rmSync(P(dir, 'out/card-normal.mp4.render.json'));
+  render(dir, ['video', '--param', 'energy=normal', ...R, '--out', 'out/card-normal.mp4']);
+  r = runMix(dir, ['card-normal', '--master-only', '--no-sfx']);
+  assert.equal(r.status, 1); assert.match(r.out, /has no render record that describes it/);
 });
 
-// ---------------------------------------------------------------- type, from ink
-test('a three-line block of small type reads as small type: one line\'s ink (3% built), not the block\'s box', () => {
-  const x = run('small');
-  typeNear(x, 0.03);
-  assert.match(x.main.detail, /largest line 3\.0% of the frame height \("Small type set in three lines reads as small"/);
-  assert.deepEqual(x.extra, []);
-});
-test('a box that claims 30% of the height around type whose ink is 5% is measured by its ink', () => {
-  typeNear(run('bigbox'), 0.05);
-});
-test('a punch-in to 1.5x on type whose ink is 12% measures 18%, after the camera', () => {
-  const x = run('punch');
-  typeNear(x, 0.18);
-  assert.ok(x.main.measured.type > 0.12 + 20 * ROW, 'the camera scales the ink');
-});
-test('outlined type (strokeText alone) is ink too; type drawn from an image has none and its box is reported', () => {
-  const s = run('bigbox', { stroke: 1 });
-  assert.deepEqual(s.extra, []);
-  assert.ok(s.main.measured.type >= 0.05 - ROW && s.main.measured.type <= 0.05 + 4 / 1280 + 2 * ROW, String(s.main.measured.type));
-  const c = run('cached');
-  assert.equal(c.main.measured.type, null);
-  assert.match(c.main.detail, /type not measured \(no text on screen\)/);
-  assert.deepEqual(c.extra.map((e) => e.level), ['WARN']);
-  assert.match(c.extra[0].detail, /^box "Big claim" \(claim\) has no ink in any probe frame/);
-});
-test('a glow (bloom 0.6 at a threshold of 0.4) does not join three lines of small type: ink is half the box\'s strongest difference or more', () => {
-  const x = run('small', { bloom: 0.6, thr: 0.4 });
-  assert.ok(x.main.measured.type < 0.03 + 3 * ROW, `type ${x.main.measured.type}: the glow between the lines is not ink`);
-});
-test('a scene with no text: type not measured, and not judged', () => {
-  const x = run('hardcut');
-  assert.equal(x.main.measured.type, null); assert.match(x.main.detail, /type not measured \(no text on screen\)/);
-  assert.doesNotMatch(x.main.detail, /type is smaller/);
+test('P11b check --file: a bed stem from `audio` with the picture\'s settings passes provenance; a master holding one from other settings fails it', () => {
+  const dir = path.join(work, 'energy-prov');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  // `audio` writes the effects and the bed stem with their own records
+  render(dir, ['audio', '--param', 'energy=normal', '--out', 'out/card-normal.wav']);
+  const ar = json(P(dir, 'out/card-normal.bed.wav.render.json'));
+  assert.deepEqual([ar.role, ar.mode, ar.audioSha256], ['bed', 'audio', sha256File(P(dir, 'out/card-normal.bed.wav'))]);
+  ok(runMix(dir, ['card-normal', '--master-only']));
+  let r = render(dir, ['check', '--file', 'out/card-normal-final.mp4', '--only', 'provenance', '--json'], { allowFail: true });
+  assert.equal(JSON.parse(r.stdout).find((x) => x.id === 'provenance').level, 'OK');
+  // at another energy they are other stems. The mix refuses that bed (round 2, H3, below), so a master holding one was
+  // made another way (by hand, or by a mix from before H3): its master.json names the stems now on disk
+  render(dir, ['audio', '--param', 'energy=extreme', '--out', 'out/card-normal.wav']);
+  const mjF = P(dir, 'out/card-normal.master.json'), mj = json(mjF);
+  for (const [role, f] of [['effects', 'out/card-normal.wav'], ['bed', 'out/card-normal.bed.wav']]) mj.stems.find((x) => x.role === role).sha256 = sha256File(P(dir, f));
+  fs.writeFileSync(mjF, JSON.stringify(mj, null, 2) + '\n');
+  r = render(dir, ['check', '--file', 'out/card-normal-final.mp4', '--only', 'provenance', '--json'], { allowFail: true });
+  const p = JSON.parse(r.stdout).find((x) => x.id === 'provenance');
+  assert.equal(p.level, 'FAIL'); assert.match(p.detail, /the bed stem out\/card-normal\.bed\.wav was rendered with other settings than the picture/);
 });
 
-// ---------------------------------------------------------------- motion
-test('motion: a static card is 0; a slow drift (12 px a second) and a slow push (6% over 2 s) are calm for normal and fine for subtle', () => {
-  assert.equal(run('static').main.measured.motion, 0);
-  for (const k of ['drift', 'push']) {
-    const n = run(k), s = run(k, { energy: 'subtle' });
-    assert.ok(n.main.measured.motion > 0 && n.main.measured.motion < 0.02, `${k}: ${n.main.measured.motion}`);
-    assert.match(n.main.detail, /it moves less than normal allows/, k);
-    assert.equal(s.main.level, 'OK', `${k} at subtle: ${s.main.detail}`);
+// ---- the page itself: a static server for one piece and a page on it, for what render.mjs does not print
+let browser = null;
+const servers = [];
+async function openPage(dir, query, pageOpts = {}) {
+  const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.woff2': 'font/woff2', '.mp4': 'video/mp4' };
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://x');
+    if (url.pathname === '/__exists') { const f = P(dir, url.searchParams.get('path') || ''); res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ exists: fs.existsSync(f) && fs.statSync(f).isFile() })); }
+    const f = P(dir, decodeURIComponent(url.pathname === '/' ? 'index.html' : url.pathname));
+    if (!f.startsWith(dir) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  servers.push(server);
+  if (!browser) {
+    // render.mjs's own flags (SM_GPU_ARGS replaces the GPU ones there too), so the page draws as a render's does
+    const gpu = process.env.SM_GPU_ARGS != null ? process.env.SM_GPU_ARGS.split(/\s+/).filter(Boolean)
+      : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+    browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), headless: true,
+      args: [...gpu, '--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] });
   }
-  // the band of stripes: about half of its pixels change each frame, outside the cut pairs
-  const b = run('pace', { shot: 1, dur: 3, band: 0.2, size: 0.1 });
-  assert.ok(Math.abs(b.main.measured.motion - 0.1) < 0.01, String(b.main.measured.motion));
+  const page = await browser.newPage(pageOpts);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}/index.html?${new URLSearchParams({ scale: '0.25', sub: '1', ...query })}`);
+  const ready = await page.evaluate(() => window.ready.then(() => null, (e) => e.message));
+  return { page, ready, errors };
+}
+after(async () => { if (browser) await browser.close(); for (const s of servers) s.close(); });
+
+// The extreme card's "IT" slam is the largest text the suite draws: at check's probe scale (1/2) its glyphs are over
+// 256 px, where Skia stops using its glyph atlas and draws them as paths. CI on Linux (Chrome on SwiftShader) found no
+// ink in its box under `render.mjs check`, while a fresh page drew and measured it. This holds the slam on screen and
+// measured everywhere it is drawn: in the card's render (the video a user gets), in a fresh page, in check's own page
+// (its query and viewport), after check's scan of every frame and box sample, and in energy_match's full scan as
+// render.mjs runs it. On failure it reports every case, so the one that loses the word names the cause.
+test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale) is on screen and measured: in its render, a fresh page, and check\'s own sequence', async (t) => {
+  const ink = C.T.energy.ink, rep = {}, bad = [];
+  const tallest = (rows) => { let best = 0, cur = 0; for (const n of rows) { cur = n >= ink.px ? cur + 1 : 0; best = Math.max(best, cur); } return best; };
+  // on the page: IT's frames, its rects; the text-on frame in the middle of the slam, its bright pixels in IT's box
+  async function onPage(page, { checkScan = false, full = false, interleave = false } = {}) {
+    if (checkScan) await page.evaluate(() => window.checkScan({ probe: true, samples: true }));
+    const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS, DUR: window.INFO.DUR }));
+    const frames = await page.evaluate(() => window.energyBoxes()), rects = C.energyRects(frames, I.W, I.H, I.RW, I.RH);
+    const fs1 = Object.keys(rects).map(Number).filter((k) => rects[k].some((x) => x.id === 'solo1')).sort((x, y) => x - y);
+    const itRect = (k) => rects[k].find((x) => x.id === 'solo1').r, mid = fs1[Math.floor(fs1.length / 2)];
+    let scan, idx;
+    if (full) {   // energy_match's own scan: every box, and the pairs its cuts need (render.mjs energyCheck)
+      const info = await page.evaluate(() => window.energyInfo()), N = Math.round(I.DUR * I.FPS);
+      const pairs = C.energyPairs(C.energyRegions(info.cuts, I.DUR), I.FPS, N).filter(Boolean);
+      scan = await page.evaluate((o) => window.energyScan(o), { pairs, rects: Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])), inkDelta: ink.delta, inkRel: ink.rel, interleave, debug: true });
+      idx = (k) => rects[k].findIndex((x) => x.id === 'solo1');
+    } else {
+      scan = await page.evaluate((o) => window.energyScan(o), { pairs: [], rects: Object.fromEntries(fs1.map((k) => [k, [itRect(k)]])), inkDelta: ink.delta, inkRel: ink.rel });
+      idx = () => 0;
+    }
+    const line = Math.max(...fs1.map((k) => tallest(scan.ink[k][idx(k)])));
+    const lit = await page.evaluate(({ f, r }) => {
+      const p = window.renderProbe(f / window.INFO.FPS), { RW } = window.INFO;
+      let n = 0; for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) if (p.luma[y * RW + x] >= 160) n++;
+      return n;
+    }, { f: mid, r: itRect(mid) });
+    // with the full scan, the brightest luma in IT's box of each render, text on and off, per frame (debug)
+    const onOff = scan.lumaMax ? Object.fromEntries(fs1.map((k) => [k, scan.lumaMax[k][idx(k)]])) : undefined;
+    return { frames: fs1.length, mid, rect: itRect(mid), line, floor: Math.ceil(ENERGY.extreme.inkHeight[0] * I.RH), lit, RH: I.RH, ...(onOff ? { onOff } : {}) };
+  }
+  const judge = (name, x) => { rep[name] = x; if (!(x.line >= x.floor && x.lit > 0)) bad.push(name); };
+  // 1. the render: out/card-extreme.mp4 (the `full` render in before(), --scale 0.25), decoded, the slam's middle frame
+  {
+    const { page } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: '0.25', sub: '2' });
+    const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS }));
+    const rects = C.energyRects(await page.evaluate(() => window.energyBoxes()), I.W, I.H, I.RW, I.RH);
+    const fs1 = Object.keys(rects).map(Number).filter((k) => rects[k].some((x) => x.id === 'solo1')).sort((x, y) => x - y);
+    const mid = fs1[Math.floor(fs1.length / 2)], r = rects[mid].find((x) => x.id === 'solo1').r;
+    const raw = spawnSync('ffmpeg', ['-v', 'error', '-i', P(card, 'out/card-extreme.mp4'), '-vf', `select=eq(n\\,${mid})`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 64 << 20 }).stdout;
+    let lit = 0; for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) if (raw[y * I.RW + x] >= 160) lit++;
+    rep.render = { mid, rect: r, lit, size: `${I.RW}x${I.RH}`, bytes: raw.length };
+    if (!(raw.length === I.RW * I.RH && lit > 0)) bad.push('render');
+    await page.close();
+  }
+  // 2. a fresh page at check's probe scale; 3. check's own page (its query and viewport); 4. after check's scan;
+  // 5. and energy_match's full scan after it, as render.mjs check runs them
+  const probe = String(C.T.probeScale), q = { scene: 'scene.js', 'p.energy': 'extreme', scale: probe };
+  { const { page } = await openPage(card, q); judge('fresh', await onPage(page)); await page.close(); }
+  const checkPage = () => openPage(card, { ...q, sub: '2', check: '1' }, { viewport: { width: 540, height: 960 } });
+  { const { page } = await checkPage(); judge('checkPage', await onPage(page)); await page.close(); }
+  { const { page } = await checkPage(); judge('afterCheckScan', await onPage(page, { checkScan: true })); await page.close(); }
+  { const { page } = await checkPage(); judge('checkSequence', await onPage(page, { checkScan: true, full: true })); await page.close(); }
+  // the old order (each frame rendered without its text right after it was rendered with it), reported, not judged:
+  // on Chrome on SwiftShader it lost IT's ink, and its on/off lumas show which of the two renders went wrong there
+  { const { page } = await checkPage(); const x = await onPage(page, { checkScan: true, full: true, interleave: true }); await page.close(); t.diagnostic(`the old interleaved order: ${JSON.stringify(x)}`); }
+  assert.deepEqual(bad, [], `"IT" (solo1) lost in: ${bad.join(', ')}; every case: ${JSON.stringify(rep)}`);
 });
 
-test('motion leaves out holds: still until 1.5 s then a moving band reads 0 (the median is still), and with HOLDS over the still part reads the band', () => {
-  assert.equal(run('late').main.measured.motion, 0);
-  const h = run('late', { hold: 1 });
-  assert.ok(h.main.measured.motion > 0.1, String(h.main.measured.motion));
-  assert.match(h.main.detail, /median of 14 pairs/, "pairs 45-58, whose middles (k + 0.75) / 30 s are at 1.5 s or later");
-});
-test('a cut too close to the start has no shot before it and is reported; the real cut after it is still confirmed', () => {
-  const x = run('hardcut', { declare: 'lead' });
-  assert.equal(x.main.measured.cuts, 1); assert.deepEqual(x.main.measured.shares, [1]);
-  assert.deepEqual(x.extra.map((e) => e.detail), ['the declared cut at 0.10 s cannot be confirmed: it has no shot before it (a shot lasts 0.15 s or more)']);
-});
-
-// ---------------------------------------------------------------- the acceptance cases
-test('acceptance: a static card with one full-frame flash, declared extreme (and the flash declared as a cut), WARNs', () => {
-  const x = run('flash', { energy: 'extreme', declare: 1 });
-  assert.equal(x.main.level, 'WARN');
-  assert.match(x.main.detail, /^energy extreme \(--param energy\) is calmer than its floor: the shots are longer, it moves less than extreme allows\./);
-  assert.equal(x.status, 0, 'a WARN, not a FAIL');
-  assert.equal(runCheck(dir, ['--scene', 'energy.js', '--param', 'kind=flash', '--param', 'energy=extreme', '--only', 'energy_match', '--strict']).status, 1, '--strict fails on it');
+// energy_match's scan renders every frame with its text first, in order, and only then the frames without it: rendering
+// a frame without its text right after rendering it with its text, frame after frame, lost ink on Chrome on SwiftShader.
+test('P11b energyScan never renders a frame without its text between frames with it: every text-on render comes first', async () => {
+  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: String(C.T.probeScale) });
+  assert.equal(ready, null);
+  const order = async (interleave) => page.evaluate(async (il) => {
+    const seen = [], orig = window.renderProbe;
+    window.renderProbe = (t, o = {}) => { seen.push(o.noText ? 'off' : 'on'); return orig(t, o); };
+    const o = { pairs: [], rects: { 3: [[0, 0, 8, 8]], 9: [[0, 0, 8, 8]] }, inkDelta: 32, inkRel: 0.5, ...(il ? { interleave: true } : {}) };
+    try { await window.energyScan(o); } finally { window.renderProbe = orig; }
+    return seen.join(' ');
+  }, interleave);
+  const N = await page.evaluate(() => Math.round(window.INFO.DUR * window.INFO.FPS));
+  assert.equal(await order(false), `${Array(N).fill('on').join(' ')} off off`, 'by default (as render.mjs calls it): all text-on renders, then the two text-off ones');
+  const il = (await order(true)).split(' ');
+  assert.deepEqual([il.length, il[4], il[11]], [N + 2, 'off', 'off'], 'the old order, kept for the test above: off right after frames 3 and 9');
 });
 
-const board = makePiece('energy-board', 'fixture-energy');   // board.js written by each case
-const onBoard = (energy, params, extra = '') => {
-  fs.writeFileSync(path.join(board, 'board.js'), `export const BOARD = { title: 'energy', energy: '${energy}',${extra} beats: [{ id: 'a', dur: ${params.dur} }] };\n`);
-  return run('pace', params, [], board);
+// round 5, L1: the pixels energy_match keeps for its text-off pass are held in runs of at most a byte budget, each
+// run still every text-on render first, then its text-off ones; the measurement is the same whatever the runs. A long
+// piece is several budgets' worth; here the card is, with a budget a quarter of what it holds.
+test('P11b R5 energyScan holds at most its budget of kept pixels, in runs rendered with text first, and measures the same ink', async () => {
+  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: String(C.T.probeScale) });
+  assert.equal(ready, null);
+  const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH }));
+  const rects = C.energyRects(await page.evaluate(() => window.energyBoxes()), I.W, I.H, I.RW, I.RH);
+  const R = Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)]));
+  const total = Object.values(R).flat().reduce((n, [x0, y0, x1, y1]) => n + (x1 - x0) * (y1 - y0) * 3, 0), budget = Math.ceil(total / 4);
+  const run = (o) => page.evaluate(async (o) => {
+    const seen = [], orig = window.renderProbe;
+    window.renderProbe = (t, x = {}) => { seen.push(x.noText ? 0 : 1); return orig(t, x); };
+    try { const r = await window.energyScan(o); return { ink: r.ink, retained: r.retained, seen: seen.join('') }; } finally { window.renderProbe = orig; }
+  }, { pairs: [], rects: R, inkDelta: C.T.energy.ink.delta, inkRel: C.T.energy.ink.rel, ...o });
+  const whole = await run({}), parts = await run({ budget });
+  assert.equal(whole.retained, total, 'by default (256 MB) the card is one run: all it keeps at once');
+  assert.ok(parts.retained > 0 && parts.retained <= budget, `held at most ${parts.retained} bytes, within a budget of ${budget}`);
+  assert.deepEqual(parts.ink, whole.ink, 'the same ink, whatever the runs');
+  const offRuns = parts.seen.split(/1+/).filter(Boolean).map((x) => x.length);
+  assert.ok(offRuns.length >= 4 && offRuns.slice(0, -1).every((n) => n >= 8), `runs of text-off renders, each after its run's text-on ones: ${offRuns.join(', ')}`);
+});
+
+test('P11b the interface check measures: INFO.ENERGY names the energy and where it came from, sceneCuts() returns the scene\'s cuts checked', async () => {
+  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme' });
+  assert.equal(ready, null);
+  assert.deepEqual(await page.evaluate(() => window.INFO.ENERGY), { name: 'extreme', from: '--param', bpm: 136 });
+  assert.equal(await page.evaluate(() => window.INFO.CUTS), true);
+  const cuts = await page.evaluate(() => window.sceneCuts());
+  assert.ok(cuts.length >= 6, `extreme cuts every half beat (${cuts.length} cuts)`);
+  for (const c of cuts) assert.ok(c.d >= 0 && c.d <= 0.3 && c.t > 0 && c.t < LEN.extreme, JSON.stringify(c));
+  assert.deepEqual(cuts, [...cuts].sort((a, b) => a.t - b.t));
+  const n = await openPage(card, { scene: 'scene.js' });
+  assert.deepEqual(await n.page.evaluate(() => window.INFO.ENERGY), { name: 'normal', from: 'board.js', bpm: 116 });
+  assert.ok((await n.page.evaluate(() => window.sceneCuts())).length >= 2);
+  // a scene without cuts(), and one whose cut is longer than 0.3 s
+  const dir = makePiece('energy-cuts', 'fixture-clean');
+  fs.writeFileSync(P(dir, 'cut.js'), `export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: 2, FONTS: [] };
+export const TL = {};
+export const silent = true;
+export function init() {}
+export const cuts = () => [{ t: 1, d: 0.5 }];
+export function frame(t, jit) { return { t, jit, use2D: false, scene: 0, P: [0, 0, 0, 0], Q: [0, 0, 0, 0], R: [0, 0, 0, 0], cam: [1, 0, 0, 0], clear: [0, 0, 0] }; }
+export const post = (t) => ({ t, bloom: 0, thr: 1, ca: 0, glitch: 0, grain: 0, vig: 0, flash: 0, fade: 1, hud: 0 });
+`);
+  const a = await openPage(dir, { scene: 'scene.js' });
+  assert.equal(await a.page.evaluate(() => window.sceneCuts()), null, 'no cuts() is null, not an empty list');
+  const b = await openPage(dir, { scene: 'cut.js' });
+  assert.match(await b.page.evaluate(() => { try { window.sceneCuts(); return 'no error'; } catch (e) { return e.message; } }), /cut\.js: cuts\(\) item 0 .*d from 0 to 0\.3 s/);
+});
+
+test('P11b the energy reaches init and audio.js, and a CFG.ENERGY that disagrees with the board\'s stops the render', () => {
+  const dir = makePiece('energy-cfg', 'fixture-clean');
+  fs.copyFileSync(path.join(templateDir, 'board.js'), P(dir, 'board.js'));   // energy: 'normal'
+  const scene = (energy) => `import { boardDur } from './lib.js';
+export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: [], ENERGY: ${JSON.stringify(energy)} };
+export const TL = {};
+export function init({ energy }) { console.log('init energy', energy.name, energy.bpm, energy.from, energy.cutBeats.join('-')); }
+export function frame(t, jit) { return { t, jit, use2D: false, scene: 0, P: [0, 0, 0, 0], Q: [0, 0, 0, 0], R: [0, 0, 0, 0], cam: [1, 0, 0, 0], clear: [0.2, 0.2, 0.2] }; }
+export const post = (t) => ({ t, bloom: 0, thr: 1, ca: 0, glitch: 0, grain: 0, vig: 0, flash: 0, fade: 1, hud: 0 });
+`;
+  fs.writeFileSync(P(dir, 'e.js'), scene('extreme'));
+  fs.writeFileSync(P(dir, 'audio.js'), `export async function renderAudio({ CFG, dur = CFG.DUR, sr = 48000, energy }) { console.log('audio energy', energy.name); return new OfflineAudioContext(2, Math.ceil(sr * dur), sr).startRendering(); }\n`);
+  let r = render(dir, ['audio', '--scene', 'e.js', '--out', 'out/e.wav'], { allowFail: true });
+  assert.equal(r.status, 1); assert.match(r.out, /CFG\.ENERGY "extreme" and board\.js's energy "normal" disagree: name the energy in one place/);
+  r = render(dir, ['audio', '--scene', 'e.js', '--param', 'energy=subtle', '--out', 'out/e.wav']);   // a param settles it
+  assert.match(r.out, /init energy subtle 84 --param 4-5/); assert.match(r.out, /audio energy subtle/);
+  fs.writeFileSync(P(dir, 'e.js'), scene('normal'));
+  r = render(dir, ['audio', '--scene', 'e.js', '--out', 'out/e.wav']);
+  assert.match(r.out, /init energy normal 116 CFG\.ENERGY 2-3/);
+  assert.ok(!fs.existsSync(P(dir, 'out/e.bed.wav')), 'an audio.js with no renderBed writes no bed stem');
+});
+
+test('P11b a clip\'s captions take their style from the energy every scene gets: --param, else the board\'s, else normal', async () => {
+  const dir = makePiece('energy-caption', 'fixture-clean');
+  fs.writeFileSync(P(dir, 'clip.js'), 'export const CLIP = { file: "clip.mp4", w: 540, h: 960, fps: 30, fpsRational: "30/1", frames: 30, dur: 1 };\n');
+  const board = (extra) => fs.writeFileSync(P(dir, 'board.js'), `export const BOARD = { title: 'c', target: 'tiktok', ${extra} beats: [{ id: 'clip', dur: 1, on: [] }] };\n`);
+  const style = async (q) => { const { page, ready } = await openPage(dir, { scene: 'caption.js', ...q }); assert.equal(ready, null); return page.evaluate(() => import('./caption.js').then((m) => m.TL.style)); };
+  board('');
+  assert.equal(await style({}), 'pop', 'no energy anywhere: normal');
+  assert.equal(await style({ 'p.energy': 'subtle' }), 'minimal');
+  board(`energy: 'extreme',`);
+  assert.equal(await style({}), 'karaoke', 'the board\'s energy');
+  // and the clip's board keeps its length: a clip's board never snaps to the grid, whatever energy it names
+  const { page } = await openPage(dir, { scene: 'caption.js' });
+  assert.equal(await page.evaluate(() => import('./lib.js').then((m) => m.boardInfo().dur)), 1);
+  assert.equal(await style({ 'p.energy': 'subtle' }), 'minimal', '--param over the board');
+  assert.equal(await style({ 'p.style': 'boxed' }), 'boxed', 'a named style over the energy');
+});
+
+test('P11b bed: false at subtle writes a silent bed stem, recorded as silent; rendered at another energy, that energy\'s bed plays', () => {
+  const dir = path.join(work, 'energy-quiet');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  const board = fs.readFileSync(P(dir, 'board.js'), 'utf8').replace("energy: 'normal',", "energy: 'subtle', bed: false,");
+  assert.notEqual(board, fs.readFileSync(P(dir, 'board.js'), 'utf8'), 'the template board names its energy');
+  fs.writeFileSync(P(dir, 'board.js'), board);
+  const r = render(dir, ['audio', '--out', 'out/q.wav']);
+  assert.match(r.out, /bed: silent \(subtle, the board's bed: false\)/);
+  const rec = json(P(dir, 'out/q.bed.wav.render.json'));
+  assert.deepEqual([rec.role, rec.bedSilent, rec.energy.name], ['bed', true, 'subtle']);
+  const bed = decode(P(dir, 'out/q.bed.wav'));
+  assert.ok(bed.length > SR && bed.every((x) => x === 0), 'the bed stem is silence, the picture\'s length');
+  const n = render(dir, ['audio', '--param', 'energy=normal', '--out', 'out/n.wav']);
+  assert.match(n.out, /bed: normal at 116 BPM/);
+  assert.equal(json(P(dir, 'out/n.bed.wav.render.json')).bedSilent, false);
+  assert.ok(decode(P(dir, 'out/n.bed.wav')).some((x) => Math.abs(x) > 0.05), 'the normal bed plays');
+});
+
+// ---------------------------------------------------------------- council round 1 (P11b R1)
+// G1: audio_spike hears what the master mixes: each stem at the gain master.json records for it, a stem the mix left
+// out at zero. fixture-heard's stems judge differently alone and summed: with stems=a the effects spike alone and the
+// bed masks them; with stems=b the bed has a click and the effects would mask it.
+const spikeOf = (dir, file) => {
+  const r = render(dir, ['check', '--file', file, '--only', 'audio_spike', '--json'], { allowFail: true });
+  const x = JSON.parse(r.stdout).find((y) => y.id === 'audio_spike');
+  assert.ok(x, r.out); return x;
 };
-test('council R1 I2: CFG.ENERGY comes before the board\'s energy (as P11b-1\'s energyName())', () => {
-  const x = onBoard('normal', { shot: 1, dur: 3, size: 0.12, band: 0.3, cfgenergy: 'subtle' });
-  assert.match(x.main.detail, /^energy subtle \(CFG\.ENERGY\)/);
+const heard = {};
+function heardPiece(s) {   // one piece per set of stems, rendered once
+  if (heard[s]) return heard[s];
+  const d = makePiece(`energy-heard-${s}`, 'fixture-heard');
+  fs.writeFileSync(P(d, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // the voice first: it is part of the source
+  writeCues(d, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
+  render(d, ['full', '--param', `stems=${s}`, '--scale', '0.25', '--sub', '1', '--out', 'out/h.mp4']);
+  return (heard[s] = d);
+}
+const mixedSpike = (s, args) => { const d = heardPiece(s); ok(runMix(d, ['h', ...args])); return spikeOf(d, 'out/h-final.mp4'); };
+test('P11b R1 G1 --master-only with both stems: the effects at x1 and the bed at x0.5, the bed masking the hit', () => {
+  const x = mixedSpike('a', ['--master-only']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5\)/);
 });
-test('acceptance: a normal board rendered calm (2 s shots, 5% type, nothing moving) WARNs on all three', () => {
-  const x = onBoard('normal', { shot: 2, dur: 4, size: 0.05, band: 0 });
-  assert.equal(x.main.level, 'WARN');
-  assert.match(x.main.detail, /^energy normal \(the board\) is calmer than its floor: the shots are longer, the type is smaller, it moves less than normal allows\./);
-  typeNear(x, 0.05);
+test('P11b R1 G1 --master-only --no-bed: the bed is not heard, so the hit alone is a spike', () => {
+  const x = mixedSpike('a', ['--master-only', '--no-bed']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /bed stem/);
 });
-test('acceptance: an extreme board at normal pace (2.5 beats at 116 BPM, 12% type, 3% motion) WARNs; at extreme pace it is OK', () => {
-  const s = 2.5 * 60 / 116;
-  const n = onBoard('extreme', { shot: s, dur: 4 * s, size: 0.12, band: 0.06 });
-  assert.equal(n.main.level, 'WARN');
-  assert.match(n.main.detail, /^energy extreme \(the board\) is calmer than its floor: the shots are longer, the type is smaller, it moves less than extreme allows\./);
-  assert.equal(n.main.measured.cuts, 3);
-  const e = 0.75 * 60 / 136;
-  const x = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3 });
-  assert.equal(x.main.level, 'OK', x.main.detail); assert.deepEqual(x.extra, []);
-  assert.equal(x.main.measured.cuts, 11); typeNear(x, 0.22);
-  // council R1 I1: the board's own tempo is BOARD.bpm (P11b-1), here 10% under the preset's, so the range is up to 0.49 s
-  const t = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3 }, ' bpm: 122.4,');
-  assert.match(t.main.detail, /range 0\.25-0\.49 s, 0\.5-1 beats at 122\.4 BPM/);
-  // the tempo comes from the board alone: --param tempo is not read
-  const p = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3, tempo: 122.4 });
-  assert.match(p.main.detail, /0\.5-1 beats at the preset's 136 BPM/);
+test('P11b R1 G1 --sting: the effects alone, so the hit is a spike', () => {
+  const x = mixedSpike('a', ['--sting']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /bed stem/);
 });
-test('a subtle board: busy (1 s shots, 12% type, a wide moving band) WARNs; calm (3 s shots, 6% type, a thin band) is OK', () => {
-  const b = onBoard('subtle', { shot: 1, dur: 3, size: 0.12, band: 0.3 });
-  assert.equal(b.main.level, 'WARN');
-  assert.match(b.main.detail, /^energy subtle \(the board\) is busier than its ceiling: the shots are shorter, the type is larger, it moves more than subtle allows\./);
-  const c = onBoard('subtle', { shot: 3, dur: 6, size: 0.06, band: 0.02 });
-  assert.equal(c.main.level, 'OK', c.main.detail);
+test('P11b R1 G1 a voiced mix with --no-bed: the effects at x0.9 alone, a spike', () => {
+  const x = mixedSpike('a', ['--no-bed']);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects stem \(x0\.9, as h\.master\.json mixed it\)/); assert.doesNotMatch(x.detail, /bed stem/);
+});
+test('P11b R1 G1 a voiced mix with its bed: the effects at x0.9 and the bed at x0.22', () => {
+  const x = mixedSpike('a', []);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects \(x0\.9\) and the bed stem \(x0\.22\)/);
+});
+test('P11b R1 G1 --master-only --no-sfx: the effects are not heard, so the bed\'s click is a spike they no longer mask', () => {
+  let x = mixedSpike('b', ['--master-only', '--no-sfx']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /the effects/);
+  x = mixedSpike('b', ['--master-only']);
+  assert.equal(x.level, 'OK', x.detail);
+});
+test('P11b R1 G1 a mix of neither stem (voiced, --no-sfx --no-bed): nothing of theirs to hear', () => {
+  const x = mixedSpike('b', ['--no-sfx', '--no-bed']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /mixes neither the effects nor the bed stem/);
 });
 
-// ---------------------------------------------------------------- not checked
-test('not checked: a scene without cuts(), an energy that is not a preset, an overlay; a bad cuts() list is a scene FAIL', () => {
-  const nc = runCheck(dir, ['--scene', 'nocuts.js', '--only', 'energy_match']);
-  assert.deepEqual(nc.results.map((x) => `${x.level} ${x.id}: ${x.detail}`),
-    ['SKIP energy_match: not checked: nocuts.js has no cuts(), so no cut can be confirmed: export cuts(), its visual cuts and transitions as [{ t, d }]']);
-  const wild = run('hardcut', { energy: 'wild' });
-  assert.equal(wild.main.level, 'SKIP');
-  assert.equal(wild.main.detail, 'not checked: no energy to judge it by: --param energy is "wild", not one of subtle, normal, extreme');
-  const alpha = run('hardcut', {}, ['--alpha']);
-  assert.match(alpha.main.detail, /^not checked: an alpha render is an overlay/);
-  const bad = run('badcuts');
-  assert.equal(bad.main.level, 'SKIP'); assert.equal(bad.status, 1);
-  assert.ok(bad.all.some((x) => x.id === 'scene' && x.level === 'FAIL' && /cuts\(\) item 0: d 0\.5 s is not 0-0\.3 s/.test(x.detail)), bad.out);
+// ---------------------------------------------------------------- council round 2 (P11b R2)
+// H1: a stem heard alone is heard at its gain, as the two summed are: audio_spike's silence floor (a window counts when
+// it peaks above -60 dBFS) is absolute, so a gain moves windows across it. fixture-heard's stems=c and d sit at the edge.
+test('P11b R2 H1 the effects alone at x0.9 (voiced, --no-bed): a 0.00105 floor falls under -60 dBFS, so the hit is no spike', () => {
+  const x = mixedSpike('c', ['--no-bed']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects stem \(x0\.9, as h\.master\.json mixed it\)/);
 });
-test('the full check runs energy_match among the source checks, and says how long it took', () => {
-  const r = runCheck(dir, ['--scene', 'energy.js', '--param', 'kind=hardcut']);
-  const ids = r.results.map((x) => x.id);
-  assert.ok(ids.indexOf('energy_match') > ids.indexOf('audio_spike') && ids.indexOf('energy_match') < ids.indexOf('flash'), ids.join(' '));
-  assert.match(r.stderr, /^check: energy_match measured 60 frames, 0 of them twice \(text off\) in \d+\.\d s$/m);
+test('P11b R2 H1 the effects alone at x2 (--master-only --no-bed --sfx-gain 2): a 0.0009 floor rises over -60 dBFS, so the hit is a spike', () => {
+  const x = mixedSpike('d', ['--master-only', '--no-bed', '--sfx-gain', '2']);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects stem \(x2, as h\.master\.json mixed it\)/);
+});
+test('P11b R2 H1 the bed stem alone at x0.5 (--master-only --no-sfx): a 0.0019 floor falls under -60 dBFS, so its hit is no spike', () => {
+  const x = mixedSpike('c', ['--master-only', '--no-sfx']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the bed stem \(x0\.5\) alone/);
+});
+// H2: the bed is heard with the --mute windows master.json records (the bed stem has no fade: it spans the picture)
+test('P11b R2 H2 a bed muted around the hit no longer masks it: audio_spike hears the mutes master.json records', () => {
+  const x = mixedSpike('a', ['--master-only', '--mute', '0.1-1.95']);
+  assert.deepEqual(json(P(heardPiece('a'), 'out/h.master.json')).stems.find((y) => y.role === 'bed').mutes, [{ a: 0.1, b: 1.95, ramp: 0.05 }]);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5, muted 0\.1-1\.95\) summed/);
+  assert.equal(mixedSpike('a', ['--master-only']).level, 'OK', 'unmuted, the bed masks it');
+});
+// loudnorm falls back to its dynamic mode when its linear gain would break the true-peak ceiling (a quiet premix with
+// one loud hit); that mode's frames carry gaps in their timestamps, which the mux kept: the master's audio ran 67 ms
+// past its samples and the picture, and check --file's file_spec failed (found on the light looks at normal, P11b).
+test('P11b mix: a master that loudnorm normalizes in its dynamic mode keeps the picture\'s length', async () => {
+  // the card at normal on paper: 3.6 s (loudnorm's dynamic mode needs 3 s or more) and a quiet premix
+  const LK = await import(pathToFileURL(path.join(templateDir, 'looks.js')).href);
+  const d = path.join(work, 'energy-dynamic');
+  fs.rmSync(d, { recursive: true, force: true }); fs.cpSync(card, d, { recursive: true });
+  for (const f of fs.readdirSync(P(d, 'out'))) fs.rmSync(P(d, `out/${f}`), { force: true });
+  for (const f of LK.lookFiles('paper')) fs.copyFileSync(path.join(templateDir, '..', 'looks', 'fonts', f), P(d, `fonts/${f}`));
+  render(d, ['full', '--param', 'energy=normal', '--param', 'look=paper', ...R, '--out', 'out/h.mp4']);
+  const r = runMix(d, ['h', '--master-only']);
+  ok(r); assert.match(r.out, /\(loudnorm dynamic\)/, 'this mix is the dynamic case');
+  const dur = (sel) => +spawnSync('ffprobe', ['-v', 'error', ...sel, '-show_entries', 'stream=duration', '-of', 'csv=p=0', P(d, 'out/h-final.mp4')], { encoding: 'utf8' }).stdout.trim();
+  const v = dur(['-select_streams', 'v:0']), a = dur(['-select_streams', 'a:0']);
+  assert.ok(Math.abs(a - v) <= 1 / 30, `audio ${a} s against the picture's ${v} s`);
+  const x = JSON.parse(render(d, ['check', '--file', 'out/h-final.mp4', '--only', 'file_spec', '--json'], { allowFail: true }).stdout).find((y) => y.id === 'file_spec');
+  assert.equal(x.level, 'OK', x.detail);
+});
+// H3, and the bed's own record: a bed stem from `audio` is taken only when it is still what that render wrote, from the
+// picture's source, at the picture's params and energy
+function sepBed(name) {
+  const dir = path.join(work, name);
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  for (const f of fs.readdirSync(P(dir, 'out'))) fs.rmSync(P(dir, `out/${f}`), { force: true });
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);   // the board's energy, normal, and no params
+  return dir;
+}
+test('P11b R2 H3 the mix refuses a bed stem rendered by `audio` at other params or another energy than the picture', () => {
+  const dir = sepBed('energy-r2-settings');
+  render(dir, ['audio', '--param', 'energy=extreme', '--out', 'out/s.wav']);
+  let r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /the bed stem out\/s\.bed\.wav was rendered with other settings than out\/s\.mp4 \(params \{"energy":"extreme"\}, the picture's \{\}; energy extreme at 136 BPM, the picture's normal at 116 BPM\)/);
+  render(dir, ['audio', '--out', 'out/s.wav']);           // the picture's own settings
+  ok(runMix(dir, ['s', '--master-only']));
+  // a `full` render's bed, replaced by one from `audio` at another energy: refused as well
+  render(dir, ['full', ...R, '--out', 'out/f.mp4']);
+  render(dir, ['audio', '--param', 'energy=subtle', '--out', 'out/f.wav']);
+  r = runMix(dir, ['f', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/f\.bed\.wav was rendered with other settings than out\/f\.mp4 \(params \{"energy":"subtle"\}, the picture's \{\}; energy subtle at 84 BPM, the picture's normal at 116 BPM\)/);
+});
+test('P11b R2 a bed stem from `audio` that changed after that render is refused', () => {
+  const dir = sepBed('energy-r2-changed');
+  render(dir, ['audio', '--out', 'out/s.wav']);
+  const f = P(dir, 'out/s.bed.wav'), b = fs.readFileSync(f);
+  b[b.length - 2] ^= 0x40; fs.writeFileSync(f, b);         // one sample, after the render recorded its SHA-256
+  const r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav changed after the render \(audio\) that wrote it/);
+});
+
+// G2: a bed stem rendered on its own (`audio`, with its own record) and then lost or left stale is refused by the mix,
+// not quietly left out or replaced by bed.mp3.
+test('P11b R1 G2 a bed stem from `audio` that is missing, or from another source than the picture, is refused; never left out or replaced by bed.mp3', () => {
+  const dir = path.join(work, 'energy-sepbed');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  for (const f of fs.readdirSync(P(dir, 'out'))) fs.rmSync(P(dir, `out/${f}`), { force: true });
+  fs.writeFileSync(P(dir, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // for the voiced mix below; source, so first
+  writeCues(dir, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);
+  render(dir, ['audio', '--out', 'out/s.wav']);
+  assert.ok(fs.existsSync(P(dir, 'out/s.bed.wav.render.json')), 'audio recorded the bed on its own');
+  assert.equal(json(P(dir, 'out/s.mp4.render.json')).bed, undefined, 'the picture\'s record names no bed');
+  ok(runMix(dir, ['s', '--master-only']));
+  assert.ok(json(P(dir, 'out/s.master.json')).stems.some((x) => x.role === 'bed' && x.generated), 'mixed with its bed');
+  const keep = fs.readFileSync(P(dir, 'out/s.bed.wav'));
+  fs.rmSync(P(dir, 'out/s.bed.wav'));
+  let r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav that render\.mjs audio recorded is missing/);
+  // a voiced mix does not fall back to bed.mp3 either
+  fs.writeFileSync(P(dir, 'bed.mp3'), keep);   // any audio file under that name
+  r = runMix(dir, ['s']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /that render\.mjs audio recorded is missing/);
+  ok(runMix(dir, ['s', '--no-bed']));
+  fs.rmSync(P(dir, 'bed.mp3'));
+  // stale: the bed rendered from an older source than the picture
+  fs.writeFileSync(P(dir, 'out/s.bed.wav'), keep);
+  ok(runMix(dir, ['s', '--master-only']));
+  fs.appendFileSync(P(dir, 'scene.js'), '\n// a later edit\n');
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);
+  r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav was rendered from another source than out\/s\.mp4/);
+});
+
+// G3: the energy in effect sets the grid wherever it was chosen (--param, CFG.ENERGY, the board); a silent board with
+// no energy anywhere keeps its written lengths.
+test('P11b R1 G3 a silent board snaps to the energy chosen by --param or CFG.ENERGY, though it names none; with none anywhere it keeps its lengths', () => {
+  const dir = makePiece('energy-snap-any', 'fixture-clean');
+  for (const f of ['scene.js', 'audio.js']) fs.copyFileSync(path.join(templateDir, f), P(dir, f));
+  const board = fs.readFileSync(path.join(templateDir, 'board.js'), 'utf8').replace(/^  energy: 'normal',.*\n/m, '');
+  assert.doesNotMatch(board, /^\s*energy:/m);
+  fs.writeFileSync(P(dir, 'board.js'), board);   // title 2.85 s, out 0.55 s: 3.4 s as written
+  const frames = (args, out) => { render(dir, ['video', ...args, '--scale', '0.25', '--sub', '1', '--out', out]); return countFrames(P(dir, out)); };
+  assert.equal(frames([], 'out/none.mp4'), Math.round(3.4 * 30), 'no energy anywhere: the written lengths');
+  assert.equal(frames(['--param', 'energy=subtle'], 'out/p.mp4'), Math.round((5 * 60 / 84) * 30), '--param energy=subtle: five beats at 84 BPM');
+  // CFG.ENERGY in a scene: the same scene, naming its energy in CFG
+  const cfg = fs.readFileSync(path.join(templateDir, 'scene.js'), 'utf8').replace("export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };",
+    "export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'], ENERGY: 'subtle' };");
+  assert.match(cfg, /ENERGY: 'subtle'/);
+  fs.writeFileSync(P(dir, 'cfg.js'), cfg);
+  assert.equal(frames(['--scene', 'cfg.js'], 'out/c.mp4'), Math.round((5 * 60 / 84) * 30), 'CFG.ENERGY subtle: five beats at 84 BPM');
+  // check times the board the way the page does
+  const r = render(dir, ['check', '--scene', 'cfg.js', '--only', 'board_order', '--json'], { allowFail: true });
+  assert.equal(JSON.parse(r.stdout).find((x) => x.id === 'board_order').level, 'OK', r.out);
 });

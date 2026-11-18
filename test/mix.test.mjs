@@ -323,7 +323,8 @@ test('refusals: a picture changed after its render, no render record, options th
   fs.rmSync(P(dir, 'out/mix.mp4.render.json'));
   r = runMix(dir, ['mix', '--no-bed']);
   assert.match(r.out, /no render record/);
-  assert.equal(runMix(dir, ['mix', '--master-only', '--bed', 'bed.wav']).status, 2);
+  assert.equal(runMix(dir, ['mix', '--master-only', '--vo', 'vo.wav']).status, 2, 'a voice in a mix with no voice');
+  assert.equal(runMix(dir, ['mix', '--sting', '--bed', 'bed.wav']).status, 2, 'a bed in a sting (P11b: --master-only takes one)');
   assert.equal(runMix(dir, ['mix', '--master-only', '--sting']).status, 2);
   assert.equal(runMix(dir, ['mix', '--mute', '5-4']).status, 2);
   assert.equal(runMix(dir, ['../mix']).status, 2);

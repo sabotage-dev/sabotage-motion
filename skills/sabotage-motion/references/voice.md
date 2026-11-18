@@ -147,7 +147,7 @@ space kept, by default half a space plus `stroke`). `maxW`, `x` and `y` override
 Render first (`node render.mjs full --out out/<name>.mp4`, which also writes the effects as `out/<name>.wav`), then:
 
 ```sh
-node tools/mix.mjs <name>                               # voice (vo.wav), bed.mp3 if there is one, effects: -14 LUFS
+node tools/mix.mjs <name>                               # voice (vo.wav), the bed stem or bed.mp3, effects: -14 LUFS
 node tools/mix.mjs <name> --bed music.mp3 --bed-skip 1.2 --bed-at cue:save --mute 6.0-7.5
 node tools/mix.mjs <name> --stem clip.wav:0.8:2.0       # an extra stem: a clip's own sound, at x0.8 from 2.0 s
 node tools/mix.mjs <name> --master-only                 # the synthesized soundtrack alone, -14 LUFS
@@ -157,7 +157,9 @@ node tools/mix.mjs animatic --no-bed --no-sfx           # the animatic: the slat
 
 - **Voice**: measured (EBU R128 integrated) and levelled to -24 LUFS, then `--vo-gain` (3.2), delayed by `VO_OFFSET`
   from `cues.json`. A take quieter than -50 LUFS stops the mix (it would get about +56 dB: probably the wrong file).
-- **Bed**: `--bed-gain` (0.22); `--bed-skip` seconds cut from its start; by default it starts so its end lands on the
+- **Bed**: `--bed <file>`, else the bed stem the render wrote (`out/<name>.bed.wav`, from `audio.js`'s `renderBed`:
+  the energy's beat, from 0, the picture's length, no fade, never moved), else `bed.mp3`. `--bed-gain` (0.22);
+  `--bed-skip` seconds cut from its start; by default it starts so its end lands on the
   last frame (at 0 when it is longer than the picture), or at `--bed-at` seconds or `cue:<beat id>`. It fades out
   where it stops (0.35 s, or 2.6 s when it is longer than the picture), is silent over each `--mute a-b` window
   (picture time, with a short ramp), and is ducked under the voice by a sidechain compressor (threshold 0.02, ratio

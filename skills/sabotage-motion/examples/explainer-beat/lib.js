@@ -1,6 +1,7 @@
 // Shared math, easing, springs, noise and timeline helpers.
 // Everything is a pure function of time, so any frame can be rendered in any order
 // (which is what makes stills, contact sheets and motion-blur subframes possible).
+import { ENERGY, ENERGY_NAMES, DEFAULT_ENERGY, energyProblems, boardSnaps, snapDur, copyNeed, boardBpm } from './energy.js';
 
 export const clamp = (x, a = 0, b = 1) => (x < a ? a : x > b ? b : x);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -279,6 +280,7 @@ export function boardProblems(board) {
     if (b.vo != null) sawVoiced = true;
   });
   if (board.hookMax != null && !voiced) p.push('BOARD.hookMax is set but no beat has a voice line');
+  p.push(...energyProblems(board));   // energy, bpm and bed (energy.js, plan 23.9)
   return p;
 }
 
@@ -318,12 +320,24 @@ export function boardKey(board) {
 // Beat windows in picture time, half-open, contiguous, covering [0, dur) (plan section 6.3). With `cues`
 // (cues.js's exports) the take places the voiced beats; without, the estimate does. Never throws: a
 // board or cues.js that cannot be timed comes back with ok: false and the reasons in `problems`.
-export function boardTiming(board, cues = null) {
+// The beat grid (plan 23.9): a board with no voice snaps each beat to a whole number of musical beats at its tempo
+// (energy.js snapDur: the nearest, at least one, and never shorter than its copy needs to be read) once an energy is
+// chosen anywhere: opts.energy, the energy in effect (--param energy or CFG.ENERGY), else the board's own energy or
+// bpm. With none anywhere it keeps its lengths as written. A voiced
+// board never snaps: the voice sets every window; nor does a clip's board (opts.clip: the clip sets its length, and its
+// energy only picks the captions' style). `bpm` and `snapped` say which grid applied.
+export function boardTiming(board, cues = null, opts = {}) {
   const problems = boardProblems(board);
+  let grid = null;
+  if (!problems.length && !opts.clip && boardSnaps(board, opts.energy || null)) {
+    const name = opts.energy || board.energy || DEFAULT_ENERGY;
+    if (!ENERGY_NAMES.includes(name)) problems.push(`energy "${name}": one of ${ENERGY_NAMES.join(', ')}`);
+    else { try { grid = { name, bpm: boardBpm(board, name) }; } catch (e) { problems.push(e.message); } }
+  }
   const lead = board && board.lead != null ? board.lead : BOARD_DEFAULTS.lead;
   const tail = board && board.tail != null ? board.tail : BOARD_DEFAULTS.tail;
   const wps = board && board.wps != null ? board.wps : BOARD_DEFAULTS.wps;
-  const fail = (more = []) => ({ ok: false, problems: [...problems, ...more], estimated: !cues, lead, tail, voOffset: 0, dur: 0, windows: [] });
+  const fail = (more = []) => ({ ok: false, problems: [...problems, ...more], estimated: !cues, lead, tail, voOffset: 0, dur: 0, windows: [], bpm: null, snapped: false });
   if (problems.length) return fail();
   const beats = board.beats, n = beats.length;
   const voicedIdx = beats.map((b, i) => (b.vo != null ? i : -1)).filter((i) => i >= 0);
@@ -347,9 +361,10 @@ export function boardTiming(board, cues = null) {
     if (more.length) return fail([...more, 'cues.js does not match board.js: run node tools/cues.mjs again']);
   }
   if (!cues || !voicedIdx.length) {
-    // the estimate, or a board with no voice: beats back to back in board order
+    // the estimate, or a board with no voice: beats back to back in board order (on the grid when the board snaps)
     let t = 0;
-    beats.forEach((b, i) => { starts[i] = t; t += b.vo != null ? estimateVoiced(b.vo, wps) : b.dur; });
+    const spb = grid ? 60 / grid.bpm : 0;
+    beats.forEach((b, i) => { starts[i] = t; t += b.vo != null ? estimateVoiced(b.vo, wps) : grid ? snapDur(b.dur, spb, copyNeed(b.on)) : b.dur; });
     voOffset = cues ? cues.VO_OFFSET : leadSum + lead;
     dur = t;
   } else {
@@ -397,8 +412,9 @@ export function boardTiming(board, cues = null) {
         (inside ? ` and inside "${inside.id}"'s` : '') + ` (two anchors closer than lead ${lead} s, plus any silent beats between them)`);
     }
   }
-  if (bad.length) return { ...fail(bad), voOffset, dur, windows };
-  return { ok: true, problems: [], estimated: !cues && voicedIdx.length > 0, lead, tail, voOffset, dur, windows };
+  const g = { bpm: grid ? grid.bpm : null, snapped: !!grid };
+  if (bad.length) return { ...fail(bad), voOffset, dur, windows, ...g };
+  return { ok: true, problems: [], estimated: !cues && voicedIdx.length > 0, lead, tail, voOffset, dur, windows, ...g };
 }
 
 // The board_order check (section 6.5): windows contiguous, in order, starting at 0, and CFG.DUR equal
@@ -445,13 +461,26 @@ export const CUES = _cues.mod ? Object.freeze({
 const _clip = await pieceModule('./clip.js');
 export const CLIP = _clip.mod && _clip.mod.CLIP ? Object.freeze({ ..._clip.mod.CLIP }) : null;
 let _timing = null;
-// The piece's board timing: { estimated, voOffset, dur, lead, tail, windows: [{ id, index, start, end, voiced, beat }] }.
-// `estimated` is true while voiced beats are timed by the estimate (no cues.js yet).
+// The energy the page renders at when --param energy names one (render.mjs puts it in the page's URL as p.energy); the
+// board's beats snap at that energy's tempo. Null in Node and without the param.
+export const PAGE_ENERGY = typeof location === 'object' && location && location.search ? new URLSearchParams(location.search).get('p.energy') || null : null;
+let _cfgEnergy = null;
+// CFG.ENERGY sets the grid too. A scene computes CFG.DUR = boardDur() before its CFG exists, so the harness reads
+// CFG.ENERGY afterwards and asks here whether it re-times the board: true when it does (a board with no voice and no
+// energy of its own, no --param, no clip), and the timing is then redone at that energy, for the scene to be evaluated
+// again. False when it changes nothing.
+export function retimeFor(energy) {
+  if (!energy || PAGE_ENERGY || CLIP || !BOARD || BOARD.energy != null || _cfgEnergy === energy || !boardSnaps(BOARD, energy)) return false;
+  _cfgEnergy = energy; _timing = null;
+  return true;
+}
+// The piece's board timing: { estimated, voOffset, dur, lead, tail, windows: [{ id, index, start, end, voiced, beat }],
+// bpm, snapped }. `estimated` is true while voiced beats are timed by the estimate (no cues.js yet).
 export function boardInfo() {
   if (_board.error) throw new Error(_board.error);
   if (_cues.error) throw new Error(_cues.error);
   if (!BOARD) throw new Error('this piece has no board.js exporting BOARD (copy one from the template)');
-  if (!_timing) _timing = boardTiming(BOARD, CUES);
+  if (!_timing) _timing = boardTiming(BOARD, CUES, { energy: PAGE_ENERGY || _cfgEnergy, clip: !!CLIP });
   if (!_timing.ok) throw new Error('board.js: ' + _timing.problems.join('; '));
   return _timing;
 }
@@ -690,10 +719,11 @@ export const CAPTION_STYLES = Object.freeze({
   boxed: Object.freeze({ pop: 'none', fill: 'active', stroke: 0, sizeK: 0.92, plate: Object.freeze({ color: '#000000', alpha: 0.72, pad: 0.28, radius: 0.18 }) }),
   minimal: Object.freeze({ pop: 'none', fill: 'none', stroke: 0, sizeK: 0.8, shadow: 10 }),
 });
-// Which style an energy setting gets by default (plan 23.9: subtle -> minimal, normal -> pop, extreme -> karaoke). The
-// energy is --param energy= or CFG.ENERGY when the scene has one; with neither it is normal. A board (captionStyle)
-// or --param style= can still name any style.
-export const ENERGY_CAPTION = Object.freeze({ subtle: 'minimal', normal: 'pop', extreme: 'karaoke' });
+// Which style an energy setting gets by default (plan 23.9: subtle -> minimal, normal -> pop, extreme -> karaoke): each
+// preset's `caption` in energy.js. The energy is the one the harness resolves (energy.js energyName: --param energy=,
+// else CFG.ENERGY, else the board's energy, else normal), handed to init as energy.name. A board (captionStyle) or
+// --param style= can still name any style.
+export const ENERGY_CAPTION = Object.freeze(Object.fromEntries(ENERGY_NAMES.map((n) => [n, ENERGY[n].caption])));
 export function captionStyleFor(energy) {
   const e = energy == null || energy === '' ? 'normal' : String(energy);
   if (!Object.prototype.hasOwnProperty.call(ENERGY_CAPTION, e)) throw new Error(`energy "${energy}": one of ${Object.keys(ENERGY_CAPTION).join(', ')}`);

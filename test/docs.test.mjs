@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { repoRoot, templateDir, examplesDir, EXAMPLES } from './helpers.mjs';
 
 const skillDir = path.join(repoRoot, 'skills', 'sabotage-motion');
@@ -58,10 +59,11 @@ test('README: every picture it shows exists, and each GIF is within its size bud
   assert.deepEqual(problems, []);
 });
 
-test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are each reported', async () => {
+test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are each reported', async (t) => {
   const { mediaProblems } = await import('../scripts/readme-media.mjs');
   const MB = 1024 * 1024;   // the plan's budgets (23.1), written out here so a looser budget in the script fails
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-media-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));   // removed whether the test passes or fails
   const gif = (name, width, bytes) => {
     const b = Buffer.alloc(bytes);
     b.write('GIF89a', 0, 'latin1'); b.writeUInt16LE(width, 6); b.writeUInt16LE(100, 8);
@@ -82,7 +84,6 @@ test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are
   gif('tile-360.gif', 360, 1000);
   assert.deepEqual(mediaProblems('![t](tile-360.gif)', dir).problems, [], 'a tile at 360 px');
   assert.equal(mediaProblems('![t](tile-wide.gif)', dir).problems.length, 1, 'a tile over 360 px');
-  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('readme-media: every form GitHub renders a picture in is found, and code and links are not', async () => {
@@ -140,7 +141,7 @@ test('references/looks.md: its table of looks is looks.js, look by look (shader,
 });
 test('README: the --param line names the colour tokens and the shader id; "Looks and brand kits" follows "Your first piece" and shows docs/media/looks.png', () => {
   const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
-  const at = md.indexOf('The template is a 3 s, 1080x1920 kinetic title card.');
+  const at = md.indexOf('The template is a kinetic title card of about 3 s at 1080x1920, at the `normal` energy.');
   assert.ok(at > 0, 'the line is there');
   const para = md.slice(at, md.indexOf('\n\n', at));
   for (const k of LK.TOKENS) assert.ok(para.includes(`\`${k}\``), `the --param line names the ${k} token`);
@@ -337,7 +338,8 @@ test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets
 });
 
 test('P11b-2 references/check.md: energy_match\'s rule, its thresholds and the presets\' ranges as check.mjs sets them', async () => {
-  const md = read('references/check.md'), { T, ENERGY_RANGES: R } = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  const md = read('references/check.md'), { T } = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  const { ENERGY: R } = await import(pathToFileURL(path.join(templateDir, 'energy.js')).href);
   const E = T.energy, flat = md.replace(/\s+/g, ' '), sec = flat.slice(flat.indexOf('## 8. Energy: `energy_match`'));
   assert.ok(md.includes('8. Energy: `energy_match`\n') && sec.length > 1000, 'section 8, listed in the contents');
   const p = (x) => `${Math.round(x * 100)}%`;
@@ -385,4 +387,116 @@ test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its too
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   assert.match(pkg.scripts['test:clip'], /clip-units\.test\.mjs.*clip\.test\.mjs.*caption-example\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:clip/);
+});
+
+// ---------------------------------------------------------------- CI runs every suite (P11b)
+// The engine job runs in shards (ci.yml); each shard runs whole npm test groups, so a new test file that no group
+// lists, or a group no shard runs, would silently drop out of CI. Every test/*.test.mjs must run in some shard (or in
+// the leak job), and no file runs twice.
+test('P11b CI: every test file runs in exactly one shard of the engine job, or in the leak job', () => {
+  const ci = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  const runs = [...ci.matchAll(/^\s+run: (npm run test:.*)$/gm)].map((m) => m[1]);
+  assert.ok(runs.length >= 4, `the engine job runs its suites in shards (found ${runs.length})`);
+  const files = [];
+  for (const line of runs) {
+    for (const m of line.matchAll(/npm run (test:[\w-]+)/g)) {
+      assert.ok(pkg.scripts[m[1]], `ci.yml runs ${m[1]}, which package.json does not define`);
+      files.push(...pkg.scripts[m[1]].match(/test\/[\w.-]+\.test\.mjs/g));
+    }
+    for (const m of line.matchAll(/node --test ((?:test\/[\w.-]+\.test\.mjs ?)+)/g)) files.push(...m[1].trim().split(/\s+/));
+  }
+  const leak = ci.slice(ci.indexOf('\n  leak:'));
+  assert.match(leak, /node --test test\/leak\.test\.mjs/);
+  files.push('test/leak.test.mjs');
+  const twice = files.filter((f, i) => files.indexOf(f) !== i);
+  assert.deepEqual(twice, [], 'a test file runs in two shards');
+  const all = fs.readdirSync(path.join(repoRoot, 'test')).filter((f) => f.endsWith('.test.mjs')).map((f) => `test/${f}`);
+  assert.deepEqual(all.filter((f) => !files.includes(f)), [], 'test files no shard runs');
+  // the doctor, the render speed and the informational steps run once per OS and node: in the engine shard
+  for (const step of ['- name: doctor', '- name: ms per frame at full size', "- name: Playwright's own Chromium"]) {
+    const at = ci.indexOf(step);
+    assert.ok(at > 0, step);
+    assert.match(ci.slice(at, ci.indexOf('\n', ci.indexOf('\n', at) + 1)), /if: .*matrix\.shard\.name == 'engine'/, `${step} runs in the engine shard only`);
+  }
+});
+
+// ---------------------------------------------------------------- test hygiene (P11b)
+// The suites that make a folder in the system temp directory remove it when they finish, pass or fail: each runs here
+// with a temp directory of its own, which must be empty of their folders afterwards.
+test('P11b hygiene: the readme-media and fake-ffmpeg suites leave no folder in the temp directory', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-hyg-'));
+  try {
+    for (const [file, name] of [['test/docs.test.mjs', 'readme-media: a missing picture'], ['test/render-error.test.mjs', 'a scene under out/']]) {
+      const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', `--test-name-pattern=${name}`, file], { cwd: repoRoot, encoding: 'utf8', timeout: 120000, killSignal: 'SIGKILL',
+        env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT')), TMPDIR: tmp + path.sep, TMP: tmp, TEMP: tmp } });
+      assert.equal(r.status, 0, `${file} failed:\n${(r.stdout || '').slice(-2000)}`);
+      assert.match(r.stdout, /# pass [1-9]/, `${file} ran no test matching "${name}"`);
+      assert.deepEqual(fs.readdirSync(tmp).filter((f) => /^sm-(media|fake-ffmpeg)-/.test(f)), [], `${file} left its folder in the temp directory`);
+    }
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// ---------------------------------------------------------------- energy presets (P11b)
+test('P11b README: the template card at each energy, side by side, each GIF within the tile budget and passing flash as a file', async () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(md, /^## Energy presets$/m);
+  const row = md.slice(md.indexOf('## Energy presets'), md.indexOf('## Looks and brand kits'));
+  const gifs = ['subtle', 'normal', 'extreme'].map((e) => `docs/media/energy-${e}.gif`);
+  for (const g of gifs) assert.match(row, new RegExp(`<img src="${g}" width="270"`), `the row shows ${g}`);
+  const { mediaProblems } = await import('../scripts/readme-media.mjs');
+  assert.deepEqual(mediaProblems(row, repoRoot).problems, []);
+  // check --file skips a GIF as an overlay (ffmpeg decodes it as bgra), so the rule is run on it directly
+  const C = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  for (const g of gifs) {
+    const r = C.flashResult(await C.measureFlash(path.join(repoRoot, g)), { scope: 'file', what: g });
+    assert.equal(r.level, 'OK', r.detail);
+  }
+});
+// council round 4, K1, then the owner's "fix the card first" (0.2.0): the card reads at its energy on every look, and the
+// docs say so and how a piece of your own cuts on a light ground
+test('P11b check.md and looks.md: every look reads at its energy, and a piece cuts with layout, scale or an accent block on a light ground', () => {
+  const flat = (f) => read(f).replace(/\s+/g, ' ');
+  const ck = flat('references/check.md'), sec6 = ck.slice(ck.indexOf('## 6. '), ck.indexOf('## 7. '));
+  for (const x of ['On every look the card reads at its energy', 'every cut changing at least 40% of the frame', '`test/card-looks-subtle.test.mjs`, `-normal` and `-extreme`',
+    'Its cuts move a block of the look\'s accent']) assert.ok(sec6.includes(x), `check.md section 6: ${x}`);
+  for (const x of ['calmer than its energy', '0.2.1', 'On five of the eight looks']) assert.ok(!ck.includes(x), `check.md no longer says: ${x}`);
+  const lk = flat('references/looks.md'), sec3 = lk.slice(lk.indexOf('## 3. '), lk.indexOf('## 4. '));
+  for (const x of ['Every look reads at its energy.', 'cut with layout, scale or an accent block, not with the ground\'s brightness']) assert.ok(sec3.includes(x), `looks.md section 3: ${x}`);
+  assert.ok(!lk.includes('WARNs as calmer'), 'looks.md no longer says the card WARNs');
+});
+test('P11b skill text: the board names its energy and why, the craft defaults per preset, the interface check reads, the launch recipe', () => {
+  const sk = read('SKILL.md');
+  assert.match(sk, /\*\*Name its energy\*\*/); assert.match(sk, /`subtle` is a choice for a calm brand or a long read, never a\s+fallback/);
+  for (const x of ['| subtle | normal (the default) | extreme |', '`energy.js`', '`moves.js`', 'cam: R.at(t, boxes(t))', '`cuts()`']) assert.ok(sk.includes(x), `SKILL.md: ${x}`);
+  assert.doesNotMatch(sk, /Post effects stay subtle/, 'the old rule became the subtle row');
+  const ck = read('references/check.md');
+  assert.match(ck, /^## 9\. Energy: what a scene gives the energy measurements$/m);
+  for (const x of ['window.INFO.ENERGY = { name, from, bpm }', '`window.sceneCuts()`', 'inkHeight:\n  [min, max]', 'motion: { min?, max? }', '`[{ t, d }]`']) assert.ok(ck.includes(x), `check.md: ${x}`);
+  assert.doesNotMatch(ck, /re-cut in P11b|P11b re-cuts/, 'no note that the showreel fails flash');
+  const sb = read('references/storyboard.md');
+  assert.match(sb, /^## 7\. Energy$/m); assert.match(sb, /snaps to a whole number of musical\s+beats/);
+  const ln = read('references/launch.md');
+  assert.match(ln, /Name its energy/); assert.match(ln, /`cutGrid` in `moves\.js`/); assert.match(ln, /bed stem/);
+  for (const f of [path.join(examplesDir, 'showreel', 'README.md'), path.join(repoRoot, 'README.md')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /fails `flash`|until P11b|P11b re-cuts/, f);
+});
+
+// P11b R1 G4: the showreel's board and sound describe the re-cut montage. The picture glitches only on the cut into it
+// (TL.glitchCuts, which post() reads), and audio.js plays its glitch blips on those cuts alone, not on every word.
+test('P11b R1 G4 the showreel: the board describes four half-second style frames, and the glitch sounds only where the picture glitches', async () => {
+  const sr = path.join(examplesDir, 'showreel');
+  const { BOARD } = await import(pathToFileURL(path.join(sr, 'board.js')).href);
+  const m = BOARD.beats.find((b) => b.id === 'montage');
+  assert.match(m.look, /four half-second style frames/); assert.doesNotMatch(m.look, /eight hard cuts|a quarter-second each/);
+  assert.doesNotMatch(m.sfx, /glitch blip per cut/); assert.match(m.sfx, /a glitch only on the cut into the montage/);
+  const scene = await import(pathToFileURL(path.join(sr, 'scene.js')).href);
+  assert.deepEqual(scene.TL.glitchCuts, [14], 'the picture glitches on the cut into the montage only');
+  for (const t of scene.TL.cuts) {
+    const g = scene.post(t + 0.02).glitch;
+    if (scene.TL.glitchCuts.includes(t)) assert.ok(g > 0.3, `a glitch at ${t} s`); else assert.ok(g < 0.01, `no glitch at ${t} s (${g})`);
+  }
+  const audio = fs.readFileSync(path.join(sr, 'audio.js'), 'utf8');
+  const perCut = audio.slice(audio.indexOf('TL.cuts.forEach('), audio.indexOf('});', audio.indexOf('TL.cuts.forEach(')));
+  assert.doesNotMatch(perCut, /g < 3/, 'no glitch blips on every cut');
+  assert.match(audio, /TL\.glitchCuts\.forEach\(\(t\) => \{\s*for \(let g = 0; g < 3; g\+\+\) blip\(/, 'the glitch blips on the glitch cuts');
 });

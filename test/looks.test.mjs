@@ -239,17 +239,26 @@ test('brand.png is a review sheet: writing it leaves the source hash a render re
   assert.notEqual(src(), a);
 });
 
-test('the template\'s card draws in the style: on brutalist, its background, ink and accent bar are the look\'s tokens', () => {
+// brutalist's tokens (a saturated yellow ground, near-black ink, red accent) are far from the template's and from the
+// other looks', so the palette match attributes its pixels without ambiguity (looks with near-black grounds share them)
+test('the template\'s card draws in the style: on brutalist, its background, ink and accent bar are the look\'s tokens, and no other palette\'s', () => {
   const dir = templatePiece('looks-template-style');
   copyLookFonts(dir, 'brutalist');
   fs.mkdirSync(path.join(dir, 'kit'));
   fs.writeFileSync(path.join(dir, 'kit', 'brutalist.json'), JSON.stringify({ name: 'Brutalist tokens', colors: LK.LOOKS.brutalist.tokens }));
-  const p = json(render(dir, ['palette', '--json', '--brand', 'kit/brutalist.json', '--param', 'look=brutalist'], { allowFail: true }));
-  const k = p.palettes[0].tokens;
-  assert.ok(k.bgA + k.bgB > 0.8, `the background is the look's bgA and bgB: ${JSON.stringify(k)}`);
-  assert.ok(k.ink > 0.003, `the title and the frame marks are the look's ink: ${JSON.stringify(k)}`);
-  assert.ok(k.accent > 0.0003, `the bar is the look's accent: ${JSON.stringify(k)}`);
-  assert.deepEqual([...p.fonts_used].sort(), ['CONDENSED', 'MONO'], 'brutalist\'s display and body faces');
+  const pal = (energy) => json(render(dir, ['palette', '--json', '--brand', 'kit/brutalist.json', '--param', 'look=brutalist', '--param', `energy=${energy}`], { allowFail: true }));
+  // at subtle the card is its layout alone (no accent block, no stripes): nearly every pixel is one of the look's tokens
+  const s = pal('subtle'), k = s.palettes[0].tokens, show = (p) => JSON.stringify({ kit: p.palettes[0].share, none: p.none, ...p.palettes[0].tokens });
+  assert.ok(s.palettes[0].share >= 0.95 && s.none <= 0.02, `at subtle the look's tokens are nearly every pixel: ${show(s)}`);
+  assert.ok(k.bgA + k.bgB > 0.8, `the background is the look's bgA and bgB: ${show(s)}`);
+  assert.ok(k.ink > 0.003, `the title and the frame marks are the look's ink: ${show(s)}`);
+  assert.ok(k.accent > 0.0003, `the bar is the look's accent: ${show(s)}`);
+  // at the board's energy (normal) the card cuts with a block of the accent and scrolls stripes in tints of its colours,
+  // however much of the frame the block covers, no other palette's colours (the template's, the other looks') come in
+  const n = pal('normal'), kn = n.palettes[0], other = n.palettes.slice(1).reduce((x, y) => (y.share > x.share ? y : x));
+  assert.ok(other.share < 0.02 && kn.share >= 20 * other.share, `no other palette at normal: the most is ${other.id}, ${other.share}, against the look's ${kn.share}`);
+  assert.ok(kn.tokens.bgA + kn.tokens.bgB >= 0.15 && kn.tokens.ink > 0.003 && kn.tokens.accent >= 0.005, `the look's ground, ink and accent all drawn at normal: ${show(n)}`);
+  assert.deepEqual([...n.fonts_used].sort(), ['CONDENSED', 'MONO'], 'brutalist\'s display and body faces');
 });
 
 test('the template\'s sound follows the style: on one fixed timeline, mono\'s effects are not the template\'s, and each repeats', () => {
@@ -277,9 +286,10 @@ for (const look of SHEET.LOOK_NAMES) {
     assert.equal(c.status, 0);
     const fonts = c.results.find((x) => x.id === 'fonts');
     for (const r of LK.ROLES) assert.ok(fonts.detail.includes(LK.LOOKS[look].fonts[r].family), `${fonts.detail} names ${LK.LOOKS[look].fonts[r].family}`);
-    // only hook_long (the card has no voice), flash (it reads a render, and the card is checked before any) and
-    // energy_match (the card declares no cuts()) are not checked
-    assert.deepEqual(c.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['energy_match', 'flash', 'hook_long']);
+    // only hook_long (the card has no voice) and flash (it reads a render, and the card is checked before any) are not
+    // checked; energy_match measures the card at the subtle energy its board names (P11b: the template declares cuts())
+    assert.deepEqual(c.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['flash', 'hook_long']);
+    assert.match(c.results.find((x) => x.id === 'energy_match').detail, /^energy subtle \(the board\) moves like it/);
     assert.match(c.results.find((x) => x.id === 'flash').detail, /not checked: no render of the whole piece/);
   });
 }

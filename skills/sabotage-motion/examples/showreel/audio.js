@@ -312,9 +312,12 @@ export async function renderAudio({ TL, CFG, params = {}, dur = CFG.DUR, sr = 48
   for (const k of TL.kicks) if (k >= 14 && k < 16) kick(k, 1);
   TL.snareRoll.forEach((t) => snare(t, 0.1 + 0.22 * prog(t, 14, 15.85), 1400 + 2600 * prog(t, 14, 15.85)));
   const cutNotes = [81, 76, 84, 72, 88, 79, 91, 69];
+  // a blip and a stab on every word as it lands; the glitch blips only where the picture glitches (TL.glitchCuts)
   TL.cuts.forEach((t, i) => {
     blip(t, cutNotes[i], 0.08, 0.06, 0.8, 'square');
     stab(t, chordAt(t).stab.map((m) => m + (i % 2) * 12), 0.07, 0.12, 5000);
+  });
+  TL.glitchCuts.forEach((t) => {
     for (let g = 0; g < 3; g++) blip(t + 0.03 + g * 0.018, 96 + Math.floor(rnd() * 12), 0.025, 0.012, 1, 'square');
   });
   for (let b = 14; b < 15.75; b += 0.25) bass(b, chordAt(b).root + 12, 0.18, 0.3, 900 + (b - 14) * 1500);

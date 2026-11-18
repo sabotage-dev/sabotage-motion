@@ -104,19 +104,28 @@ ffmpeg -i base.mp4 -i glow.mp4 -filter_complex \
 
 ## 5. Audio: mixing, mastering, loudness
 `node render.mjs full` keeps the synthesized effects next to the video (`out/<name>.wav`) and muxes them in (AAC 256k
-in MP4, PCM in ProRes, Opus in WebM). `tools/mix.mjs <name>` mixes and masters the final sound under the picture,
-copying the picture untouched; `references/voice.md` has its options.
+in MP4, PCM in ProRes, Opus in WebM). When the piece's `audio.js` has a `renderBed` (the template's does), it also
+writes the bed stem, `out/<name>.bed.wav`: the energy's beat on its grid, the picture's full length (plan 23.9).
+`tools/mix.mjs <name>` mixes and masters the final sound under the picture, copying the picture untouched;
+`references/voice.md` has its options.
 
 | Mode | Inputs | Target |
 |---|---|---|
-| default | the voice, an optional bed ducked under it, the effects, extra stems | -14 LUFS integrated, -2.0 dBTP |
-| `--master-only` | the synthesized soundtrack alone (plus any `--stem`) | -14 LUFS, -2.0 dBTP |
+| default | the voice, a bed ducked under it (the bed stem, `--bed`, or `bed.mp3`), the effects, extra stems | -14 LUFS integrated, -2.0 dBTP |
+| `--master-only` | the synthesized effects and the bed stem (or `--bed`), plus any `--stem`; no voice | -14 LUFS, -2.0 dBTP |
 | `--sting` | the synthesized soundtrack alone, for an asset cut into someone else's video | -20 LUFS, -3.0 dBTP |
 | any | `--target-lufs`, `--tp` | override the mode's numbers |
 
 - AAC adds about 0.5 dB of true peak, which is why the targets sit below the -1.0 dBTP ceiling `check` enforces.
 - A sting appended to someone else's clip: match that clip's level so the cut does not jump (`--target-lufs`).
 - Effects under a voice: 6 to 10 dB below it (`--sfx-gain`); the default puts a ducked bed about 17 dB under it.
+- The bed stem is mixed from 0, with no fade and never end-aligned (it already spans the picture on its grid), at
+  x0.22 under a voice and x0.5 with `--master-only`; `--bed-skip` and `--bed-at` are refused on it, `--no-bed` leaves
+  it out. A bed stem that is missing, or changed since the render that wrote it, is refused, never silently left
+  out: a bed stem rendered on its own (`node render.mjs audio`) is known by its own record, so it is refused when it is
+  gone, changed since, from another source than the picture, or rendered at other params or another energy than the
+  picture (`audio --param energy=extreme` after a `normal` picture is another bed), never replaced by `bed.mp3`. `master.json` records its hash so
+  `check --file`'s provenance ties it to the render.
 - Measure any file: `ffmpeg -i out.mp4 -af ebur128=peak=true -f null -` (read `I:` and the true `Peak:` in the
   summary), or `node render.mjs check --file <file> --plain --lufs -14` for a file made elsewhere.
 - End the soundtrack with a short fade (the template's `audio.js` fades the last 0.18 s) so nothing clicks at the cut.
