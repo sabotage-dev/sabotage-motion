@@ -7,6 +7,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { makePiece, render, countFrames, repoRoot, templateDir, sha256File } from './helpers.mjs';
@@ -151,7 +152,7 @@ test('P11b check --file: a bed stem from `audio` with the picture\'s settings pa
 // ---- the page itself: a static server for one piece and a page on it, for what render.mjs does not print
 let browser = null;
 const servers = [];
-async function openPage(dir, query) {
+async function openPage(dir, query, pageOpts = {}) {
   const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.woff2': 'font/woff2', '.mp4': 'video/mp4' };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -169,7 +170,7 @@ async function openPage(dir, query) {
     browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), headless: true,
       args: [...gpu, '--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'] });
   }
-  const page = await browser.newPage();
+  const page = await browser.newPage(pageOpts);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html?${new URLSearchParams({ scale: '0.25', sub: '1', ...query })}`);
@@ -180,33 +181,61 @@ after(async () => { if (browser) await browser.close(); for (const s of servers)
 
 // The extreme card's "IT" slam is the largest text the suite draws: at check's probe scale (1/2) its glyphs are over
 // 256 px, where Skia stops using its glyph atlas and draws them as paths. CI on Linux (Chrome on SwiftShader) found no
-// ink in its box. This renders that slam at check's probe scale with render.mjs's flags and asks energy_match's own
-// ink pass for it; on failure it says whether the word was drawn at all, where, and with what font.
-test('P11b the extreme card\'s largest slam ("IT", glyphs over 256 px at the probe scale) is drawn, and energy_match finds its ink', async () => {
-  const { page, ready } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: String(C.T.probeScale) });
-  assert.equal(ready, null);
-  const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS }));
-  const frames = await page.evaluate(() => window.energyBoxes());
-  const rects = C.energyRects(frames, I.W, I.H, I.RW, I.RH);
-  const fs1 = Object.keys(rects).map(Number).filter((k) => rects[k].some((x) => x.id === 'solo1')).sort((x, y) => x - y);
-  assert.ok(fs1.length > 3, `the "IT" slam (solo1) has boxes in ${fs1.length} probe frames`);
-  const mine = Object.fromEntries(fs1.map((k) => [k, [rects[k].find((x) => x.id === 'solo1').r]]));
-  const scan = await page.evaluate((o) => window.energyScan(o), { pairs: [], rects: mine, inkDelta: C.T.energy.ink.delta, inkRel: C.T.energy.ink.rel });
-  // per frame: the tallest run of inked rows in IT's box, as energy_match counts a line
-  const run = (rows) => { let best = 0, cur = 0; for (const n of rows) { cur = n >= C.T.energy.ink.px ? cur + 1 : 0; best = Math.max(best, cur); } return best; };
-  const per = fs1.map((k) => ({ f: k, rect: mine[k][0], line: run(scan.ink[k][0]) })), tallest = Math.max(...per.map((x) => x.line));
-  const mid = fs1[Math.floor(fs1.length / 2)];
-  const diag = async () => JSON.stringify({ per, ...(await page.evaluate(({ f, r }) => {
-    const p = window.renderProbe(f / window.INFO.FPS, { rgb: true }), { RW, RH } = window.INFO;
-    let max = 0, sum = 0, cnt = 0;
-    for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) { const l = p.luma[y * RW + x]; max = Math.max(max, l); sum += l; cnt++; }
-    const map = [];
-    for (let y = 0; y < RH; y += 16) { let row = ''; for (let x = 0; x < RW; x += 10) { const l = p.luma[y * RW + x], ib = x >= r[0] && x < r[2] && y >= r[1] && y < r[3]; row += l >= 160 ? (ib ? '#' : '@') : l >= 90 ? (ib ? '=' : '-') : ib ? '+' : '.'; } map.push(row); }
-    const g = document.createElement('canvas').getContext('webgl2'), dbg = g && g.getExtension('WEBGL_debug_renderer_info');
-    return { mid: f, lumaInBox: { max, mean: +(sum / Math.max(1, cnt)).toFixed(1) }, renderer: dbg ? g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null,
-      fonts: [...document.fonts].map((x) => `${x.family}:${x.status}`), map };
-  }, { f: mid, r: mine[mid][0] })) });
-  assert.ok(tallest >= ENERGY.extreme.inkHeight[0] * I.RH, `"IT" (solo1): its tallest inked line is ${tallest} of ${I.RH} probe rows, under extreme's ${ENERGY.extreme.inkHeight[0] * 100}%; ${await diag()}`);
+// ink in its box under `render.mjs check`, while a fresh page drew and measured it. This holds the slam on screen and
+// measured everywhere it is drawn: in the card's render (the video a user gets), in a fresh page, in check's own page
+// (its query and viewport), after check's scan of every frame and box sample, and in energy_match's full scan as
+// render.mjs runs it. On failure it reports every case, so the one that loses the word names the cause.
+test('P11b the extreme card\'s "IT" slam (glyphs over 256 px at the probe scale) is on screen and measured: in its render, a fresh page, and check\'s own sequence', async () => {
+  const ink = C.T.energy.ink, rep = {}, bad = [];
+  const tallest = (rows) => { let best = 0, cur = 0; for (const n of rows) { cur = n >= ink.px ? cur + 1 : 0; best = Math.max(best, cur); } return best; };
+  // on the page: IT's frames, its rects; the text-on frame in the middle of the slam, its bright pixels in IT's box
+  async function onPage(page, { checkScan = false, full = false } = {}) {
+    if (checkScan) await page.evaluate(() => window.checkScan({ probe: true, samples: true }));
+    const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS, DUR: window.INFO.DUR }));
+    const frames = await page.evaluate(() => window.energyBoxes()), rects = C.energyRects(frames, I.W, I.H, I.RW, I.RH);
+    const fs1 = Object.keys(rects).map(Number).filter((k) => rects[k].some((x) => x.id === 'solo1')).sort((x, y) => x - y);
+    const itRect = (k) => rects[k].find((x) => x.id === 'solo1').r, mid = fs1[Math.floor(fs1.length / 2)];
+    let scan, idx;
+    if (full) {   // energy_match's own scan: every box, and the pairs its cuts need (render.mjs energyCheck)
+      const info = await page.evaluate(() => window.energyInfo()), N = Math.round(I.DUR * I.FPS);
+      const pairs = C.energyPairs(C.energyRegions(info.cuts, I.DUR), I.FPS, N).filter(Boolean);
+      scan = await page.evaluate((o) => window.energyScan(o), { pairs, rects: Object.fromEntries(Object.entries(rects).map(([f, l]) => [f, l.map((b) => b.r)])), inkDelta: ink.delta, inkRel: ink.rel });
+      idx = (k) => rects[k].findIndex((x) => x.id === 'solo1');
+    } else {
+      scan = await page.evaluate((o) => window.energyScan(o), { pairs: [], rects: Object.fromEntries(fs1.map((k) => [k, [itRect(k)]])), inkDelta: ink.delta, inkRel: ink.rel });
+      idx = () => 0;
+    }
+    const line = Math.max(...fs1.map((k) => tallest(scan.ink[k][idx(k)])));
+    const lit = await page.evaluate(({ f, r }) => {
+      const p = window.renderProbe(f / window.INFO.FPS), { RW } = window.INFO;
+      let n = 0; for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) if (p.luma[y * RW + x] >= 160) n++;
+      return n;
+    }, { f: mid, r: itRect(mid) });
+    return { frames: fs1.length, mid, rect: itRect(mid), line, floor: Math.ceil(ENERGY.extreme.inkHeight[0] * I.RH), lit, RH: I.RH };
+  }
+  const judge = (name, x) => { rep[name] = x; if (!(x.line >= x.floor && x.lit > 0)) bad.push(name); };
+  // 1. the render: out/card-extreme.mp4 (the `full` render in before(), --scale 0.25), decoded, the slam's middle frame
+  {
+    const { page } = await openPage(card, { scene: 'scene.js', 'p.energy': 'extreme', scale: '0.25', sub: '2' });
+    const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS }));
+    const rects = C.energyRects(await page.evaluate(() => window.energyBoxes()), I.W, I.H, I.RW, I.RH);
+    const fs1 = Object.keys(rects).map(Number).filter((k) => rects[k].some((x) => x.id === 'solo1')).sort((x, y) => x - y);
+    const mid = fs1[Math.floor(fs1.length / 2)], r = rects[mid].find((x) => x.id === 'solo1').r;
+    const raw = spawnSync('ffmpeg', ['-v', 'error', '-i', P(card, 'out/card-extreme.mp4'), '-vf', `select=eq(n\\,${mid})`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 64 << 20 }).stdout;
+    let lit = 0; for (let y = r[1]; y < r[3]; y++) for (let x = r[0]; x < r[2]; x++) if (raw[y * I.RW + x] >= 160) lit++;
+    rep.render = { mid, rect: r, lit, size: `${I.RW}x${I.RH}`, bytes: raw.length };
+    if (!(raw.length === I.RW * I.RH && lit > 0)) bad.push('render');
+    await page.close();
+  }
+  // 2. a fresh page at check's probe scale; 3. check's own page (its query and viewport); 4. after check's scan;
+  // 5. and energy_match's full scan after it, as render.mjs check runs them
+  const probe = String(C.T.probeScale), q = { scene: 'scene.js', 'p.energy': 'extreme', scale: probe };
+  { const { page } = await openPage(card, q); judge('fresh', await onPage(page)); await page.close(); }
+  const checkPage = () => openPage(card, { ...q, sub: '2', check: '1' }, { viewport: { width: 540, height: 960 } });
+  { const { page } = await checkPage(); judge('checkPage', await onPage(page)); await page.close(); }
+  { const { page } = await checkPage(); judge('afterCheckScan', await onPage(page, { checkScan: true })); await page.close(); }
+  { const { page } = await checkPage(); judge('checkSequence', await onPage(page, { checkScan: true, full: true })); await page.close(); }
+  assert.deepEqual(bad, [], `"IT" (solo1) lost in: ${bad.join(', ')}; every case: ${JSON.stringify(rep)}`);
 });
 
 test('P11b the interface check measures: INFO.ENERGY names the energy and where it came from, sceneCuts() returns the scene\'s cuts checked', async () => {
