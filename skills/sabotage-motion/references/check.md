@@ -161,12 +161,12 @@ each example's README names them:
 
 | Example | `check` (source) | `check --file` | Kept on purpose |
 |---|---|---|---|
-| `explainer-beat` | 12 ok, 0 WARN | 17 ok, 0 WARN | none |
-| `lower-third` (`--alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
-| `showreel` | 7 ok, 0 WARN, 5 not checked (no `boxes(t)`: the four text checks; no `hookMax`) | 11 ok, 0 WARN, 6 not checked (the same, and no voice); `flash` ok (the most too fast: 12,718 px, general, at 7.28 s) | none. Re-cut in P11b so it passes `flash`: its README says how. |
-| `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
-| `repo-launch` (at `normal`) | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice); `flash` ok (12,685 px at most); `audio_spike` over the effects and the bed stem | none |
-| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | 15 ok, 0 WARN, 3 not checked (the scene is silent, no hook); `flash` ok on the composite (the most too fast: 63 px) | none |
+| `explainer-beat` | 12 ok, 0 WARN, 1 not checked (no `cuts()`) | 17 ok, 0 WARN, 1 not checked (no `cuts()`) | none |
+| `lower-third` (`--alpha`) | 7 ok, 6 not checked (silent, no hook, an overlay's first frame, its flashes and its energy) | `.mov` and `.webm` with `--plain --alpha`: `file_spec` ok, `flash` not checked (an overlay) | none |
+| `showreel` | 7 ok, 0 WARN, 6 not checked (no `boxes(t)`: the four text checks; no `hookMax`; no `cuts()`) | 11 ok, 0 WARN, 7 not checked (the same, and no voice); `flash` ok (the most too fast: 12,718 px, general, at 7.28 s) | none. Re-cut in P11b so it passes `flash`: its README says how. |
+| `terminal-demo` | 11 ok, 0 WARN, 2 not checked (no `hookMax`, no `cuts()`) | 15 ok, 0 WARN, 3 not checked (no `hookMax`, no voice, no `cuts()`) | none |
+| `repo-launch` (at `normal`) | 12 ok, 0 WARN, 1 not checked (no `hookMax`); `energy_match` ok | 16 ok, 0 WARN, 2 not checked (no `hookMax`, no voice); `flash` ok (12,685 px at most); `audio_spike` over the effects and the bed stem | none |
+| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 6 not checked (silent, no hook, an overlay's first frame, its flashes and its energy) | 15 ok, 0 WARN, 4 not checked (the scene is silent, no hook, an overlay's energy); `flash` ok on the composite (the most too fast: 63 px) | none |
 
 Each source check above includes `energy_match` (section 8). `repo-launch` is OK at `normal`: a mean shot of 1.25 s
 (11 confirmed cuts in 15 s; range 1.03-1.55 s), its largest line 9.7% of the frame height (range 9-16%), motion 3.9%

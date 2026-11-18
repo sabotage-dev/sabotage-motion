@@ -72,10 +72,10 @@ Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-17, the r
 
 | Check | Result |
 |---|---|
-| `check` (the source) | 0 FAIL, 0 WARN, 10 ok; `hook_long` not checked (no voice, so no `hookMax`), `flash` not checked until it is rendered |
+| `check` (the source) | 0 FAIL, 0 WARN, 12 ok, `energy_match` and `flash` among them (`flash` once it is rendered); `hook_long` not checked (no voice, so no `hookMax`) |
 | `palette` | pass: the kit's `bgA` and `bgB` take 95.31% of the probe's pixels (the second ground is close enough to `bgB` to count as it), its `accent` 1.28%; the most any look takes is `paper`'s, 0.09%, and no look's accent takes any. The fonts drawn: Snagwick Display, Snagwick Text and the template's MONO |
-| `check --file out/repo-launch-final.mp4` | 0 FAIL, 0 WARN, 15 ok; -13.9 LUFS, -2.4 dBTP; `flash` ok (the largest too-fast area 12,685 px, under 21,824); `audio_spike` hears the effects and the bed summed; `hook_long` and `vo_delay` not checked (no voice) |
-| the energy, measured from the frames (with `energy_match`'s thresholds, `references/check.md`) | 11 declared cuts, 11 confirmed: a mean shot of 1.25 s (2.4 beats, inside normal's 2 to 3); the largest line's ink 9.8% of the height (the end card's name); median motion 3.5% of pixels a frame (normal's floor is 2%) |
+| `check --file out/repo-launch-final.mp4` | 0 FAIL, 0 WARN, 16 ok; -13.9 LUFS, -2.4 dBTP; `flash` ok (the largest too-fast area 12,685 px, under 21,824); `audio_spike` hears the effects and the bed summed; `hook_long` and `vo_delay` not checked (no voice) |
+| `energy_match`, the energy measured from the frames (`references/check.md` section 8) | OK at `normal`: 11 declared cuts, 11 confirmed, a mean shot of 1.25 s (2.4 beats, inside normal's 1.03-1.55 s); the largest line 9.7% of the height (the end card's name; normal's 9-16%); median motion 3.9% of pixels a frame (normal's floor is 2%) |
 
 `scene.js` reads the logo from `brand.json` and the screenshot from `assets/shots/app.png`, draws in the kit's colours
 and faces over the `product` look (quiet post, snap entrances, no glitch), and returns every text box from `boxes(t)`,
