@@ -320,15 +320,16 @@ export function boardKey(board) {
 // Beat windows in picture time, half-open, contiguous, covering [0, dur) (plan section 6.3). With `cues`
 // (cues.js's exports) the take places the voiced beats; without, the estimate does. Never throws: a
 // board or cues.js that cannot be timed comes back with ok: false and the reasons in `problems`.
-// The beat grid (plan 23.9): a board with no voice that names its energy (or its bpm) snaps each beat to a whole
-// number of musical beats at its tempo (energy.js snapDur: the nearest, at least one, and never shorter than its copy
-// needs to be read); opts.energy is the energy in effect (--param energy), else the board's own, else normal. A voiced
+// The beat grid (plan 23.9): a board with no voice snaps each beat to a whole number of musical beats at its tempo
+// (energy.js snapDur: the nearest, at least one, and never shorter than its copy needs to be read) once an energy is
+// chosen anywhere: opts.energy, the energy in effect (--param energy or CFG.ENERGY), else the board's own energy or
+// bpm. With none anywhere it keeps its lengths as written. A voiced
 // board never snaps: the voice sets every window; nor does a clip's board (opts.clip: the clip sets its length, and its
 // energy only picks the captions' style). `bpm` and `snapped` say which grid applied.
 export function boardTiming(board, cues = null, opts = {}) {
   const problems = boardProblems(board);
   let grid = null;
-  if (!problems.length && !opts.clip && boardSnaps(board)) {
+  if (!problems.length && !opts.clip && boardSnaps(board, opts.energy || null)) {
     const name = opts.energy || board.energy || DEFAULT_ENERGY;
     if (!ENERGY_NAMES.includes(name)) problems.push(`energy "${name}": one of ${ENERGY_NAMES.join(', ')}`);
     else { try { grid = { name, bpm: boardBpm(board, name) }; } catch (e) { problems.push(e.message); } }
@@ -463,13 +464,23 @@ let _timing = null;
 // The energy the page renders at when --param energy names one (render.mjs puts it in the page's URL as p.energy); the
 // board's beats snap at that energy's tempo. Null in Node and without the param.
 export const PAGE_ENERGY = typeof location === 'object' && location && location.search ? new URLSearchParams(location.search).get('p.energy') || null : null;
+let _cfgEnergy = null;
+// CFG.ENERGY sets the grid too. A scene computes CFG.DUR = boardDur() before its CFG exists, so the harness reads
+// CFG.ENERGY afterwards and asks here whether it re-times the board: true when it does (a board with no voice and no
+// energy of its own, no --param, no clip), and the timing is then redone at that energy, for the scene to be evaluated
+// again. False when it changes nothing.
+export function retimeFor(energy) {
+  if (!energy || PAGE_ENERGY || CLIP || !BOARD || BOARD.energy != null || _cfgEnergy === energy || !boardSnaps(BOARD, energy)) return false;
+  _cfgEnergy = energy; _timing = null;
+  return true;
+}
 // The piece's board timing: { estimated, voOffset, dur, lead, tail, windows: [{ id, index, start, end, voiced, beat }],
 // bpm, snapped }. `estimated` is true while voiced beats are timed by the estimate (no cues.js yet).
 export function boardInfo() {
   if (_board.error) throw new Error(_board.error);
   if (_cues.error) throw new Error(_cues.error);
   if (!BOARD) throw new Error('this piece has no board.js exporting BOARD (copy one from the template)');
-  if (!_timing) _timing = boardTiming(BOARD, CUES, { energy: PAGE_ENERGY, clip: !!CLIP });
+  if (!_timing) _timing = boardTiming(BOARD, CUES, { energy: PAGE_ENERGY || _cfgEnergy, clip: !!CLIP });
   if (!_timing.ok) throw new Error('board.js: ' + _timing.problems.join('; '));
   return _timing;
 }

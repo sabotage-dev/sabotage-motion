@@ -34,9 +34,10 @@
 // energy: subtle, normal or extreme (plan 23.9, energy.js): how much the piece moves. Name it on every
 // board, and say which you chose and why; subtle is a choice, not the default (--param energy= overrides
 // it for a render). bpm: the piece's own tempo, within 10% of its energy's (84, 116 or 136 BPM). bed:
-// false makes the bed stem silent (subtle only). A board with no voice that names its energy snaps each
-// beat's dur to a whole number of musical beats at its tempo (the nearest, at least one, never shorter
-// than its copy needs to be read); a voiced board never snaps: the voice sets every window.
+// false makes the bed stem silent (subtle only). A board with no voice snaps each beat's dur to a whole
+// number of musical beats at its tempo once an energy is chosen anywhere (here, --param energy= or
+// CFG.ENERGY): the nearest, at least one, never shorter than its copy needs to be read. A voiced board
+// never snaps: the voice sets every window.
 //
 // This template's board is the example scene: a silent title card of about 3 s in two beats, at normal.
 export const BOARD = {

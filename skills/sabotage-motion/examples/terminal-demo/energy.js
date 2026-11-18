@@ -128,10 +128,12 @@ export function snapDur(dur, spb, need = 0) {
   const n = Math.max(1, Math.round(dur / spb - 1e-9), Math.ceil(need / spb - 1e-9));
   return n * spb;
 }
-// Whether a board's beats snap: it has no voiced beat, and it names its energy or its tempo (a board from before the
-// presets keeps its lengths as written; lib.js boardTiming never snaps a clip's board, whose clip sets its length).
-export const boardSnaps = (board) => !!board && Array.isArray(board.beats) && board.beats.length > 0 &&
-  board.beats.every((b) => b && b.vo == null) && (board.energy != null || board.bpm != null);
+// Whether a board's beats snap: it has no voiced beat, and an energy was chosen somewhere: `energy`, the energy in
+// effect from --param or CFG.ENERGY, or the board's own `energy` or `bpm`. A board with no energy anywhere (a piece from
+// before the presets) keeps its lengths as written; lib.js boardTiming never snaps a clip's board, whose clip sets its
+// length.
+export const boardSnaps = (board, energy = null) => !!board && Array.isArray(board.beats) && board.beats.length > 0 &&
+  board.beats.every((b) => b && b.vo == null) && (energy != null || board.energy != null || board.bpm != null);
 
 // ---- the beat grid
 // Musical beat times from `from` up to (not including) `to`, every `every` beats at `spb` seconds a beat, counted

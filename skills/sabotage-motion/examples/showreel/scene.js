@@ -65,7 +65,8 @@ export const TL = {
   hats: range(2.25, 14, 0.5),
   hats16: range(6, 14, 0.25).filter((t) => (t * 4) % 2 === 1),
   snareRoll: [...range(14, 15, 0.125), ...range(15, 15.5, 0.0625), ...range(15.5, 15.85, 0.03125)],
-  cuts: range(14, 16, 0.25),
+  cuts: range(14, 16, 0.25),     // a word lands on every one of these (the montage's beat)
+  glitchCuts: [14],              // the cuts the picture glitches on: the cut into the montage only (post, audio.js)
   // every tile a shape wave reaches, per wave, in the order it reaches them
   waves: WAVES.map((_, w) => {
     const hits = [];
@@ -1081,7 +1082,7 @@ export function post(t) {
   else { p.bloom = 0.8; p.thr = 0.96; if (t < 16.6) { p.bloom = 1.0; p.thr = 0.6; } }
   const flash = (t0, a, d) => { if (t >= t0) p.flash = Math.max(p.flash, a * Math.exp(-(t - t0) * d)); };
   flash(2.0, 0.3, 12); flash(6.0, 0.35, 10); flash(8.0, 0.25, 10); flash(16.0, 0.35, 6);
-  for (const tc of TL.cuts) if (t >= tc && !(tc > 14 && tc < 16)) p.glitch = Math.max(p.glitch, 0.75 * Math.exp(-(t - tc) * 40));
+  for (const tc of TL.glitchCuts) if (t >= tc) p.glitch = Math.max(p.glitch, 0.75 * Math.exp(-(t - tc) * 40));
   p.glitch = Math.max(p.glitch, 0.6 * prog(t, 13.7, 14.0) * (t < 14 ? 1 : 0));
   p.fade = 1 - prog(t, 19.82, 19.97);   // it opens on the dot (the first frame is the thumbnail) and fades out at the end
   return p;

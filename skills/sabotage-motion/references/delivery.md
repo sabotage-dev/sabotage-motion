@@ -122,7 +122,9 @@ writes the bed stem, `out/<name>.bed.wav`: the energy's beat on its grid, the pi
 - The bed stem is mixed from 0, with no fade and never end-aligned (it already spans the picture on its grid), at
   x0.22 under a voice and x0.5 with `--master-only`; `--bed-skip` and `--bed-at` are refused on it, `--no-bed` leaves
   it out. A bed stem that is missing, or changed since the render that wrote it, is refused, never silently left
-  out, and `master.json` records its hash so `check --file`'s provenance ties it to the render.
+  out: a bed stem rendered on its own (`node render.mjs audio`) is known by its own record, so it is refused when it is
+  gone or comes from another source than the picture, never replaced by `bed.mp3`. `master.json` records its hash so
+  `check --file`'s provenance ties it to the render.
 - Measure any file: `ffmpeg -i out.mp4 -af ebur128=peak=true -f null -` (read `I:` and the true `Peak:` in the
   summary), or `node render.mjs check --file <file> --plain --lufs -14` for a file made elsewhere.
 - End the soundtrack with a short fade (the template's `audio.js` fades the last 0.18 s) so nothing clicks at the cut.

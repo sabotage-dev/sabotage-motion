@@ -106,13 +106,14 @@ All windows are picture time (seconds from the first frame), half-open, contiguo
 `words / wps + 0.25` s (tags are not words), a silent beat its `dur`. The voice would start after any leading
 silent beats plus `lead`.
 
-**A board with no voice, on the beat grid.** When a board has no voiced beat and names its `energy` (or a `bpm`), each
-beat's `dur` snaps to a whole number of musical beats at its tempo: the nearest, at least one, and never shorter than
+**A board with no voice, on the beat grid.** When a board has no voiced beat and an energy is chosen anywhere (its own
+`energy` or `bpm`, `--param energy=`, or the scene's `CFG.ENERGY`), each beat's `dur` snaps to a whole number of musical
+beats at its tempo: the nearest, at least one, and never shorter than
 its copy needs to be read (`max(1.0, 0.25 x words)` for its longest `on` string). The template's `title` (2.6 s) and
 `out` (0.55 s) are 4 and 1 beats at subtle's 84 BPM, 5 and 1 at normal's 116, 6 and 1 at extreme's 136. The grid is
 the energy in effect, so `--param energy=extreme` re-times the board at 136 BPM. A voiced board never snaps: the voice
 sets every window, and the grid only places the visual cuts and hits inside them. A clip's board never snaps either
-(its clip sets the length), and a board that names no energy keeps its lengths as written.
+(its clip sets the length), and a board with no energy anywhere keeps its lengths as written.
 
 **Once `cues.js` exists.** The take is the only source for voiced beats:
 

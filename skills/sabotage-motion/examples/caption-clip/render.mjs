@@ -568,15 +568,18 @@ async function flashOnFile(file, rec) {
   }
   return C.flashResult(await C.measureFlash(file), { scope: 'file', what: relRoot(file) });
 }
-// The gains the mixer puts on the effects and the bed (plan 23.9: audio_spike hears what is mixed): a master's own
-// (master.json's stems), else tools/mix.mjs's defaults: a voiced board's (effects 0.9) or the effects alone (1.0), and
-// the bed at its bed gain.
+// The gains the mixer puts on the effects and the bed stem (plan 23.9: audio_spike hears what is mixed). With a master,
+// each stem at the gain its master.json records for it, and a stem the mix left out (--no-sfx, --no-bed, --sting, or a
+// bed from a file instead of the bed stem) at zero: it is not heard. Without one (a source check), tools/mix.mjs's
+// defaults: a voiced board's (effects 0.9, bed 0.22) or the effects alone (1.0, bed 0.5).
 async function heardGains(mj, board) {
+  if (mj && Array.isArray(mj.stems)) {
+    const fx = mj.stems.find((x) => x.role === 'effects'), bd = mj.stems.find((x) => x.role === 'bed' && x.generated);
+    return { sfx: fx ? fx.gain : 0, bed: bd ? bd.gain : 0, from: `as ${mj.name}.master.json mixed ${fx && bd ? 'them' : 'it'}`, master: true };
+  }
   const MX = await import(pathToFileURL(path.join(root, 'tools', 'mix.mjs')).href);
-  const st = (mj && mj.stems) || [], fx = st.find((x) => x.role === 'effects'), bd = st.find((x) => x.role === 'bed' && x.generated);
-  if (fx && bd) return { sfx: fx.gain, bed: bd.gain, from: `as ${mj.name}.master.json mixed them` };
   const voiced = !!(board && (board.beats || []).some((b) => b && b.vo != null));
-  return { sfx: voiced ? MX.DEFAULTS.sfxGain : MX.DEFAULTS.sfxGainSolo, bed: voiced ? MX.DEFAULTS.bedGain : MX.DEFAULTS.bedGainSolo, from: `tools/mix.mjs's ${voiced ? 'voiced' : '--master-only'} gains` };
+  return { sfx: voiced ? MX.DEFAULTS.sfxGain : MX.DEFAULTS.sfxGainSolo, bed: voiced ? MX.DEFAULTS.bedGain : MX.DEFAULTS.bedGainSolo, from: `tools/mix.mjs's ${voiced ? 'voiced' : '--master-only'} gains`, master: false };
 }
 async function importPiece(name) {
   const f = path.join(root, name);
@@ -713,7 +716,7 @@ async function check() {
   const BOARD = B.mod ? B.mod.BOARD || null : null;
   const boardError = B.error || (B.mod && !BOARD ? 'board.js does not export BOARD' : null);
   const cues = Q.mod ? { VO_OFFSET: Q.mod.VO_OFFSET, CUE: Q.mod.CUE, TAKE: Q.mod.TAKE, GAPS: Q.mod.GAPS || [], HOOK_END: Q.mod.HOOK_END, WORDS: Q.mod.WORDS || [], BOARD_KEY: Q.mod.BOARD_KEY } : null;
-  const timing = BOARD ? lib.boardTiming(BOARD, cues, { energy: (settings.params || {}).energy || null, clip: !!lib.CLIP }) : null;
+  let timing = BOARD ? lib.boardTiming(BOARD, cues, { energy: (settings.params || {}).energy || null, clip: !!lib.CLIP }) : null;
 
   // ---- the page, at the probe's scale, with the render's settings. When the source checks do not run (--plain, or
   // provenance failed), the scene is loaded only for file_spec, and only when no render record gives the settings;
@@ -732,6 +735,8 @@ async function check() {
       INFOc = await page.evaluate(() => window.INFO);
     } catch (e) { sceneFail(`${settings.scene} did not load: ${e.message.split('\n')[0]}`); }
   }
+  // a scene's CFG.ENERGY times the board too (lib.js retimeFor): time it here as the page did
+  if (BOARD && INFOc && INFOc.ENERGY && INFOc.ENERGY.from === 'CFG.ENERGY') timing = lib.boardTiming(BOARD, cues, { energy: INFOc.ENERGY.name, clip: !!lib.CLIP });
   const fps = INFOc && INFOc.FPS, dur = INFOc && INFOc.DUR;
   const windows = timing && timing.ok ? timing.windows : dur ? [{ id: '(piece)', index: 0, start: 0, end: dur, beat: {} }] : [];
   const zoneName = target || settings.target || (BOARD && BOARD.target) || null;
@@ -836,11 +841,15 @@ async function check() {
           if (dump) { const st = C.spikeStats(wav); dump.audio = { peak: st.peak, p90: st.p90, over: st.over, rms: st.rms, loudWindows: st.loud }; }
           if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));
           else skipIds(['board_sfx_missing'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
-          if (!bedR) push(C.audioSpike(wav));
+          // what is heard: each stem the master mixes, at its gain (heardGains); a stem it left out is not
+          const g = await heardGains(prov && prov.mj, BOARD);
+          const fxOn = g.sfx > 0, bedOn = !!bedR && g.bed > 0;
+          if (!fxOn && !bedOn) push({ id: 'audio_spike', scope: 'source', level: 'OK', detail: `nothing to hear: the master mixes neither the effects nor the bed stem (${g.from})`, threshold: C.T.spike.db });
+          else if (!bedOn) push(C.audioSpike(wav, g.master ? { what: `the effects stem (x${g.sfx}, ${g.from})` } : {}));
+          else if (!fxOn) push(C.audioSpike(C.readWav(fs.readFileSync(bedOut)), { what: `the bed stem (x${g.bed}) alone (${g.from})` }));
           else {
-            const g = await heardGains(prov && prov.mj, BOARD);
             const heard = C.mixWavs([{ wav, gain: g.sfx }, { wav: C.readWav(fs.readFileSync(bedOut)), gain: g.bed }]);
-            push(C.audioSpike(heard, { what: `the effects (x${g.sfx}) and the bed stem (x${g.bed}) summed${g.from ? ` (${g.from})` : ''}` }));
+            push(C.audioSpike(heard, { what: `the effects (x${g.sfx}) and the bed stem (x${g.bed}) summed (${g.from})` }));
           }
         } catch (e) {
           // under every effects check asked for, so --only cannot hide it

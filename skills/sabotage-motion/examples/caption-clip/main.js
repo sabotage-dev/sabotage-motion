@@ -89,6 +89,13 @@ async function boot() {
   if (!/^[\w][\w./-]*\.m?js$/.test(SCENE_FILE) || SCENE_FILE.includes('..')) throw new Error(`bad scene file name: ${SCENE_FILE}`);
   scene = await import('./' + SCENE_FILE);
   CFG = scene.CFG;
+  // CFG.ENERGY sets the beat grid too (plan 23.9). The scene timed itself from the board (CFG.DUR = boardDur(), its TL
+  // from beatWindow) before its CFG existed; when CFG names an energy that re-times the board (lib.js retimeFor), the
+  // scene is evaluated again, as a fresh module on the same lib.js, so its length and timeline are the re-timed board's.
+  if (CFG && CFG.ENERGY && !params.energy) {
+    const lib = await import('./lib.js');
+    if (lib.retimeFor(CFG.ENERGY)) { scene = await import('./' + SCENE_FILE + '?energy=' + encodeURIComponent(CFG.ENERGY)); CFG = scene.CFG; }
+  }
   if (!CFG) throw new Error(`${SCENE_FILE} does not export CFG`);
   const T = await loadTarget(TARGET);
   if (T) {

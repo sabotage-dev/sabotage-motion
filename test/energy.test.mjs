@@ -242,3 +242,112 @@ test('P11b bed: false at subtle writes a silent bed stem, recorded as silent; re
   assert.equal(json(P(dir, 'out/n.bed.wav.render.json')).bedSilent, false);
   assert.ok(decode(P(dir, 'out/n.bed.wav')).some((x) => Math.abs(x) > 0.05), 'the normal bed plays');
 });
+
+// ---------------------------------------------------------------- council round 1 (P11b R1)
+// G1: audio_spike hears what the master mixes: each stem at the gain master.json records for it, a stem the mix left
+// out at zero. fixture-heard's stems judge differently alone and summed: with stems=a the effects spike alone and the
+// bed masks them; with stems=b the bed has a click and the effects would mask it.
+const spikeOf = (dir, file) => {
+  const r = render(dir, ['check', '--file', file, '--only', 'audio_spike', '--json'], { allowFail: true });
+  const x = JSON.parse(r.stdout).find((y) => y.id === 'audio_spike');
+  assert.ok(x, r.out); return x;
+};
+let heard = null;
+function heardPieces() {
+  if (heard) return heard;
+  heard = {};
+  for (const s of ['a', 'b']) {
+    const d = makePiece(`energy-heard-${s}`, 'fixture-heard');
+    fs.writeFileSync(P(d, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // the voice first: it is part of the source
+    writeCues(d, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
+    render(d, ['full', '--param', `stems=${s}`, '--scale', '0.25', '--sub', '1', '--out', 'out/h.mp4']);
+    heard[s] = d;
+  }
+  return heard;
+}
+const mixedSpike = (s, args) => { const d = heardPieces()[s]; ok(runMix(d, ['h', ...args])); return spikeOf(d, 'out/h-final.mp4'); };
+test('P11b R1 G1 --master-only with both stems: the effects at x1 and the bed at x0.5, the bed masking the hit', () => {
+  const x = mixedSpike('a', ['--master-only']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5\)/);
+});
+test('P11b R1 G1 --master-only --no-bed: the bed is not heard, so the hit alone is a spike', () => {
+  const x = mixedSpike('a', ['--master-only', '--no-bed']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /bed stem/);
+});
+test('P11b R1 G1 --sting: the effects alone, so the hit is a spike', () => {
+  const x = mixedSpike('a', ['--sting']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /bed stem/);
+});
+test('P11b R1 G1 a voiced mix with --no-bed: the effects at x0.9 alone, a spike', () => {
+  const x = mixedSpike('a', ['--no-bed']);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects stem \(x0\.9, as h\.master\.json mixed it\)/); assert.doesNotMatch(x.detail, /bed stem/);
+});
+test('P11b R1 G1 a voiced mix with its bed: the effects at x0.9 and the bed at x0.22', () => {
+  const x = mixedSpike('a', []);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects \(x0\.9\) and the bed stem \(x0\.22\)/);
+});
+test('P11b R1 G1 --master-only --no-sfx: the effects are not heard, so the bed\'s click is a spike they no longer mask', () => {
+  let x = mixedSpike('b', ['--master-only', '--no-sfx']);
+  assert.equal(x.level, 'WARN', x.detail); assert.doesNotMatch(x.detail, /the effects/);
+  x = mixedSpike('b', ['--master-only']);
+  assert.equal(x.level, 'OK', x.detail);
+});
+test('P11b R1 G1 a mix of neither stem (voiced, --no-sfx --no-bed): nothing of theirs to hear', () => {
+  const x = mixedSpike('b', ['--no-sfx', '--no-bed']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /mixes neither the effects nor the bed stem/);
+});
+
+// G2: a bed stem rendered on its own (`audio`, with its own record) and then lost or left stale is refused by the mix,
+// not quietly left out or replaced by bed.mp3.
+test('P11b R1 G2 a bed stem from `audio` that is missing, or from another source than the picture, is refused; never left out or replaced by bed.mp3', () => {
+  const dir = path.join(work, 'energy-sepbed');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  for (const f of fs.readdirSync(P(dir, 'out'))) fs.rmSync(P(dir, `out/${f}`), { force: true });
+  fs.writeFileSync(P(dir, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // for the voiced mix below; source, so first
+  writeCues(dir, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);
+  render(dir, ['audio', '--out', 'out/s.wav']);
+  assert.ok(fs.existsSync(P(dir, 'out/s.bed.wav.render.json')), 'audio recorded the bed on its own');
+  assert.equal(json(P(dir, 'out/s.mp4.render.json')).bed, undefined, 'the picture\'s record names no bed');
+  ok(runMix(dir, ['s', '--master-only']));
+  assert.ok(json(P(dir, 'out/s.master.json')).stems.some((x) => x.role === 'bed' && x.generated), 'mixed with its bed');
+  const keep = fs.readFileSync(P(dir, 'out/s.bed.wav'));
+  fs.rmSync(P(dir, 'out/s.bed.wav'));
+  let r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav that render\.mjs audio recorded is missing/);
+  // a voiced mix does not fall back to bed.mp3 either
+  fs.writeFileSync(P(dir, 'bed.mp3'), keep);   // any audio file under that name
+  r = runMix(dir, ['s']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /that render\.mjs audio recorded is missing/);
+  ok(runMix(dir, ['s', '--no-bed']));
+  fs.rmSync(P(dir, 'bed.mp3'));
+  // stale: the bed rendered from an older source than the picture
+  fs.writeFileSync(P(dir, 'out/s.bed.wav'), keep);
+  ok(runMix(dir, ['s', '--master-only']));
+  fs.appendFileSync(P(dir, 'scene.js'), '\n// a later edit\n');
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);
+  r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav was rendered from another source than out\/s\.mp4/);
+});
+
+// G3: the energy in effect sets the grid wherever it was chosen (--param, CFG.ENERGY, the board); a silent board with
+// no energy anywhere keeps its written lengths.
+test('P11b R1 G3 a silent board snaps to the energy chosen by --param or CFG.ENERGY, though it names none; with none anywhere it keeps its lengths', () => {
+  const dir = makePiece('energy-snap-any', 'fixture-clean');
+  for (const f of ['scene.js', 'audio.js']) fs.copyFileSync(path.join(templateDir, f), P(dir, f));
+  const board = fs.readFileSync(path.join(templateDir, 'board.js'), 'utf8').replace(/^  energy: 'normal',.*\n/m, '');
+  assert.doesNotMatch(board, /^\s*energy:/m);
+  fs.writeFileSync(P(dir, 'board.js'), board);   // title 2.6 s, out 0.55 s: 3.15 s as written
+  const frames = (args, out) => { render(dir, ['video', ...args, '--scale', '0.25', '--sub', '1', '--out', out]); return countFrames(P(dir, out)); };
+  assert.equal(frames([], 'out/none.mp4'), Math.round(3.15 * 30), 'no energy anywhere: the written lengths');
+  assert.equal(frames(['--param', 'energy=subtle'], 'out/p.mp4'), Math.round((5 * 60 / 84) * 30), '--param energy=subtle: five beats at 84 BPM');
+  // CFG.ENERGY in a scene: the same scene, naming its energy in CFG
+  const cfg = fs.readFileSync(path.join(templateDir, 'scene.js'), 'utf8').replace("export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };",
+    "export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'], ENERGY: 'subtle' };");
+  assert.match(cfg, /ENERGY: 'subtle'/);
+  fs.writeFileSync(P(dir, 'cfg.js'), cfg);
+  assert.equal(frames(['--scene', 'cfg.js'], 'out/c.mp4'), Math.round((5 * 60 / 84) * 30), 'CFG.ENERGY subtle: five beats at 84 BPM');
+  // check times the board the way the page does
+  const r = render(dir, ['check', '--scene', 'cfg.js', '--only', 'board_order', '--json'], { allowFail: true });
+  assert.equal(JSON.parse(r.stdout).find((x) => x.id === 'board_order').level, 'OK', r.out);
+});

@@ -436,8 +436,28 @@ test('P11b skill text: the board names its energy and why, the craft defaults pe
   for (const x of ['window.INFO.ENERGY = { name, from, bpm }', '`window.sceneCuts()`', 'inkHeight:\n  [min, max]', 'motion: { min?, max? }', '`[{ t, d }]`']) assert.ok(ck.includes(x), `check.md: ${x}`);
   assert.doesNotMatch(ck, /re-cut in P11b|P11b re-cuts/, 'no note that the showreel fails flash');
   const sb = read('references/storyboard.md');
-  assert.match(sb, /^## 7\. Energy$/m); assert.match(sb, /snaps to a whole number of musical beats/);
+  assert.match(sb, /^## 7\. Energy$/m); assert.match(sb, /snaps to a whole number of musical\s+beats/);
   const ln = read('references/launch.md');
   assert.match(ln, /Name its energy/); assert.match(ln, /`cutGrid` in `moves\.js`/); assert.match(ln, /bed stem/);
   for (const f of [path.join(examplesDir, 'showreel', 'README.md'), path.join(repoRoot, 'README.md')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /fails `flash`|until P11b|P11b re-cuts/, f);
+});
+
+// P11b R1 G4: the showreel's board and sound describe the re-cut montage. The picture glitches only on the cut into it
+// (TL.glitchCuts, which post() reads), and audio.js plays its glitch blips on those cuts alone, not on every word.
+test('P11b R1 G4 the showreel: the board describes four half-second style frames, and the glitch sounds only where the picture glitches', async () => {
+  const sr = path.join(examplesDir, 'showreel');
+  const { BOARD } = await import(pathToFileURL(path.join(sr, 'board.js')).href);
+  const m = BOARD.beats.find((b) => b.id === 'montage');
+  assert.match(m.look, /four half-second style frames/); assert.doesNotMatch(m.look, /eight hard cuts|a quarter-second each/);
+  assert.doesNotMatch(m.sfx, /glitch blip per cut/); assert.match(m.sfx, /a glitch only on the cut into the montage/);
+  const scene = await import(pathToFileURL(path.join(sr, 'scene.js')).href);
+  assert.deepEqual(scene.TL.glitchCuts, [14], 'the picture glitches on the cut into the montage only');
+  for (const t of scene.TL.cuts) {
+    const g = scene.post(t + 0.02).glitch;
+    if (scene.TL.glitchCuts.includes(t)) assert.ok(g > 0.3, `a glitch at ${t} s`); else assert.ok(g < 0.01, `no glitch at ${t} s (${g})`);
+  }
+  const audio = fs.readFileSync(path.join(sr, 'audio.js'), 'utf8');
+  const perCut = audio.slice(audio.indexOf('TL.cuts.forEach('), audio.indexOf('});', audio.indexOf('TL.cuts.forEach(')));
+  assert.doesNotMatch(perCut, /g < 3/, 'no glitch blips on every cut');
+  assert.match(audio, /TL\.glitchCuts\.forEach\(\(t\) => \{\s*for \(let g = 0; g < 3; g\+\+\) blip\(/, 'the glitch blips on the glitch cuts');
 });

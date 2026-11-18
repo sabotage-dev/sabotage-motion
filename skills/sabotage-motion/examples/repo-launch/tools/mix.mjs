@@ -13,7 +13,8 @@
 //   out/<name>.bed.wav           the bed stem, from `full` or `audio` when the piece's audio.js has a renderBed (plan
 //                                23.9: its energy preset's beat on the grid, the picture's full length): the bed of a
 //                                default or --master-only mix when no --bed is given (--no-bed leaves it out). It
-//                                must be the one its render recorded: a missing or changed bed stem is refused.
+//                                must be the one its render recorded (full's record, or its own from audio): a
+//                                missing or changed bed stem, or one from another source than the picture, is refused.
 //   vo.wav and cues.json         the voice and its VO_OFFSET, from tools/cues.mjs (default mode only)
 //   bed.mp3                      a music bed, when there is one and no bed stem (default mode; --bed names another
 //                                file in either mode)
@@ -239,24 +240,34 @@ export function bedPlan({ frames, bedFrames, skip = 0, at = null, gain = DEFAULT
 }
 
 // The bed stem for a picture (plan 23.9): { file } when the render wrote one, {} when it did not, { problem } when it
-// is missing or is not the file a render recorded. The picture's own record (`full`) names it with its SHA-256; a
-// stem from `audio` carries its own record (out/<name>.bed.wav.render.json).
+// is missing, changed, or from another source than the picture. The picture's own record (`full`) names it with its
+// SHA-256; a stem from `audio` carries its own record (out/<name>.bed.wav.render.json), which is consulted before a
+// missing file is taken to mean "no bed": a bed that was recorded and is gone is refused, never left out or replaced by
+// bed.mp3. A bed from `audio` must come from the source the picture was rendered from.
 export function bedStem(name, rec, P) {
   const file = P(`out/${name}.bed.wav`), r = `out/${name}.bed.wav`;
+  const own = ownRecord(file), redo = 'render it again (audio, or full), or mix without a bed (--no-bed)';
+  const sameSource = (x) => !(rec && rec.source && x && x.source && rec.source.hash !== x.source.hash);
   if (rec && rec.bed) {
-    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that out/${name}.mp4's render wrote is missing: render it again (full), or mix without a bed (--no-bed)` };
+    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that out/${name}.mp4's render wrote is missing: ${redo}` };
     if (sha256File(file) !== rec.bedSha256) {
-      const own = ownBedRecord(file);
-      if (!own) return { problem: `the bed stem ${r} changed after the render that wrote it: render it again (full or audio), or mix without a bed (--no-bed)` };
+      if (!own || own.audioSha256 !== sha256File(file)) return { problem: `the bed stem ${r} changed after the render that wrote it: ${redo}` };
+      if (!sameSource(own)) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4: ${redo}` };
     }
     return { file };
   }
+  if (own) {
+    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that render.mjs audio recorded is missing: ${redo}` };
+    if (own.audioSha256 !== sha256File(file)) return { problem: `the bed stem ${r} changed after the render (audio) that wrote it: ${redo}` };
+    if (!sameSource(own)) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4 (the piece changed between the two renders): ${redo}` };
+    return { file };
+  }
   if (!fs.existsSync(file)) return {};
-  if (!ownBedRecord(file)) return { problem: `the bed stem ${r} has no render record that describes it (out/${name}.bed.wav.render.json, from render.mjs audio): render it again, or mix without a bed (--no-bed)` };
-  return { file };
+  return { problem: `the bed stem ${r} has no render record that describes it (out/${name}.bed.wav.render.json, from render.mjs audio): ${redo}` };
 }
-function ownBedRecord(file) {
-  try { const x = JSON.parse(fs.readFileSync(file + '.render.json', 'utf8')); return x && x.role === 'bed' && x.audioSha256 === sha256File(file) ? x : null; } catch { return null; }
+// A bed stem's own render record (from `audio`), or null.
+function ownRecord(file) {
+  try { const x = JSON.parse(fs.readFileSync(file + '.render.json', 'utf8')); return x && x.role === 'bed' ? x : null; } catch { return null; }
 }
 
 // ---------------------------------------------------------------- the mix

@@ -90,6 +90,11 @@ test('P11b the beat grid: a silent board that names its energy snaps each beat t
   assert.ok(ct.dur >= EN.readTime(copy.beats[0].on[0]));
   // a board's own tempo
   near(lib.boardTiming({ energy: 'normal', bpm: 120, beats: [{ id: 'a', dur: 2 }] }).dur, 2, 1e-9, 'four beats at 120');
+  // the energy in effect snaps a silent board that names none (P11b R1 G3: --param, or CFG.ENERGY through the page)
+  const bare = { beats: [{ id: 'title', dur: 2.6 }, { id: 'out', dur: 0.55 }] };
+  near(lib.boardTiming(bare, null, { energy: 'extreme' }).dur, 7 * spb('extreme'), 1e-5, 'the energy in effect, though the board names none');
+  assert.equal(lib.boardTiming(bare, null, { energy: 'extreme' }).snapped, true);
+  near(lib.boardTiming(bare).dur, 3.15, 1e-9, 'with no energy anywhere it keeps its lengths');
   // a clip's board never snaps, even when it names an energy for its captions' style: the clip sets its length
   const clipB = { energy: 'extreme', beats: [{ id: 'clip', dur: 15.03 }] };
   near(lib.boardTiming(clipB, null, { clip: true }).dur, 15.03, 1e-9);
