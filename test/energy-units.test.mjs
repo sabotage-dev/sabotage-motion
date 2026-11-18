@@ -281,6 +281,11 @@ test('P11b audio_spike hears the bed: a click over the bed still warns, and hits
   const a = wav(1, () => 0.5), b = wav(2, () => 0.25), m = C.mixWavs([{ wav: a, gain: 1 }, { wav: b, gain: 2 }]);
   assert.equal(m.n, 96000); near(m.L[10], 1); near(m.L[60000], 0.5);
   assert.throws(() => C.mixWavs([{ wav: a, gain: 1 }, { wav: { ...b, sr: 44100 }, gain: 1 }]), /different sample rates/);
+  // round 2: a part's gainAt(i) (a bed's mutes, through mix.mjs's bedPlan) replaces its flat gain, sample by sample
+  const plan = MX.bedPlan({ frames: 96000, bedFrames: 96000, gain: 0.5, mutes: [{ a: 0.5, b: 1.0, ramp: 0 }], sr: 48000, generated: true });
+  const g = C.mixWavs([{ wav: b, gain: 0.5, gainAt: plan.gainAt }]);
+  near(g.L[1000], 0.125); near(g.L[30000], 0); near(g.L[60000], 0.125);
+  near(C.mixWavs([{ wav: b, gain: 2 }]).L[5], 0.5, 1e-7);   // one part alone: that stem at its gain
 });
 
 test('P11b the bed stem\'s provenance: a render of this source recorded it, with the picture\'s settings; anything else is named', () => {

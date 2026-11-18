@@ -14,7 +14,9 @@
 //                                23.9: its energy preset's beat on the grid, the picture's full length): the bed of a
 //                                default or --master-only mix when no --bed is given (--no-bed leaves it out). It
 //                                must be the one its render recorded (full's record, or its own from audio): a
-//                                missing or changed bed stem, or one from another source than the picture, is refused.
+//                                missing or changed bed stem, or one from another source than the picture or at other
+//                                params or another energy (audio --param energy=extreme after a normal picture), is
+//                                refused.
 //   vo.wav and cues.json         the voice and its VO_OFFSET, from tools/cues.mjs (default mode only)
 //   bed.mp3                      a music bed, when there is one and no bed stem (default mode; --bed names another
 //                                file in either mode)
@@ -243,16 +245,26 @@ export function bedPlan({ frames, bedFrames, skip = 0, at = null, gain = DEFAULT
 // is missing, changed, or from another source than the picture. The picture's own record (`full`) names it with its
 // SHA-256; a stem from `audio` carries its own record (out/<name>.bed.wav.render.json), which is consulted before a
 // missing file is taken to mean "no bed": a bed that was recorded and is gone is refused, never left out or replaced by
-// bed.mp3. A bed from `audio` must come from the source the picture was rendered from.
+// bed.mp3. A bed from `audio` must come from the source the picture was rendered from, with the picture's params and
+// energy (P11b round 2, H3: `audio --param energy=extreme` after a normal picture is another bed).
 export function bedStem(name, rec, P) {
   const file = P(`out/${name}.bed.wav`), r = `out/${name}.bed.wav`;
   const own = ownRecord(file), redo = 'render it again (audio, or full), or mix without a bed (--no-bed)';
   const sameSource = (x) => !(rec && rec.source && x && x.source && rec.source.hash !== x.source.hash);
+  const otherSettings = (x) => {
+    if (!rec || !x) return null;
+    const d = [];
+    if (paramKey(x.params) !== paramKey(rec.params)) d.push(`params ${JSON.stringify(x.params || {})}, the picture's ${JSON.stringify(rec.params || {})}`);
+    const en = (y) => (y && y.energy ? `${y.energy.name} at ${y.energy.bpm} BPM` : 'none');
+    if (en(x) !== en(rec)) d.push(`energy ${en(x)}, the picture's ${en(rec)}`);
+    return d.length ? `the bed stem ${r} was rendered with other settings than out/${name}.mp4 (${d.join('; ')}): ${redo}` : null;
+  };
   if (rec && rec.bed) {
     if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that out/${name}.mp4's render wrote is missing: ${redo}` };
     if (sha256File(file) !== rec.bedSha256) {
       if (!own || own.audioSha256 !== sha256File(file)) return { problem: `the bed stem ${r} changed after the render that wrote it: ${redo}` };
       if (!sameSource(own)) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4: ${redo}` };
+      if (otherSettings(own)) return { problem: otherSettings(own) };
     }
     return { file };
   }
@@ -260,11 +272,14 @@ export function bedStem(name, rec, P) {
     if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that render.mjs audio recorded is missing: ${redo}` };
     if (own.audioSha256 !== sha256File(file)) return { problem: `the bed stem ${r} changed after the render (audio) that wrote it: ${redo}` };
     if (!sameSource(own)) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4 (the piece changed between the two renders): ${redo}` };
+    if (otherSettings(own)) return { problem: otherSettings(own) };
     return { file };
   }
   if (!fs.existsSync(file)) return {};
   return { problem: `the bed stem ${r} has no render record that describes it (out/${name}.bed.wav.render.json, from render.mjs audio): ${redo}` };
 }
+// params as a key in a fixed order, so {a, b} and {b, a} are the same settings (as check.mjs's soundDiff compares them)
+const paramKey = (p) => JSON.stringify(Object.entries(p || {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 // A bed stem's own render record (from `audio`), or null.
 function ownRecord(file) {
   try { const x = JSON.parse(fs.readFileSync(file + '.render.json', 'utf8')); return x && x.role === 'bed' ? x : null; } catch { return null; }

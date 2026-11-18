@@ -23,7 +23,7 @@
 //   pace     A and B alternating every `shot` s (hard cuts), a line whose ink is `size` of the frame height, and a band
 //            of stripes covering `band` of the frame scrolling 8 px a frame (about half its pixels change each frame)
 // Ground truth: the type is sized from measureText's ink bounds, so a line's ink height is what the kind says.
-console.log('fixture: fixture-energy energy.js evaluated');
+console.log('fixture: fixture-energy calibrate.js evaluated');
 
 // --param w and h set the size (read here, since the harness sizes the canvas before init); 720x1280 by default
 const Q = new URLSearchParams(globalThis.location ? location.search : '');

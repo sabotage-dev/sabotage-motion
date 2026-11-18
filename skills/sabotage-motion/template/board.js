@@ -45,7 +45,7 @@ export const BOARD = {
   target: 'tiktok',
   energy: 'normal',   // a title card that should read as made: bigger type, cuts on the beat; subtle for a quiet brand
   beats: [
-    { id: 'title', dur: 2.6, on: ['Make it move', 'rendered from code, frame by frame'],
+    { id: 'title', dur: 2.85, on: ['Make it move', 'rendered from code, frame by frame'],
       look: 'title words land one by one on the beat, the accent bar snaps in, the ground cuts on the beat grid',
       sfx: 'a whoosh and a hit per word, a thump under the bar, whooshes on the cuts' },
     { id: 'out', dur: 0.55, on: [], look: 'everything leaves at the cut', sfx: 'a falling whoosh' },

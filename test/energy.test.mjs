@@ -11,11 +11,14 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { makePiece, render, countFrames, repoRoot, templateDir, sha256File } from './helpers.mjs';
 import { SR, mixTool, runMix, writeCues, monoWav, toneBursts, decode, gainOf, db } from './mix-helpers.mjs';
+import { pathToFileURL } from 'node:url';
+
+const { ENERGY } = await import(pathToFileURL(path.join(templateDir, 'energy.js')).href);
 
 const P = (dir, f) => path.join(dir, f);
 const ok = (r) => assert.equal(r.status, 0, r.out);
 const json = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
-const LEN = { subtle: 5 * 60 / 84, normal: 6 * 60 / 116, extreme: 7 * 60 / 136 };
+const LEN = { subtle: 5 * 60 / 84, normal: 7 * 60 / 116, extreme: 7 * 60 / 136 };
 // the card is rendered small (quarter size, two subframes): the checks measure in design pixels and on the decoded file
 const R = ['--scale', '0.25', '--sub', '2'];
 const work = path.join(repoRoot, 'test', '.work');
@@ -51,6 +54,15 @@ for (const e of Object.keys(LEN)) {
       const sp = res.find((x) => x.id === 'audio_spike');
       assert.equal(sp.level, 'OK'); assert.match(sp.detail, /the bed stem \(x0\.5\) summed/, 'audio_spike hears the bed at the mixer\'s gain');
       if (args.includes('--file')) assert.match(res.find((x) => x.id === 'provenance').detail, /its bed stem too/);
+      if (args.includes('--file')) continue;
+      // the acceptance cross-check (23.9): energy_match measures the card and finds it inside its preset's ranges
+      const em = res.find((x) => x.id === 'energy_match'), m = em.measured, PR = ENERGY[e], spb = 60 / PR.bpm;
+      assert.equal(em.level, 'OK', em.detail);
+      const inside = (x, [lo, hi], what) => assert.ok(x >= lo - 1e-3 && x <= hi + 1e-3, `${e}: ${what} ${x} is outside ${lo}-${hi}: ${em.detail}`);
+      inside(m.shot, [PR.cutBeats[0] * spb, PR.cutBeats[1] * spb], 'the mean shot (s)');
+      inside(m.type, PR.inkHeight, 'the largest line');
+      inside(m.motion, [PR.motion.min ?? 0, PR.motion.max ?? 1], 'the motion');
+      assert.equal(m.cuts, { subtle: 0, normal: 2, extreme: 11 }[e], `${e}: every declared cut confirmed`);
     }
   });
 }
@@ -114,21 +126,25 @@ test('P11b a missing or changed bed stem is refused, never left out; --no-bed mi
   assert.equal(r.status, 1); assert.match(r.out, /has no render record that describes it/);
 });
 
-test('P11b check --file: a bed stem from a render with other settings fails provenance; one from `audio` with the picture\'s settings passes', () => {
+test('P11b check --file: a bed stem from `audio` with the picture\'s settings passes provenance; a master holding one from other settings fails it', () => {
   const dir = path.join(work, 'energy-prov');
   fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
-  // `audio` writes the effects and the bed stem with their own records; at another energy they are other stems
-  render(dir, ['audio', '--param', 'energy=extreme', '--out', 'out/card-normal.wav']);
+  // `audio` writes the effects and the bed stem with their own records
+  render(dir, ['audio', '--param', 'energy=normal', '--out', 'out/card-normal.wav']);
   const ar = json(P(dir, 'out/card-normal.bed.wav.render.json'));
   assert.deepEqual([ar.role, ar.mode, ar.audioSha256], ['bed', 'audio', sha256File(P(dir, 'out/card-normal.bed.wav'))]);
   ok(runMix(dir, ['card-normal', '--master-only']));
   let r = render(dir, ['check', '--file', 'out/card-normal-final.mp4', '--only', 'provenance', '--json'], { allowFail: true });
+  assert.equal(JSON.parse(r.stdout).find((x) => x.id === 'provenance').level, 'OK');
+  // at another energy they are other stems. The mix refuses that bed (round 2, H3, below), so a master holding one was
+  // made another way (by hand, or by a mix from before H3): its master.json names the stems now on disk
+  render(dir, ['audio', '--param', 'energy=extreme', '--out', 'out/card-normal.wav']);
+  const mjF = P(dir, 'out/card-normal.master.json'), mj = json(mjF);
+  for (const [role, f] of [['effects', 'out/card-normal.wav'], ['bed', 'out/card-normal.bed.wav']]) mj.stems.find((x) => x.role === role).sha256 = sha256File(P(dir, f));
+  fs.writeFileSync(mjF, JSON.stringify(mj, null, 2) + '\n');
+  r = render(dir, ['check', '--file', 'out/card-normal-final.mp4', '--only', 'provenance', '--json'], { allowFail: true });
   const p = JSON.parse(r.stdout).find((x) => x.id === 'provenance');
   assert.equal(p.level, 'FAIL'); assert.match(p.detail, /the bed stem out\/card-normal\.bed\.wav was rendered with other settings than the picture/);
-  render(dir, ['audio', '--param', 'energy=normal', '--out', 'out/card-normal.wav']);
-  ok(runMix(dir, ['card-normal', '--master-only']));
-  r = render(dir, ['check', '--file', 'out/card-normal-final.mp4', '--only', 'provenance', '--json'], { allowFail: true });
-  assert.equal(JSON.parse(r.stdout).find((x) => x.id === 'provenance').level, 'OK');
 });
 
 // ---- the page itself: a static server for one piece and a page on it, for what render.mjs does not print
@@ -252,20 +268,16 @@ const spikeOf = (dir, file) => {
   const x = JSON.parse(r.stdout).find((y) => y.id === 'audio_spike');
   assert.ok(x, r.out); return x;
 };
-let heard = null;
-function heardPieces() {
-  if (heard) return heard;
-  heard = {};
-  for (const s of ['a', 'b']) {
-    const d = makePiece(`energy-heard-${s}`, 'fixture-heard');
-    fs.writeFileSync(P(d, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // the voice first: it is part of the source
-    writeCues(d, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
-    render(d, ['full', '--param', `stems=${s}`, '--scale', '0.25', '--sub', '1', '--out', 'out/h.mp4']);
-    heard[s] = d;
-  }
-  return heard;
+const heard = {};
+function heardPiece(s) {   // one piece per set of stems, rendered once
+  if (heard[s]) return heard[s];
+  const d = makePiece(`energy-heard-${s}`, 'fixture-heard');
+  fs.writeFileSync(P(d, 'vo.wav'), monoWav(toneBursts(1.0, [[0.1, 0.3]])));   // the voice first: it is part of the source
+  writeCues(d, { VO_OFFSET: 0.1, CUE: { a: 0.1 } });
+  render(d, ['full', '--param', `stems=${s}`, '--scale', '0.25', '--sub', '1', '--out', 'out/h.mp4']);
+  return (heard[s] = d);
 }
-const mixedSpike = (s, args) => { const d = heardPieces()[s]; ok(runMix(d, ['h', ...args])); return spikeOf(d, 'out/h-final.mp4'); };
+const mixedSpike = (s, args) => { const d = heardPiece(s); ok(runMix(d, ['h', ...args])); return spikeOf(d, 'out/h-final.mp4'); };
 test('P11b R1 G1 --master-only with both stems: the effects at x1 and the bed at x0.5, the bed masking the hit', () => {
   const x = mixedSpike('a', ['--master-only']);
   assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5\)/);
@@ -295,6 +307,60 @@ test('P11b R1 G1 --master-only --no-sfx: the effects are not heard, so the bed\'
 test('P11b R1 G1 a mix of neither stem (voiced, --no-sfx --no-bed): nothing of theirs to hear', () => {
   const x = mixedSpike('b', ['--no-sfx', '--no-bed']);
   assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /mixes neither the effects nor the bed stem/);
+});
+
+// ---------------------------------------------------------------- council round 2 (P11b R2)
+// H1: a stem heard alone is heard at its gain, as the two summed are: audio_spike's silence floor (a window counts when
+// it peaks above -60 dBFS) is absolute, so a gain moves windows across it. fixture-heard's stems=c and d sit at the edge.
+test('P11b R2 H1 the effects alone at x0.9 (voiced, --no-bed): a 0.00105 floor falls under -60 dBFS, so the hit is no spike', () => {
+  const x = mixedSpike('c', ['--no-bed']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the effects stem \(x0\.9, as h\.master\.json mixed it\)/);
+});
+test('P11b R2 H1 the effects alone at x2 (--master-only --no-bed --sfx-gain 2): a 0.0009 floor rises over -60 dBFS, so the hit is a spike', () => {
+  const x = mixedSpike('d', ['--master-only', '--no-bed', '--sfx-gain', '2']);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects stem \(x2, as h\.master\.json mixed it\)/);
+});
+test('P11b R2 H1 the bed stem alone at x0.5 (--master-only --no-sfx): a 0.0019 floor falls under -60 dBFS, so its hit is no spike', () => {
+  const x = mixedSpike('c', ['--master-only', '--no-sfx']);
+  assert.equal(x.level, 'OK', x.detail); assert.match(x.detail, /the bed stem \(x0\.5\) alone/);
+});
+// H2: the bed is heard with the --mute windows master.json records (the bed stem has no fade: it spans the picture)
+test('P11b R2 H2 a bed muted around the hit no longer masks it: audio_spike hears the mutes master.json records', () => {
+  const x = mixedSpike('a', ['--master-only', '--mute', '0.1-1.95']);
+  assert.deepEqual(json(P(heardPiece('a'), 'out/h.master.json')).stems.find((y) => y.role === 'bed').mutes, [{ a: 0.1, b: 1.95, ramp: 0.05 }]);
+  assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5, muted 0\.1-1\.95\) summed/);
+  assert.equal(mixedSpike('a', ['--master-only']).level, 'OK', 'unmuted, the bed masks it');
+});
+// H3, and the bed's own record: a bed stem from `audio` is taken only when it is still what that render wrote, from the
+// picture's source, at the picture's params and energy
+function sepBed(name) {
+  const dir = path.join(work, name);
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  for (const f of fs.readdirSync(P(dir, 'out'))) fs.rmSync(P(dir, `out/${f}`), { force: true });
+  render(dir, ['video', ...R, '--out', 'out/s.mp4']);   // the board's energy, normal, and no params
+  return dir;
+}
+test('P11b R2 H3 the mix refuses a bed stem rendered by `audio` at other params or another energy than the picture', () => {
+  const dir = sepBed('energy-r2-settings');
+  render(dir, ['audio', '--param', 'energy=extreme', '--out', 'out/s.wav']);
+  let r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /the bed stem out\/s\.bed\.wav was rendered with other settings than out\/s\.mp4 \(params \{"energy":"extreme"\}, the picture's \{\}; energy extreme at 136 BPM, the picture's normal at 116 BPM\)/);
+  render(dir, ['audio', '--out', 'out/s.wav']);           // the picture's own settings
+  ok(runMix(dir, ['s', '--master-only']));
+  // a `full` render's bed, replaced by one from `audio` at another energy: refused as well
+  render(dir, ['full', ...R, '--out', 'out/f.mp4']);
+  render(dir, ['audio', '--param', 'energy=subtle', '--out', 'out/f.wav']);
+  r = runMix(dir, ['f', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/f\.bed\.wav was rendered with other settings than out\/f\.mp4 \(params \{"energy":"subtle"\}, the picture's \{\}; energy subtle at 84 BPM, the picture's normal at 116 BPM\)/);
+});
+test('P11b R2 a bed stem from `audio` that changed after that render is refused', () => {
+  const dir = sepBed('energy-r2-changed');
+  render(dir, ['audio', '--out', 'out/s.wav']);
+  const f = P(dir, 'out/s.bed.wav'), b = fs.readFileSync(f);
+  b[b.length - 2] ^= 0x40; fs.writeFileSync(f, b);         // one sample, after the render recorded its SHA-256
+  const r = runMix(dir, ['s', '--master-only']);
+  assert.equal(r.status, 1, r.out); assert.match(r.out, /the bed stem out\/s\.bed\.wav changed after the render \(audio\) that wrote it/);
 });
 
 // G2: a bed stem rendered on its own (`audio`, with its own record) and then lost or left stale is refused by the mix,
@@ -337,9 +403,9 @@ test('P11b R1 G3 a silent board snaps to the energy chosen by --param or CFG.ENE
   for (const f of ['scene.js', 'audio.js']) fs.copyFileSync(path.join(templateDir, f), P(dir, f));
   const board = fs.readFileSync(path.join(templateDir, 'board.js'), 'utf8').replace(/^  energy: 'normal',.*\n/m, '');
   assert.doesNotMatch(board, /^\s*energy:/m);
-  fs.writeFileSync(P(dir, 'board.js'), board);   // title 2.6 s, out 0.55 s: 3.15 s as written
+  fs.writeFileSync(P(dir, 'board.js'), board);   // title 2.85 s, out 0.55 s: 3.4 s as written
   const frames = (args, out) => { render(dir, ['video', ...args, '--scale', '0.25', '--sub', '1', '--out', out]); return countFrames(P(dir, out)); };
-  assert.equal(frames([], 'out/none.mp4'), Math.round(3.15 * 30), 'no energy anywhere: the written lengths');
+  assert.equal(frames([], 'out/none.mp4'), Math.round(3.4 * 30), 'no energy anywhere: the written lengths');
   assert.equal(frames(['--param', 'energy=subtle'], 'out/p.mp4'), Math.round((5 * 60 / 84) * 30), '--param energy=subtle: five beats at 84 BPM');
   // CFG.ENERGY in a scene: the same scene, naming its energy in CFG
   const cfg = fs.readFileSync(path.join(templateDir, 'scene.js'), 'utf8').replace("export const CFG = { W: 1080, H: 1920, FPS: 30, DUR: boardDur(), FONTS: ['DISPLAY', 'BODY'] };",

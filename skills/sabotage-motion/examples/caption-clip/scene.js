@@ -223,8 +223,8 @@ function timeline() {
   const every = E.cutBeats[0];
   let list = [];
   if (name === 'normal') {
-    list = cutGrid(IN, OUT, spb, every).map((t) => ({ t, d: 0.2 }));      // mask wipes inside the title beat
-    list.push({ t: OUT, d: 0.15 });                                        // and a new ground as the copy leaves
+    list = cutGrid(IN, OUT, spb, every).map((t) => ({ t, d: 0.2 }));      // mask wipes inside the title beat; the
+    // out beat stays on the last shot's ground, so its one beat lengthens that shot instead of being a shot of its own
   } else if (name === 'extreme') {
     const away = (t) => t < TL.whipAt - 0.16 || t > TL.whipAt + 0.24 + 0.16; // no shot shorter than 0.15 s next to the whip
     list = [...cutGrid(IN, END, spb, every).filter(away).map((t) => ({ t, d: 0 })), { t: TL.whipAt, d: 0.24 }];

@@ -569,17 +569,25 @@ async function flashOnFile(file, rec) {
   return C.flashResult(await C.measureFlash(file), { scope: 'file', what: relRoot(file) });
 }
 // The gains the mixer puts on the effects and the bed stem (plan 23.9: audio_spike hears what is mixed). With a master,
-// each stem at the gain its master.json records for it, and a stem the mix left out (--no-sfx, --no-bed, --sting, or a
-// bed from a file instead of the bed stem) at zero: it is not heard. Without one (a source check), tools/mix.mjs's
-// defaults: a voiced board's (effects 0.9, bed 0.22) or the effects alone (1.0, bed 0.5).
+// each stem at the gain its master.json records for it, the bed with the --mute windows it records, and a stem the mix
+// left out (--no-sfx, --no-bed, --sting) at zero. A bed from a file (--bed) also counts as zero: the master does contain
+// it, but it is not a stem this check can render again. Without a master (a source check), tools/mix.mjs's defaults: a
+// voiced board's (effects 0.9, bed 0.22) or the effects alone (1.0, bed 0.5).
 async function heardGains(mj, board) {
   if (mj && Array.isArray(mj.stems)) {
     const fx = mj.stems.find((x) => x.role === 'effects'), bd = mj.stems.find((x) => x.role === 'bed' && x.generated);
-    return { sfx: fx ? fx.gain : 0, bed: bd ? bd.gain : 0, from: `as ${mj.name}.master.json mixed ${fx && bd ? 'them' : 'it'}`, master: true };
+    return { sfx: fx ? fx.gain : 0, bed: bd ? bd.gain : 0, mutes: bd && Array.isArray(bd.mutes) ? bd.mutes : [], from: `as ${mj.name}.master.json mixed ${fx && bd ? 'them' : 'it'}`, master: true };
   }
   const MX = await import(pathToFileURL(path.join(root, 'tools', 'mix.mjs')).href);
   const voiced = !!(board && (board.beats || []).some((b) => b && b.vo != null));
-  return { sfx: voiced ? MX.DEFAULTS.sfxGain : MX.DEFAULTS.sfxGainSolo, bed: voiced ? MX.DEFAULTS.bedGain : MX.DEFAULTS.bedGainSolo, from: `tools/mix.mjs's ${voiced ? 'voiced' : '--master-only'} gains`, master: false };
+  return { sfx: voiced ? MX.DEFAULTS.sfxGain : MX.DEFAULTS.sfxGainSolo, bed: voiced ? MX.DEFAULTS.bedGain : MX.DEFAULTS.bedGainSolo, mutes: [], from: `tools/mix.mjs's ${voiced ? 'voiced' : '--master-only'} gains`, master: false };
+}
+// The bed stem as the mix played it (P11b round 2, H2): its gain and mutes through tools/mix.mjs's own bedPlan, which
+// places the bed stem at 0 with no fade, as the mix did. n: the length heard, in samples. A part for C.mixWavs.
+async function heardBed(bed, g, n) {
+  const MX = await import(pathToFileURL(path.join(root, 'tools', 'mix.mjs')).href);
+  const plan = MX.bedPlan({ frames: n, bedFrames: bed.n, gain: g.bed, mutes: g.mutes, sr: bed.sr, generated: true });
+  return { wav: bed, gain: g.bed, gainAt: plan.gainAt };
 }
 async function importPiece(name) {
   const f = path.join(root, name);
@@ -877,16 +885,16 @@ async function check() {
           if (dump) { const st = C.spikeStats(wav); dump.audio = { peak: st.peak, p90: st.p90, over: st.over, rms: st.rms, loudWindows: st.loud }; }
           if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));
           else skipIds(['board_sfx_missing'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
-          // what is heard: each stem the master mixes, at its gain (heardGains); a stem it left out is not
+          // what is heard: each stem the master mixes, at its gain (heardGains), alone too (P11b round 2, H1: the silence
+          // floor is absolute, so a gain moves windows across it); the bed with its mutes; a stem it left out is not
           const g = await heardGains(prov && prov.mj, BOARD);
           const fxOn = g.sfx > 0, bedOn = !!bedR && g.bed > 0;
+          const bedPart = bedOn ? await heardBed(C.readWav(fs.readFileSync(bedOut)), g, wav.n) : null;
+          const bedName = `the bed stem (x${g.bed}${g.mutes.length ? `, muted ${g.mutes.map((m) => `${m.a}-${m.b}`).join(', ')}` : ''})`;
           if (!fxOn && !bedOn) push({ id: 'audio_spike', scope: 'source', level: 'OK', detail: `nothing to hear: the master mixes neither the effects nor the bed stem (${g.from})`, threshold: C.T.spike.db });
-          else if (!bedOn) push(C.audioSpike(wav, g.master ? { what: `the effects stem (x${g.sfx}, ${g.from})` } : {}));
-          else if (!fxOn) push(C.audioSpike(C.readWav(fs.readFileSync(bedOut)), { what: `the bed stem (x${g.bed}) alone (${g.from})` }));
-          else {
-            const heard = C.mixWavs([{ wav, gain: g.sfx }, { wav: C.readWav(fs.readFileSync(bedOut)), gain: g.bed }]);
-            push(C.audioSpike(heard, { what: `the effects (x${g.sfx}) and the bed stem (x${g.bed}) summed (${g.from})` }));
-          }
+          else if (!bedOn) push(C.audioSpike(C.mixWavs([{ wav, gain: g.sfx }]), g.master || g.sfx !== 1 ? { what: `the effects stem (x${g.sfx}, ${g.from})` } : {}));
+          else if (!fxOn) push(C.audioSpike(C.mixWavs([bedPart]), { what: `${bedName} alone (${g.from})` }));
+          else push(C.audioSpike(C.mixWavs([{ wav, gain: g.sfx }, bedPart]), { what: `the effects (x${g.sfx}) and ${bedName} summed (${g.from})` }));
         } catch (e) {
           // under every effects check asked for, so --only cannot hide it
           for (const id of ['board_sfx_missing', 'audio_spike']) push({ id, scope: 'source', level: 'FAIL', detail: `the effects did not render: ${e.message.split('\n')[0]}` });

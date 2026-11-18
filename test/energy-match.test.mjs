@@ -1,4 +1,4 @@
-// energy_match (plan 23.9, P11b-2) on the calibration fixtures (test/fixtures/fixture-energy/energy.js), each with its
+// energy_match (plan 23.9, P11b-2) on the calibration fixtures (test/fixtures/fixture-energy/calibrate.js), each with its
 // ground truth built in, through `render.mjs check --only energy_match`: the cuts counted exactly (a hard cut, a wipe,
 // a whip, an A-B-A-B run at extreme's half-beat shot), a shake and a flash counted as no cut whether or not they are
 // declared, a declared cut with no change reported, ink measured as built (a multi-line block of small type, a box
@@ -20,7 +20,7 @@ const ROW = 1 / 640;
 // energy_match's results for a fixture: { main (the verdict line), extra (the other lines), status, out }
 function run(kind, params = {}, args = [], at = dir) {
   const p = Object.entries({ kind, ...params }).flatMap(([k, v]) => ['--param', `${k}=${v}`]);
-  const r = runCheck(at, ['--scene', 'energy.js', ...p, '--only', 'energy_match', ...args]);
+  const r = runCheck(at, ['--scene', 'calibrate.js', ...p, '--only', 'energy_match', ...args]);
   assert.ok(Array.isArray(r.results), r.out);
   const xs = byId(r.results, 'energy_match');
   return { main: xs[0], extra: xs.slice(1), all: r.results, status: r.status, out: r.out };
@@ -141,7 +141,7 @@ test('acceptance: a static card with one full-frame flash, declared extreme (and
   assert.equal(x.main.level, 'WARN');
   assert.match(x.main.detail, /^energy extreme \(--param energy\) is calmer than its floor: the shots are longer, it moves less than extreme allows\./);
   assert.equal(x.status, 0, 'a WARN, not a FAIL');
-  assert.equal(runCheck(dir, ['--scene', 'energy.js', '--param', 'kind=flash', '--param', 'energy=extreme', '--only', 'energy_match', '--strict']).status, 1, '--strict fails on it');
+  assert.equal(runCheck(dir, ['--scene', 'calibrate.js', '--param', 'kind=flash', '--param', 'energy=extreme', '--only', 'energy_match', '--strict']).status, 1, '--strict fails on it');
 });
 
 const board = makePiece('energy-board', 'fixture-energy');   // board.js written by each case
@@ -189,9 +189,11 @@ test('not checked: a scene without cuts(), an energy that is not a preset, an ov
   const nc = runCheck(dir, ['--scene', 'nocuts.js', '--only', 'energy_match']);
   assert.deepEqual(nc.results.map((x) => `${x.level} ${x.id}: ${x.detail}`),
     ['SKIP energy_match: not checked: nocuts.js has no cuts(), so no cut can be confirmed: export cuts(), its visual cuts and transitions as [{ t, d }]']);
+  // a name that is not a preset stops the page itself (P11b-1's resolveEnergy), so energy_match is not reached; the
+  // check.mjs side of it (energySetting's error) is in energy-match-units
   const wild = run('hardcut', { energy: 'wild' });
-  assert.equal(wild.main.level, 'SKIP');
-  assert.equal(wild.main.detail, 'not checked: no energy to judge it by: --param energy is "wild", not one of subtle, normal, extreme');
+  assert.equal(wild.main.level, 'SKIP'); assert.equal(wild.main.detail, 'not checked: the scene did not load');
+  assert.ok(wild.all.some((x) => x.id === 'scene' && x.level === 'FAIL' && /--param energy "wild": one of subtle, normal, extreme/.test(x.detail)), wild.out);
   const alpha = run('hardcut', {}, ['--alpha']);
   assert.match(alpha.main.detail, /^not checked: an alpha render is an overlay/);
   const bad = run('badcuts');
@@ -199,7 +201,7 @@ test('not checked: a scene without cuts(), an energy that is not a preset, an ov
   assert.ok(bad.all.some((x) => x.id === 'scene' && x.level === 'FAIL' && /cuts\(\) item 0: d 0\.5 s is not 0-0\.3 s/.test(x.detail)), bad.out);
 });
 test('the full check runs energy_match among the source checks, and says how long it took', () => {
-  const r = runCheck(dir, ['--scene', 'energy.js', '--param', 'kind=hardcut']);
+  const r = runCheck(dir, ['--scene', 'calibrate.js', '--param', 'kind=hardcut']);
   const ids = r.results.map((x) => x.id);
   assert.ok(ids.indexOf('energy_match') > ids.indexOf('audio_spike') && ids.indexOf('energy_match') < ids.indexOf('flash'), ids.join(' '));
   assert.match(r.stderr, /^check: energy_match measured 60 frames, 0 of them twice \(text off\) in \d+\.\d s$/m);

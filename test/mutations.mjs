@@ -34,6 +34,8 @@ const CLU = ['test/clip-units.test.mjs'], CL = ['test/clip.test.mjs'];
 const EU = ['test/energy-units.test.mjs'], EN = ['test/energy.test.mjs'], BSH = ['test/board-sheet.test.mjs'];
 // P11b re-pointed the effects-stem mutations; they run the check-file test that ties the stem to its render, alone
 const FSTEM = ['--test-name-pattern=the effects stem is tied to a render record', 'test/check-file.test.mjs'];
+// P11b council round 2: only the round 2 tests in test/energy.test.mjs
+const R2 = ['--test-name-pattern=P11b R2', 'test/energy.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -116,7 +118,7 @@ const M = [
   ['render.mjs: text_overlap not run', T + 'render.mjs', [['        push(C.textOverlap(samples, { fps }));\n', '']], SRC],
   ['render.mjs: board copy not run', T + 'render.mjs', [['if (BOARD && timing.ok) push(C.boardCopy(samples, { fps, windows }));', 'if (false) push(C.boardCopy(samples, { fps, windows }));']], SRC],
   ['render.mjs: board_sfx_missing not run', T + 'render.mjs', [['if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));', 'if (false) push(C.boardSfx(wav, { windows }));']], SRC],
-  ['render.mjs: audio_spike not run', T + 'render.mjs', [["          else if (!bedOn) push(C.audioSpike(wav, g.master ? { what: `the effects stem (x${g.sfx}, ${g.from})` } : {}));\n", '          else if (!bedOn) { /* not run */ }\n']], SRC],
+  ['render.mjs: audio_spike not run', T + 'render.mjs', [["          else if (!bedOn) push(C.audioSpike(C.mixWavs([{ wav, gain: g.sfx }]), g.master || g.sfx !== 1 ? { what: `the effects stem (x${g.sfx}, ${g.from})` } : {}));\n", '          else if (!bedOn) { /* not run */ }\n']], SRC],
   ['render.mjs: HOLDS ignored', T + 'render.mjs', [['C.holdIntervals(holdsErr ? null : INFOc.HOLDS,', 'C.holdIntervals(null,']], SRC],
   ['main.js: the probe keeps the grain', T + 'main.js', [['post: opts.post || { grain: 0 } });', 'post: opts.post || {} });']], SRC],
   ['main.js: boxes sampled at the shutter centre only', T + 'main.js', [['      const n = subCount(t);\n      for (let s = 0; s < n; s++) {\n        const ts = subTime(t, s, n);', '      const n = 1;\n      for (let s = 0; s < n; s++) {\n        const ts = subTime(t, s, n);']], SRC],
@@ -606,6 +608,10 @@ const M = [
   // P11b-1 merge: check.mjs's energy and tempo now come from energy.js (energyName, boardBpm); its own wording kept
   ["P11b merge: energySetting names the board as the default", T + 'check.mjs', [["'board.js': 'the board',", "'board.js': 'the default',"]], EMU],
   ["P11b merge: energyTempo takes an out-of-band tempo as it is", T + 'check.mjs', [["c = Math.min(hi, Math.max(lo, x));", "c = x;"]], EMU],
+  // the acceptance cross-check: the card at each preset measured by energy_match, inside its preset's ranges
+  ["P11b merge card: normal cuts at the out beat again", T + 'scene.js', [["    // out beat stays on the last shot's ground, so its one beat lengthens that shot instead of being a shot of its own\n", "    list.push({ t: OUT, d: 0.15 });\n"]], EN],
+  ["P11b merge card: the title beat back to 2.6 s", T + 'board.js', [["{ id: 'title', dur: 2.85,", "{ id: 'title', dur: 2.6,"]], EN],
+  ["P11b merge card: normal's title set at 8% of the height", T + 'scene.js', [["E.name === 'normal' ? 0.115 : 0.12;", "E.name === 'normal' ? 0.08 : 0.12;"]], EN],
   ["P11b-2 cuts(): any d taken", T + 'check.mjs', [["if (d < 0 || d > T.energy.cut.d + EPS) return", "if (d < 0) return"]], EMU],
   ["P11b-2 cuts(): t outside the piece taken", T + 'check.mjs', [["    if (c.t < 0 || c.t > dur + EPS) return", "    if (false) return"]], EMU],
   ["P11b-2 regions: overlapping transitions kept apart", T + 'check.mjs', [["if (m && x.a <= m.b + EPS) {", "if (false) {"]], EMU],
@@ -751,7 +757,7 @@ const M = [
   ["P11b check: audio_spike hears the effects alone", T + "render.mjs", [["          const fxOn = g.sfx > 0, bedOn = !!bedR && g.bed > 0;", "          const fxOn = g.sfx > 0, bedOn = false;"]], EN],
   ["P11b check: provenance ignores the bed stem", T + "render.mjs", [["          facts.bedProblem = C.bedLink({ file: bs.file, sha256: bs.sha256 }, cands, facts.rec || null);", "          facts.bedProblem = null;"]], EN],
   ["P11b check: a bed made with other settings passes", T + "check.mjs", [["  const match = pic ? hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];\n  if (!match) return `the bed stem", "  const match = hits[0];\n  if (!match) return `the bed stem"]], EU],
-  ["P11b check: the stems summed without their gains", T + "check.mjs", [["L[i] += wav.L[i] * gain; R[i] += wav.R[i] * gain;", "L[i] += wav.L[i]; R[i] += wav.R[i];"]], EU],
+  ["P11b check: the stems summed without their gains", T + "check.mjs", [["L[i] += wav.L[i] * k; R[i] += wav.R[i] * k;", "L[i] += wav.L[i]; R[i] += wav.R[i];"]], EU],
   ["P11b mix: the bed stem end-aligned", T + "tools/mix.mjs", [["  const start = generated ? 0 : at != null", "  const start = at != null"]], EU],
   ["P11b mix: the bed stem faded", T + "tools/mix.mjs", [["  const fadeSec = generated ? 0 : longer", "  const fadeSec = longer"]], EU],
   ["P11b mix: the bed with the effects alone at 0.22", T + "tools/mix.mjs", [["bedGainSolo: 0.5,", "bedGainSolo: 0.22,"]], EU],
@@ -768,6 +774,18 @@ const M = [
   ["P11b R1 G1 the master's gains ignored", T + "render.mjs", [["  if (mj && Array.isArray(mj.stems)) {\n    const fx = mj.stems", "  if (false) {\n    const fx = mj.stems"]], EN],
   ["P11b R1 G2 a recorded bed that is missing left out", T + "tools/mix.mjs", [["    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that render.mjs audio recorded is missing: ${redo}` };", "    if (!fs.existsSync(file)) return {};"]], EN],
   ["P11b R1 G2 a bed from another source mixed", T + "tools/mix.mjs", [["    if (!sameSource(own)) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4 (the piece", "    if (false) return { problem: `the bed stem ${r} was rendered from another source than out/${name}.mp4 (the piece"]], EN],
+  // ---- P11b council round 2: audio_spike hears a lone stem at its gain and the bed with its mutes; the mix takes a bed
+  // from `audio` only at the picture's params and energy. R2 runs just the round 2 tests (the card hook still renders).
+  ["P11b R2 H1 a lone effects stem heard unscaled", T + "render.mjs", [["else if (!bedOn) push(C.audioSpike(C.mixWavs([{ wav, gain: g.sfx }]),", "else if (!bedOn) push(C.audioSpike(wav,"]], R2],
+  ["P11b R2 H1 a lone bed stem heard unscaled", T + "render.mjs", [["else if (!fxOn) push(C.audioSpike(C.mixWavs([bedPart]),", "else if (!fxOn) push(C.audioSpike(bedPart.wav,"]], R2],
+  ["P11b R2 H2 the master's mutes not read", T + "render.mjs", [["mutes: bd && Array.isArray(bd.mutes) ? bd.mutes : [],", "mutes: [],"]], R2],
+  ["P11b R2 H2 the bed heard at a flat gain", T + "render.mjs", [["  return { wav: bed, gain: g.bed, gainAt: plan.gainAt };", "  return { wav: bed, gain: g.bed };"]], R2],
+  ["P11b R2 H2 mixWavs ignores gainAt", T + "check.mjs", [["const k = gainAt ? gainAt(i) : gain;", "const k = gain;"]], EU],
+  ["P11b R2 H3 the bed's params not compared", T + "tools/mix.mjs", [["    if (paramKey(x.params) !== paramKey(rec.params)) d.push(", "    if (false) d.push("]], R2],
+  ["P11b R2 H3 the bed's energy not compared", T + "tools/mix.mjs", [["    if (en(x) !== en(rec)) d.push(", "    if (false) d.push("]], R2],
+  ["P11b R2 H3 a full render's bed replaced from `audio` not compared", T + "tools/mix.mjs", [["      if (otherSettings(own)) return { problem: otherSettings(own) };\n    }", "    }"]], R2],
+  ["P11b R2 H3 a bed from `audio` not compared", T + "tools/mix.mjs", [["    if (otherSettings(own)) return { problem: otherSettings(own) };\n    return { file };", "    return { file };"]], R2],
+  ["P11b R2 a bed from `audio` changed after its render taken", T + "tools/mix.mjs", [["    if (own.audioSha256 !== sha256File(file)) return { problem: `the bed stem ${r} changed after the render (audio)", "    if (false) return { problem: `the bed stem ${r} changed after the render (audio)"]], R2],
   ["P11b R1 G3 --param does not snap a board that names none", T + "energy.js", [["(energy != null || board.energy != null || board.bpm != null);", "(board.energy != null || board.bpm != null);"]], EU],
   ["P11b R1 G3 CFG.ENERGY does not re-time the board", T + "main.js", [["    if (lib.retimeFor(CFG.ENERGY)) {", "    if (false) {"]], EN],
   ["P11b R1 G3 check times the board without CFG.ENERGY", T + "render.mjs", [["  if (BOARD && INFOc && INFOc.ENERGY && INFOc.ENERGY.from === 'CFG.ENERGY') timing =", "  if (false) timing ="]], EN],

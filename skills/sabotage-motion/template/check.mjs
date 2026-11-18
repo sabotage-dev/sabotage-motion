@@ -425,13 +425,16 @@ export function audioSpike(wav, { what = 'the effects stem' } = {}) {
       { t: +f2(s.at), measured: +s.over.toFixed(2), threshold: T.spike.db })
     : ok('audio_spike', 'source', `no spike in ${what}: the loudest 50 ms window is ${s.over.toFixed(1)} dB above the 90th percentile`, { measured: +s.over.toFixed(2), threshold: T.spike.db });
 }
-// Stems summed at gains, as the mixer sums them before its limiter: parts [{ wav, gain }] (readWav's { sr, L, R, n }),
-// all at one sample rate, from sample 0; the sum is as long as the longest.
+// Stems summed at gains, as the mixer sums them before its limiter: parts [{ wav, gain, gainAt? }] (readWav's
+// { sr, L, R, n }), all at one sample rate, from sample 0; gainAt(i), when given, is the gain at sample i (a bed's
+// mutes) and replaces gain. The sum is as long as the longest; one part alone is that stem at its gain.
 export function mixWavs(parts) {
   const sr = parts[0].wav.sr;
   if (parts.some((p) => p.wav.sr !== sr)) throw new Error('mixWavs: the stems have different sample rates');
   const n = Math.max(...parts.map((p) => p.wav.n)), L = new Float32Array(n), R = new Float32Array(n);
-  for (const { wav, gain } of parts) for (let i = 0; i < wav.n; i++) { L[i] += wav.L[i] * gain; R[i] += wav.R[i] * gain; }
+  for (const { wav, gain, gainAt } of parts) {
+    for (let i = 0; i < wav.n; i++) { const k = gainAt ? gainAt(i) : gain; L[i] += wav.L[i] * k; R[i] += wav.R[i] * k; }
+  }
   return { sr, L, R, n };
 }
 
