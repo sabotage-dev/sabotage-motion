@@ -30,6 +30,8 @@ const FLU = ['test/flash-units.test.mjs'], FLE = ['test/flash.test.mjs'];
 const CLU = ['test/clip-units.test.mjs'], CL = ['test/clip.test.mjs'];
 // P11b-1: energy presets; EN renders the template card at each energy (about 40 s on an Apple-silicon Mac)
 const EU = ['test/energy-units.test.mjs'], EN = ['test/energy.test.mjs'], BSH = ['test/board-sheet.test.mjs'];
+// P11b re-pointed the effects-stem mutations; they run the check-file test that ties the stem to its render, alone
+const FSTEM = ['--test-name-pattern=the effects stem is tied to a render record', 'test/check-file.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -141,12 +143,12 @@ const M = [
   ['F8 provenance: the effects problem ignored', T + 'check.mjs', [['    if (f.effectsProblem) probs.push(f.effectsProblem);\n', '']], UNIT],
   ['F8 effectsLink: the source not compared', T + 'check.mjs', [['  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {\n    return `the effects stem', '  if (false) {\n    return `the effects stem']], UNIT],
   ['F8 render.mjs: audio writes no record', T + 'render.mjs', [['      writeAudioRecord(out, src);\n', '']], FILE],
-  ['F8 render.mjs: full does not record its stem\'s hash', T + 'render.mjs', [[' audioSha256: sha256(fs.readFileSync(atmp)),', '']], FILE],
+  ['F8 render.mjs: full does not record its stem\'s hash', T + 'render.mjs', [[' audioSha256: sha256(fs.readFileSync(atmp)),', '']], FSTEM],
   ['F8 render.mjs: the effects stem not looked up', T + 'render.mjs', [['          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands, facts.rec || null);\n', '']], FILE],
   // ---- council round 2 fold
   ['R2 sceneProblem: the folder\'s case counts', T + 'render.mjs', [['low = parts.map((x) => x.toLowerCase());', 'low = parts;']], ['test/render-error.test.mjs']],
   ['R2 effectsLink: the settings not compared', T + 'check.mjs', [['hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];\n  if (!match) {', 'hits[0] : hits[0];\n  if (!match) {']], UNIT],
-  ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['sha256: fx.sha256 }, cands, facts.rec || null);', 'sha256: fx.sha256 }, cands);']], FILE],
+  ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['sha256: fx.sha256 }, cands, facts.rec || null);', 'sha256: fx.sha256 }, cands);']], FSTEM],
   ['R2 render.mjs: a mixed --only drops its file checks', T + 'render.mjs', [['[...only].filter((id) => C.FILE_IDS.includes(id)) : [];', '([...only].every((id) => C.FILE_IDS.includes(id)) ? [...only] : []) : [];']], SRC],
   ['render.mjs: ffmpeg left running when a scene throws', T + 'render.mjs', [['  process.exitCode = 1;\n  await abortVideo();', '  process.exitCode = 1;']], ['test/render-error.test.mjs']],
   // ---- P4: render to a temporary sibling, rename on success
@@ -656,7 +658,8 @@ const M = [
   ["P11b grid: a clip's board snaps", T + "lib.js", [["  if (!problems.length && !opts.clip && boardSnaps(board)) {", "  if (!problems.length && boardSnaps(board)) {"]], EN],
   ["P11b grid: the board's energy, not the param's, sets the grid", T + "lib.js", [["    const name = opts.energy || board.energy || DEFAULT_ENERGY;", "    const name = board.energy || DEFAULT_ENERGY;"]], EU],
   ["P11b grid: the page ignores --param energy", T + "lib.js", [["  if (!_timing) _timing = boardTiming(BOARD, CUES, { energy: PAGE_ENERGY, clip: !!CLIP });", "  if (!_timing) _timing = boardTiming(BOARD, CUES, { clip: !!CLIP });"]], BSH],
-  ["P11b grounds: two shots 0.15 apart", T + "energy.js", [["if (relLum(mix(m)) - l0 < step) lo = m;", "if (relLum(mix(m)) - l0 < step + 0.07) lo = m;"]], EU],
+  ["P11b grounds: two shots 0.15 apart", T + "energy.js", [["let want = up ? Math.min(Math.max(lo + step, hi - room), lo + room)", "let want = up ? lo + step + 0.07"]], EU],
+  ["P11b grounds: one ground of the pair served", T + "energy.js", [["const lums = list.map(relLum), lo = Math.min(...lums), hi = Math.max(...lums), room", "const lums = list.map(relLum), lo = lums[0], hi = lums[0], room"]], EU],
   // moves.js
   ["P11b rig: no clamp", T + "moves.js", [["      return s >= 1 ? c : [1 + s * (c[0] - 1), s * c[1], s * c[2], s * c[3]];", "      return c;"]], EU],
   ["P11b rig: the exclude rectangles ignored", T + "moves.js", [["  for (const r of exclude || []) if (x0 < r.x + r.w && x1 > r.x && y0 < r.y + r.h && y1 > r.y) return false;", ""]], EU],

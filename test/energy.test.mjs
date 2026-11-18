@@ -221,3 +221,21 @@ test('P11b a clip\'s captions take their style from the energy every scene gets:
   assert.equal(await style({ 'p.energy': 'subtle' }), 'minimal', '--param over the board');
   assert.equal(await style({ 'p.style': 'boxed' }), 'boxed', 'a named style over the energy');
 });
+
+test('P11b bed: false at subtle writes a silent bed stem, recorded as silent; rendered at another energy, that energy\'s bed plays', () => {
+  const dir = path.join(work, 'energy-quiet');
+  fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(card, dir, { recursive: true });
+  const board = fs.readFileSync(P(dir, 'board.js'), 'utf8').replace("energy: 'normal',", "energy: 'subtle', bed: false,");
+  assert.notEqual(board, fs.readFileSync(P(dir, 'board.js'), 'utf8'), 'the template board names its energy');
+  fs.writeFileSync(P(dir, 'board.js'), board);
+  const r = render(dir, ['audio', '--out', 'out/q.wav']);
+  assert.match(r.out, /bed: silent \(subtle, the board's bed: false\)/);
+  const rec = json(P(dir, 'out/q.bed.wav.render.json'));
+  assert.deepEqual([rec.role, rec.bedSilent, rec.energy.name], ['bed', true, 'subtle']);
+  const bed = decode(P(dir, 'out/q.bed.wav'));
+  assert.ok(bed.length > SR && bed.every((x) => x === 0), 'the bed stem is silence, the picture\'s length');
+  const n = render(dir, ['audio', '--param', 'energy=normal', '--out', 'out/n.wav']);
+  assert.match(n.out, /bed: normal at 116 BPM/);
+  assert.equal(json(P(dir, 'out/n.bed.wav.render.json')).bedSilent, false);
+  assert.ok(decode(P(dir, 'out/n.bed.wav')).some((x) => Math.abs(x) > 0.05), 'the normal bed plays');
+});
