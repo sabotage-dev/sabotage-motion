@@ -414,13 +414,24 @@ export function spikeStats(wav) {
   const p90 = loud.length ? loud[Math.floor(T.spike.pct * (loud.length - 1))] : 0;
   return { peak, at, p90, over: loud.length ? db(peak) - db(p90) : 0, rms: Math.sqrt(sum / Math.max(1, wav.n)), loud: loud.length };
 }
-export function audioSpike(wav) {
+// what: what was measured, for the line (default: the effects stem; with a bed stem, the two summed at the mixer's
+// gains, plan 23.9, so a preset's hits are judged against the beat under them).
+export function audioSpike(wav, { what = 'the effects stem' } = {}) {
   const s = spikeStats(wav);
-  if (!s.loud) return ok('audio_spike', 'source', 'the effects stem is silent', { threshold: T.spike.db });
+  if (!s.loud) return ok('audio_spike', 'source', `${what} is silent`, { threshold: T.spike.db });
   return s.over > T.spike.db + EPS
-    ? r('audio_spike', 'source', 'WARN', `the peak at ${f2(s.at)} s is ${s.over.toFixed(1)} dB above the 90th-percentile window: likely a click, or a gain envelope that starts after its source`,
+    ? r('audio_spike', 'source', 'WARN', `${what}: the peak at ${f2(s.at)} s is ${s.over.toFixed(1)} dB above the 90th-percentile window: likely a click, or a gain envelope that starts after its source`,
       { t: +f2(s.at), measured: +s.over.toFixed(2), threshold: T.spike.db })
-    : ok('audio_spike', 'source', `no spike: the loudest 50 ms window is ${s.over.toFixed(1)} dB above the 90th percentile`, { measured: +s.over.toFixed(2), threshold: T.spike.db });
+    : ok('audio_spike', 'source', `no spike in ${what}: the loudest 50 ms window is ${s.over.toFixed(1)} dB above the 90th percentile`, { measured: +s.over.toFixed(2), threshold: T.spike.db });
+}
+// Stems summed at gains, as the mixer sums them before its limiter: parts [{ wav, gain }] (readWav's { sr, L, R, n }),
+// all at one sample rate, from sample 0; the sum is as long as the longest.
+export function mixWavs(parts) {
+  const sr = parts[0].wav.sr;
+  if (parts.some((p) => p.wav.sr !== sr)) throw new Error('mixWavs: the stems have different sample rates');
+  const n = Math.max(...parts.map((p) => p.wav.n)), L = new Float32Array(n), R = new Float32Array(n);
+  for (const { wav, gain } of parts) for (let i = 0; i < wav.n; i++) { L[i] += wav.L[i] * gain; R[i] += wav.R[i] * gain; }
+  return { sr, L, R, n };
 }
 
 // ---------------------------------------------------------------- 6.5 board checks with a verdict from lib.js
@@ -483,9 +494,10 @@ export function provenance(f) {
     if (!rec.source || rec.source.hash !== f.sourceNow.hash) probs.push(`the piece's source changed since the render (${mj.render.file}): the master is stale, render and mix again`);
     if (!rec.video || !mj.master || !mj.master.video || rec.video.hash !== mj.master.video.hash) probs.push('the master\'s decoded picture does not hash the same as its render\'s: the mixer did not copy the picture untouched');
     if (f.effectsProblem) probs.push(f.effectsProblem);
+    if (f.bedProblem) probs.push(f.bedProblem);
   }
   if (probs.length) return { result: P('FAIL', probs.join('; ')), rec: f.recExists && !f.recError ? f.rec : null, mj, bound: false };
-  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render${(mj.stems || []).some((x) => x.role === 'effects') ? '; its effects stem came from a render of this source' : ''}`), rec, mj, bound: true };
+  return { result: P('OK', `${f.fileRel} is the master ${f.mjRel} records, mixed from ${mj.render.file} (${rec.scene}${Object.keys(rec.params || {}).length ? ', params ' + JSON.stringify(rec.params) : ''}), and the source is unchanged since the render${(mj.stems || []).some((x) => x.role === 'effects') ? '; its effects stem came from a render of this source' : ''}${(mj.stems || []).some((x) => x.role === 'bed' && x.generated) ? '; its bed stem too' : ''}`), rec, mj, bound: true };
 }
 
 // The effects stem a master was mixed with must be one a render made from this source (P2 round 1, folded in P3):
@@ -513,6 +525,22 @@ export function effectsLink(stem, candidates, pic = null) {
   }
   if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
     return `the effects stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
+  }
+  return null;
+}
+
+// The generated bed stem a master was mixed with (plan 23.9: master.json's stem with role 'bed' and generated: true)
+// must be one a render of this source made, like the effects stem: a record whose bedSha256 is the stem's (the
+// picture's own record from `full`) or whose audioSha256 is (out/<name>.bed.wav.render.json from `audio`), made with the
+// picture's scene, params, fps and length, from the source as it is now. Returns a problem sentence, or null.
+export function bedLink(stem, candidates, pic = null) {
+  if (!stem) return null;
+  const hits = candidates.filter((c) => c.rec && (c.rec.bedSha256 === stem.sha256 || (c.rec.role === 'bed' && c.rec.audioSha256 === stem.sha256)));
+  if (!hits.length) return `the bed stem ${stem.file} is not one a render recorded (no render record has its SHA-256): render it again (full, or audio) and mix again`;
+  const match = pic ? hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];
+  if (!match) return `the bed stem ${stem.file} was rendered with other settings than the picture (${soundDiff(hits[0].rec, pic).join(', ')}): render it again and mix again`;
+  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {
+    return `the bed stem ${stem.file} was rendered from another source than the piece's now (${match.file}): render it again and mix again`;
   }
   return null;
 }

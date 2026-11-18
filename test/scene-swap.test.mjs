@@ -26,15 +26,17 @@ test('--scene slate.js renders the slate\'s length, silent, without loading scen
   }
   assert.match(r.stdout, /exports silent = true/);
   const file = P('out/slate.mp4');
-  assert.equal(countFrames(file), 90, 'slate.js is the template board\'s 3 s at 30 fps');
-  assert.ok(Math.abs(+ffprobe(file).format.duration - 3.0) <= 1 / 30 + 1e-3);
+  // the template board: six beats of normal's 116 BPM grid (P11b), 3.103 s, 93 frames at 30 fps
+  const len = (6 * 60) / 116;
+  assert.equal(countFrames(file), 93, 'slate.js is the template board\'s length at 30 fps');
+  assert.ok(Math.abs(+ffprobe(file).format.duration - 93 / 30) <= 1 / 30 + 1e-3);
   const w = readWav(P('out/slate.wav'));
-  assert.ok(Math.abs(w.dur - 3.0) < 1e-3, `soundtrack ${w.dur} s`);
+  assert.ok(Math.abs(w.dur - len) < 1e-3, `soundtrack ${w.dur} s`);
   assert.equal(peakIn(w, 0, w.dur), 0, 'the slate soundtrack is not silent');
   const rec = JSON.parse(fs.readFileSync(P('out/slate.mp4.render.json'), 'utf8'));
   assert.equal(rec.scene, 'slate.js');
   assert.equal(rec.silent, true);
-  assert.equal(rec.frames, 90);
+  assert.equal(rec.frames, 93);
 });
 
 test('a scene may set CFG.DUR in init: alt.js with --param dur=1.5 is 45 frames', () => {

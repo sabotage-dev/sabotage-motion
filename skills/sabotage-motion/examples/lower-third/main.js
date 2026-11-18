@@ -5,6 +5,11 @@
 // safezones.json), scale, fps, sub, alpha=1, check=1 (render.mjs check: a missing font is reported, not
 // thrown), and p.<key>=<value> for each --param key=value.
 //
+// The energy (energy.js, plan 23.9): --param energy, else CFG.ENERGY, else the board's energy, else normal, resolved
+// once here into the preset (tempo, cut interval, camera, type scale, easing, post, sound) and handed to init({ energy })
+// and to audio.js. window.INFO.ENERGY says which, at what tempo, and from where; window.sceneCuts() returns the scene's
+// declared cuts (its cuts() export) checked, for check's energy measurements.
+//
 // The style (looks.js, plan 23.2): before the scene's init, the harness resolves the look (--param look, else
 // CFG.LOOK, else brand.json's look) and the brand kit (brand.json beside index.html) into one style, registers
 // the look's and the kit's font files with FontFace and adds their families to CFG.FONTS, and hands the style to
@@ -14,6 +19,7 @@
 import { createPipeline } from './gl.js';
 import { encodeWav } from './wav.js';
 import * as LK from './looks.js';
+import { resolveEnergy } from './energy.js';
 
 const q = new URLSearchParams(location.search);
 const params = {};                                    // --param k=v from render.mjs arrive as p.k
@@ -27,7 +33,7 @@ const ALPHA = q.get('alpha') === '1';
 const CHECK = q.get('check') === '1';
 const halton = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
 
-let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx, STYLE = null, BRAND = null;
+let scene, CFG, FPS, RW, RH, pipe, canvas, c2, hud, c2ctx, hudctx, STYLE = null, BRAND = null, ENERGY = null;
 const FONT_PROBLEMS = [], FACES = [];
 
 // fonts_used: the families of ctx.font at every fillText and strokeText while the scene draws (its init, frame and
@@ -136,14 +142,18 @@ async function boot() {
     if (problem && !CHECK) throw new Error(problem);
     if (problem) FONT_PROBLEMS.push(problem);
   }
-  if (scene.init) await recordingAsync(() => scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T, style: STYLE }));
+  // the energy: the board comes from lib.js (the scene has imported it, or it loads here), CFG.ENERGY from the scene
+  const lib = await import('./lib.js');
+  ENERGY = resolveEnergy({ params, CFG, BOARD: lib.BOARD });
+  if (scene.init) await recordingAsync(() => scene.init({ ctx: prep(c2ctx), hud: prep(hudctx), scale: SCALE, params, alpha: ALPHA, target: T, style: STYLE, energy: ENERGY }));
   pipe = createPipeline(canvas, RW, RH, { alpha: ALPHA });
   // DUR is read after init, so a scene may set CFG.DUR there (from a param or a board).
   window.INFO = { RW, RH, W: CFG.W, H: CFG.H, FPS, DUR: CFG.DUR, ALPHA, SCALE, SUB, SCENE: SCENE_FILE,
     TARGET, SILENT: !!scene.silent, FONTS: CFG.FONTS || [], FONT_PROBLEMS, FACES,
     STYLE: { look: STYLE.look, lookFrom: params.look ? '--param look' : CFG.LOOK ? 'CFG.LOOK' : BRAND && BRAND.look ? 'brand.json' : null, brand: STYLE.brand, tokens: STYLE.tokens, bg: STYLE.bg, sources: STYLE.sources,
       fonts: Object.fromEntries(LK.ROLES.map((r) => [r, { family: STYLE.fonts[r].family, file: STYLE.fonts[r].file || null, from: STYLE.fonts[r].from }])) },
-    HOLDS: scene.HOLDS === undefined ? null : JSON.parse(JSON.stringify(scene.HOLDS)), BOXES: typeof scene.boxes === 'function' };
+    HOLDS: scene.HOLDS === undefined ? null : JSON.parse(JSON.stringify(scene.HOLDS)), BOXES: typeof scene.boxes === 'function',
+    ENERGY: { name: ENERGY.name, from: ENERGY.from, bpm: ENERGY.bpm }, CUTS: typeof scene.cuts === 'function' };
   return true;
 }
 
@@ -337,6 +347,18 @@ window.frameHash = async (t) => {
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', readFrame()));
   return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
 };
+// The scene's declared visual cuts and transitions (plan 23.9): scene.cuts() as [{ t, d }] in picture time, each with a
+// finite t inside the piece and d from 0 to 0.3 s, sorted; null when the scene exports no cuts(). Throws on a bad entry.
+window.sceneCuts = () => {
+  if (typeof scene.cuts !== 'function') return null;
+  const list = scene.cuts();
+  if (!Array.isArray(list)) throw new Error(`${SCENE_FILE}: cuts() did not return a list`);
+  return list.map((c, i) => {
+    const ok = c && Number.isFinite(c.t) && Number.isFinite(c.d ?? 0) && (c.d ?? 0) >= 0 && (c.d ?? 0) <= 0.3 + 1e-9 && c.t >= 0 && c.t <= CFG.DUR;
+    if (!ok) throw new Error(`${SCENE_FILE}: cuts() item ${i} ${JSON.stringify(c)}: each cut needs t inside the piece and d from 0 to 0.3 s`);
+    return { t: c.t, d: c.d ?? 0 };
+  }).sort((a, b) => a.t - b.t);
+};
 // The soundtrack. audio.js gets the SELECTED scene's TL and CFG, after that scene's init, and is
 // imported only when needed: a scene that exports `silent = true` renders silence and never loads it.
 window.renderSound = async () => {
@@ -346,11 +368,24 @@ window.renderSound = async () => {
     buf = new AudioBuffer({ numberOfChannels: 2, length: Math.ceil(sr * dur), sampleRate: sr });
   } else {
     const { renderAudio } = await import('./audio.js');
-    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE });
+    buf = await renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE, energy: ENERGY });
   }
   const wav = encodeWav(buf);
   await fetch('/audio', { method: 'POST', body: wav });
   return wav.length;
+};
+// The bed stem (plan 23.9): audio.js's renderBed, the preset's beat pattern on its grid over the picture's full length,
+// posted to /bed. Returns { bytes, silent } (silent: the board asked for no bed at subtle), or null when the scene is
+// silent or its audio.js has no renderBed (a piece from before the presets: it has no bed stem).
+window.renderBedSound = async () => {
+  if (scene.silent) return null;
+  const A = await import('./audio.js');
+  if (typeof A.renderBed !== 'function') return null;
+  const sr = 48000, dur = CFG.DUR;
+  const buf = await A.renderBed({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE, energy: ENERGY });
+  const wav = encodeWav(buf);
+  await fetch('/bed', { method: 'POST', body: wav });
+  return { bytes: wav.length, silent: !!ENERGY.silentBed };
 };
 
 // The board sheet (render.mjs board, plan 6.2): one panel per board beat, the frame at the beat's key time
@@ -412,7 +447,8 @@ window.renderBoard = async ({ cols, safe }) => {
   const n = info.windows.length, rows = Math.ceil(n / cols);
   const rowCap = Array.from({ length: rows }, (_, r) => Math.max(...caps.slice(r * cols, r * cols + cols).map((c) => c.h)));
   const metaBits = [info.estimated ? 'estimated timing (no cues.js yet)'
-    : lib.CUES ? `timing from cues.js: VO_OFFSET ${info.voOffset.toFixed(2)} s, take ${lib.CUES.TAKE.duration.toFixed(2)} s` : 'silent board: the beats\' own durations',
+    : lib.CUES ? `timing from cues.js: VO_OFFSET ${info.voOffset.toFixed(2)} s, take ${lib.CUES.TAKE.duration.toFixed(2)} s`
+    : info.snapped ? `silent board: the beats on ${ENERGY.name}'s beat grid, ${info.bpm} BPM` : 'silent board: the beats\' own durations',
     `scene ${SCENE_FILE}`, `${n} beats, ${info.dur.toFixed(2)} s`, zone ? `safe zones: ${zone.name}${zone.estimate ? ' (estimate)' : ''}` : ''].filter(Boolean);
   const metaLines = wrapTokens(words(metaBits.join('  |  '), C.muted), F.meta, cols * pw + (cols - 1) * gap);
   const headH = gap + 34 * u + metaLines.length * LH.body + gap * 0.5;
@@ -447,7 +483,7 @@ window.renderBoard = async ({ cols, safe }) => {
     y += ph + rowCap[r] + gap;
   }
   return { png: sheet.toDataURL('image/png'), width: sheet.width, height: sheet.height, rows: rowsOut, title: B.title || null,
-    estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null,
+    estimated: info.estimated, voOffset: info.voOffset, dur: info.dur, take: lib.CUES ? lib.CUES.TAKE : null, grid: info.snapped ? { bpm: info.bpm, energy: ENERGY.name } : null,
     cfgDur: CFG.DUR, order: lib.boardOrder(info, CFG.DUR, FPS), scene: SCENE_FILE, safe: zone ? { target: zone.name, estimate: zone.estimate } : null };
 };
 

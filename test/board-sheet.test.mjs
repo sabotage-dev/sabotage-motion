@@ -78,13 +78,19 @@ test('a board that cannot be timed stops the render with the reason', () => {
   assert.match(r.out, /cues\.js has no cue for beat "save"/);
 });
 
-test('the template: its scene and slate take their 3 s from board.js', () => {
+test('the template: its scene and slate take their length from board.js, on normal\'s beat grid (P11b)', () => {
   const t = path.join(repoRoot, 'test', '.work', 'board-template');       // the template as it ships, no fixture
   fs.rmSync(t, { recursive: true, force: true });
   fs.cpSync(templateDir, t, { recursive: true, filter: (s) => !s.split(path.sep).includes('node_modules') });
   const r = render(t, ['board']);
-  assert.match(r.stdout, /timing: the beats' durations \(no voice\)/);
-  assert.match(fs.readFileSync(path.join(t, 'board.md'), 'utf8'), /\| 1 \| title \| 0\.00-2\.45 \|.*\n\| 2 \| out \| 2\.45-3\.00 \|/);
+  // title 2.6 s -> five beats at 116 BPM, out 0.55 s -> one: 3.103 s
+  assert.match(r.stdout, /timing: the beats' durations on normal's beat grid, 116 BPM \(no voice\)/);
+  const md = fs.readFileSync(path.join(t, 'board.md'), 'utf8');
+  assert.match(md, /\| 1 \| title \| 0\.00-2\.59 \|.*\n\| 2 \| out \| 2\.59-3\.10 \|/);
+  assert.match(md, /snapped to whole beats of normal's grid, 116 BPM/);
   render(t, ['video', '--scale', '0.25', '--sub', '1', '--out', 'out/t']);
-  assert.equal(countFrames(path.join(t, 'out/t.mp4')), 90);
+  assert.equal(countFrames(path.join(t, 'out/t.mp4')), 93);
+  // at another energy the beats snap to its own grid: six beats at 136 BPM, the slate too
+  render(t, ['video', '--scene', 'slate.js', '--param', 'energy=extreme', '--scale', '0.25', '--sub', '1', '--out', 'out/s']);
+  assert.equal(countFrames(path.join(t, 'out/s.mp4')), Math.round((7 * 60 / 136) * 30));
 });

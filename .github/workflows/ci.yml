@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The suites run in five shards per OS and node, so each job ends in about 20 minutes: on Ubuntu, installing ffmpeg
+  # The suites run in six shards per OS and node, so each job ends in about 20 minutes: on Ubuntu, installing ffmpeg
   # alone has taken from 1 to 13 minutes, and the suites took 28 minutes in one job at P11a. Each shard runs whole
   # npm test groups; test/docs.test.mjs checks that every test file is in a group a shard runs. The doctor, the render
   # speed and the informational steps run once per OS and node, in the engine shard.
@@ -44,6 +44,9 @@ jobs:
           - name: clip
             what: caption a clip
             run: npm run test:clip
+          - name: energy
+            what: the energy presets, the template card at each one, the bed stem
+            run: npm run test:energy
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'

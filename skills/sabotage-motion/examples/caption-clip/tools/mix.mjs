@@ -10,8 +10,13 @@
 //   out/<name>.mp4.render.json   its render record (written by render.mjs; the mix refuses a picture without one, or
 //                                one whose hash, frame count or fps is not the picture's own)
 //   out/<name>.wav               the synthesized effects, from `node render.mjs full` or `audio` (skip with --no-sfx)
+//   out/<name>.bed.wav           the bed stem, from `full` or `audio` when the piece's audio.js has a renderBed (plan
+//                                23.9: its energy preset's beat on the grid, the picture's full length): the bed of a
+//                                default or --master-only mix when no --bed is given (--no-bed leaves it out). It
+//                                must be the one its render recorded: a missing or changed bed stem is refused.
 //   vo.wav and cues.json         the voice and its VO_OFFSET, from tools/cues.mjs (default mode only)
-//   bed.mp3                      a music bed, when there is one (--bed names another file, --no-bed leaves it out)
+//   bed.mp3                      a music bed, when there is one and no bed stem (default mode; --bed names another
+//                                file in either mode)
 // and writes:
 //   out/<name>-final.mp4         the master: the picture stream copied untouched, the mix as AAC 256 kb/s
 //                                48 kHz, +faststart
@@ -22,20 +27,23 @@
 //
 // Modes and targets:
 //   default        voice, an optional bed ducked under it, the effects, extra stems   -14 LUFS, -2.0 dBTP
-//   --master-only  the synthesized effects alone (plus any --stem)                     -14 LUFS, -2.0 dBTP
-//   --sting        the same, for an asset cut into someone else's video                -20 LUFS, -3.0 dBTP
+//   --master-only  the synthesized effects, the bed stem (or --bed), any --stem        -14 LUFS, -2.0 dBTP
+//   --sting        the effects alone (plus any --stem), for an asset cut into someone else's video   -20 LUFS, -3.0 dBTP
 //   --target-lufs and --tp override the mode's numbers. AAC adds about 0.5 dB of true peak, which is why
 //   the targets sit under the -1.0 dBTP ceiling `check` enforces.
 //
 // The chain:
 //   voice    measured (EBU R128 integrated) and levelled to -24 LUFS, then x --vo-gain (3.2), delayed by
 //            VO_OFFSET from cues.json. A take quieter than -50 LUFS stops the mix (it would get ~+56 dB).
-//   bed      x --bed-gain (0.22); skips --bed-skip seconds of its start; starts so its end lands on the last
+//   bed      x --bed-gain (0.22 under a voice; 0.5 with --master-only, where it carries the piece with the effects);
+//            skips --bed-skip seconds of its start; starts so its end lands on the last
 //            frame (at 0 when it is longer than the picture), or at --bed-at (seconds of picture time, or
 //            cue:<id> = VO_OFFSET + that beat's cue); fades out 0.35 s where it stops when it is shorter than
 //            the picture, 2.6 s when it is longer; silent over each --mute window a-b (picture time), with a
 //            linear ramp (default 0.05 s) down before a and up after b; ducked by the voice through a
 //            sidechain compressor (threshold 0.02, ratio 5, attack 25 ms, release 350 ms).
+//            The bed stem is the exception: it already spans the picture on its beat grid, so it starts at 0, is
+//            never end-aligned and has no fade (--bed-skip and --bed-at would move it off the grid: refused).
 //   effects  x --sfx-gain (0.9; 1.0 in --master-only and --sting, where there is nothing to balance against).
 //   stems    --stem file:gain:delay, x gain (default 1), starting delay seconds into the picture (default 0).
 //   Every stem is decoded to 48 kHz stereo (ffmpeg's own up/downmix), cut or padded to the picture's length,
@@ -60,7 +68,7 @@ export const MODES = {
   sting: { lufs: -20, tp: -3.0 },
 };
 export const DEFAULTS = {
-  bedGain: 0.22, sfxGain: 0.9, sfxGainSolo: 1.0, voGain: 3.2,
+  bedGain: 0.22, bedGainSolo: 0.5, sfxGain: 0.9, sfxGainSolo: 1.0, voGain: 3.2,
   voLevel: -24, voFloor: -50,                 // LUFS: the voice is levelled to voLevel; quieter than voFloor stops the mix
   fadeShort: 0.35, fadeLong: 2.6, muteRamp: 0.05,
   duck: { threshold: 0.02, ratio: 5, attack: 25, release: 350 },
@@ -209,16 +217,17 @@ function probeVideo(file) {
 // Where the bed goes and how loud it is at each frame of the picture. frames: the picture's length; bedFrames:
 // the bed's own length. Returns { start, skip, end, fade, longer, endOnLast, cut } in frames (start may be
 // past 0 only, never negative) and gainAt(j), the bed's gain at picture frame j (bedGain x fade x mutes).
-export function bedPlan({ frames, bedFrames, skip = 0, at = null, gain = DEFAULTS.bedGain, mutes = [], sr = SR }) {
+// generated: the bed stem (plan 23.9), which spans the picture on its beat grid: it starts at 0 and has no fade.
+export function bedPlan({ frames, bedFrames, skip = 0, at = null, gain = DEFAULTS.bedGain, mutes = [], sr = SR, generated = false }) {
   const len = bedFrames - skip;                         // the bed after the skip
   const longer = len > frames;
-  const start = at != null ? Math.round(at * sr) : Math.max(0, frames - len);
+  const start = generated ? 0 : at != null ? Math.round(at * sr) : Math.max(0, frames - len);
   const end = Math.min(start + len, frames);            // where it stops in the picture
-  const fadeSec = longer ? DEFAULTS.fadeLong : DEFAULTS.fadeShort, fade = Math.round(fadeSec * sr);
+  const fadeSec = generated ? 0 : longer ? DEFAULTS.fadeLong : DEFAULTS.fadeShort, fade = Math.round(fadeSec * sr);
   const ms = mutes.map((m) => ({ a: Math.round(m.a * sr), b: Math.round(m.b * sr), r: Math.max(0, Math.round(m.ramp * sr)) }));
   const gainAt = (j) => {
     if (j < start || j >= end) return 0;
-    let g = gain * Math.min(1, (end - j) / fade);        // linear fade out, reaching 0 at `end`
+    let g = fade ? gain * Math.min(1, (end - j) / fade) : gain;   // linear fade out, reaching 0 at `end`
     for (const m of ms) {
       if (j >= m.a && j < m.b) return 0;
       if (m.r && j >= m.a - m.r && j < m.a) g *= (m.a - j) / m.r;       // ramp down into the window
@@ -227,6 +236,27 @@ export function bedPlan({ frames, bedFrames, skip = 0, at = null, gain = DEFAULT
     return g;
   };
   return { start, skip, len, end, fade, fadeSec, longer, endOnLast: start + len === frames, cut: start + len > frames, gainAt };
+}
+
+// The bed stem for a picture (plan 23.9): { file } when the render wrote one, {} when it did not, { problem } when it
+// is missing or is not the file a render recorded. The picture's own record (`full`) names it with its SHA-256; a
+// stem from `audio` carries its own record (out/<name>.bed.wav.render.json).
+export function bedStem(name, rec, P) {
+  const file = P(`out/${name}.bed.wav`), r = `out/${name}.bed.wav`;
+  if (rec && rec.bed) {
+    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that out/${name}.mp4's render wrote is missing: render it again (full), or mix without a bed (--no-bed)` };
+    if (sha256File(file) !== rec.bedSha256) {
+      const own = ownBedRecord(file);
+      if (!own) return { problem: `the bed stem ${r} changed after the render that wrote it: render it again (full or audio), or mix without a bed (--no-bed)` };
+    }
+    return { file };
+  }
+  if (!fs.existsSync(file)) return {};
+  if (!ownBedRecord(file)) return { problem: `the bed stem ${r} has no render record that describes it (out/${name}.bed.wav.render.json, from render.mjs audio): render it again, or mix without a bed (--no-bed)` };
+  return { file };
+}
+function ownBedRecord(file) {
+  try { const x = JSON.parse(fs.readFileSync(file + '.render.json', 'utf8')); return x && x.role === 'bed' && x.audioSha256 === sha256File(file) ? x : null; } catch { return null; }
 }
 
 // ---------------------------------------------------------------- the mix
@@ -240,13 +270,16 @@ export function mixPiece(argv, log = console.log) {
   if (o['master-only'] && o.sting) throw new UsageError('--master-only and --sting are two different modes: pick one');
   const mode = o.sting ? 'sting' : o['master-only'] ? 'master-only' : 'default';
   const voiced = mode === 'default';
-  if (!voiced) {
+  if (mode === 'master-only') {
+    const wrong = ['vo', 'vo-gain'].filter((k) => o[k] != null).map((k) => '--' + k);
+    if (wrong.length) throw new UsageError(`--master-only masters the effects and the bed, with no voice: ${wrong.join(', ')} ${wrong.length > 1 ? 'do' : 'does'} not apply`);
+  } else if (!voiced) {
     const wrong = ['vo', 'bed', 'vo-gain', 'bed-gain', 'bed-skip', 'bed-at'].filter((k) => o[k] != null).map((k) => '--' + k).concat(o.mute.length ? ['--mute'] : []);
     if (wrong.length) throw new UsageError(`--${mode} masters the synthesized effects alone (plus any --stem): ${wrong.join(', ')} ${wrong.length > 1 ? 'do' : 'does'} not apply`);
   }
   const target = { lufs: num(o, 'target-lufs', { min: -70, max: -5, def: MODES[mode].lufs }), tp: num(o, 'tp', { min: -9, max: 0, def: MODES[mode].tp }), lra: DEFAULTS.lra };
   const voGain = num(o, 'vo-gain', { min: 0, def: DEFAULTS.voGain });
-  const bedGain = num(o, 'bed-gain', { min: 0, def: DEFAULTS.bedGain });
+  const bedGain = num(o, 'bed-gain', { min: 0, def: voiced ? DEFAULTS.bedGain : DEFAULTS.bedGainSolo });
   const sfxGain = num(o, 'sfx-gain', { min: 0, def: voiced ? DEFAULTS.sfxGain : DEFAULTS.sfxGainSolo });
   const bedSkip = num(o, 'bed-skip', { min: 0, def: 0 });
   const mutes = parseMutes(o.mute);
@@ -295,14 +328,25 @@ export function mixPiece(argv, log = console.log) {
   }
   const voFile = voiced ? P(o.vo || 'vo.wav') : null;
   if (voiced && !fs.existsSync(voFile)) problems.push(`no voice ${rel(voFile)}: run tools/cues.mjs (it writes vo.wav), pass --vo <file>, or master the effects alone (--master-only)`);
-  let bedFile = null;
-  if (voiced && !o['no-bed']) {
+  // the bed: --bed, else the bed stem the render wrote (out/<name>.bed.wav, plan 23.9), else (voiced) bed.mp3
+  let bedFile = null, generated = false;
+  const withBed = (voiced || mode === 'master-only') && !o['no-bed'];
+  if (withBed) {
     if (o.bed) { bedFile = P(o.bed); if (!fs.existsSync(bedFile)) problems.push(`no bed ${rel(bedFile)}`); }
-    else if (fs.existsSync(P('bed.mp3'))) bedFile = P('bed.mp3');
+    else {
+      const stem = bedStem(name, rec, P);
+      if (stem.problem) problems.push(stem.problem);
+      else if (stem.file) { bedFile = stem.file; generated = true; }
+      else if (voiced && fs.existsSync(P('bed.mp3'))) bedFile = P('bed.mp3');
+    }
+  }
+  if (generated) {
+    const off = ['bed-skip', 'bed-at'].filter((k) => o[k] != null).map((k) => '--' + k);
+    if (off.length) problems.push(`${off.join(' and ')}: the bed stem out/${name}.bed.wav is on the picture's beat grid from 0, so it is never moved (mix it with --no-bed and --bed <file> to place another bed)`);
   }
   if (!bedFile) {
     const bedOnly = ['bed-gain', 'bed-skip', 'bed-at'].filter((k) => o[k] != null).map((k) => '--' + k).concat(mutes.length ? ['--mute'] : []);
-    if (voiced && bedOnly.length) notes.push(`no bed in this mix, so ${bedOnly.join(', ')} ${bedOnly.length > 1 ? 'do' : 'does'} nothing`);
+    if ((voiced || mode === 'master-only') && bedOnly.length) notes.push(`no bed in this mix, so ${bedOnly.join(', ')} ${bedOnly.length > 1 ? 'do' : 'does'} nothing`);
   }
   let bedAt = null;
   if (bedAtSpec && bedFile) {
@@ -315,7 +359,7 @@ export function mixPiece(argv, log = console.log) {
   }
   const stemFiles = stems.map((s) => ({ ...s, path: P(s.file) }));
   for (const s of stemFiles) if (!fs.existsSync(s.path)) problems.push(`no stem ${rel(s.path)}`);
-  if (!voiced && !useSfx && !stemFiles.length) problems.push(`--${mode} with --no-sfx and no --stem: there is nothing to master`);
+  if (!voiced && !useSfx && !stemFiles.length && !bedFile) problems.push(`--${mode} with --no-sfx${mode === 'master-only' ? ', no bed' : ''} and no --stem: there is nothing to master`);
   if (problems.length) throw new MixError(problems);
 
   const frames = Math.round((rec.frames / rec.fps) * SR), dur = frames / SR;
@@ -361,17 +405,17 @@ export function mixPiece(argv, log = console.log) {
     if (bedFile) {
       const b = decode(bedFile), bedFrames = b.length >> 1, skip = Math.round(bedSkip * SR);
       if (skip >= bedFrames) throw new MixError(`--bed-skip ${bedSkip} skips past the end of ${rel(bedFile)} (${fmt(bedFrames / SR, 2)} s long)`);
-      const plan = bedPlan({ frames, bedFrames, skip, at: bedAt, gain: bedGain, mutes });
+      const plan = bedPlan({ frames, bedFrames, skip, at: bedAt, gain: bedGain, mutes, generated });
       const buf = new Float32Array(frames * 2);
       for (let j = Math.max(0, plan.start); j < plan.end; j++) {
         const k = skip + j - plan.start, g = plan.gainAt(j);
         if (g) { buf[2 * j] = b[2 * k] * g; buf[2 * j + 1] = b[2 * k + 1] * g; }
       }
       bed = { buf, plan };
-      const where = bedAt != null ? `at ${fmt(bedAt)} s (--bed-at ${bedAtSpec})` : plan.longer ? 'at 0 (it is longer than the picture)' : `at ${fmt(plan.start / SR)} s, so its end lands on the last frame`;
-      log(`  bed     ${rel(bedFile)} x${bedGain}: ${fmt(plan.len / SR, 2)} s after a ${fmt(skip / SR, 2)} s skip; starts ${where}; ${plan.cut ? `cut at ${fmt(plan.end / SR)} s` : `ends at ${fmt(plan.end / SR)} s`} with a ${plan.fadeSec} s fade (${plan.longer ? 'longer' : 'shorter'} than the picture)${mutes.length ? '; muted ' + mutes.map((m) => `${m.a}-${m.b}`).join(', ') : ''}; ducked under the voice`);
+      const where = generated ? 'at 0 (the bed stem, on the picture\'s beat grid)' : bedAt != null ? `at ${fmt(bedAt)} s (--bed-at ${bedAtSpec})` : plan.longer ? 'at 0 (it is longer than the picture)' : `at ${fmt(plan.start / SR)} s, so its end lands on the last frame`;
+      log(`  bed     ${rel(bedFile)} x${bedGain}: ${fmt(plan.len / SR, 2)} s after a ${fmt(skip / SR, 2)} s skip; starts ${where}; ${plan.cut ? `cut at ${fmt(plan.end / SR)} s` : `ends at ${fmt(plan.end / SR)} s`} ${plan.fadeSec ? `with a ${plan.fadeSec} s fade (${plan.longer ? 'longer' : 'shorter'} than the picture)` : 'with no fade'}${mutes.length ? '; muted ' + mutes.map((m) => `${m.a}-${m.b}`).join(', ') : ''}${voice ? '; ducked under the voice' : ''}`);
       stemRecord.push({ role: 'bed', file: rel(bedFile), sha256: sha256File(bedFile), gain: bedGain, skip: bedSkip,
-        start: plan.start / SR, at: bedAtSpec, end: plan.end / SR, fade: plan.fadeSec, longer: plan.longer, endOnLastFrame: plan.endOnLast, mutes });
+        start: plan.start / SR, at: bedAtSpec, end: plan.end / SR, fade: plan.fadeSec, longer: plan.longer, endOnLastFrame: plan.endOnLast, mutes, ...(generated ? { generated: true } : {}) });
     }
 
     // ---- effects and extra stems, summed into one bus

@@ -413,6 +413,7 @@ node test/mutations.mjs [--fast]           # break each check detector and thres
 npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks
 npm run test:launch                        # a launch video for a repo: the scan, page shots and sequences, the example
 npm run test:clip                          # caption a clip: transcripts, the sync fixture through the whole path, the example
+npm run test:energy                        # energy presets: the table, snapping, the rig, the template card at each preset, the bed stem
 npm run test:examples                      # the examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text
 ```

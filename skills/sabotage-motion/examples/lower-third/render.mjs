@@ -3,7 +3,7 @@
 //   node render.mjs stills 0.5,1.2,2.4 [--scale 0.5] [--dir stills]   PNG style frames
 //   node render.mjs contact [--n 12] [--cols 4] [--scale 0.25]         one PNG grid of the whole timeline
 //   node render.mjs video [--from 0 --to DUR] [--out out/<scene>.mp4]  silent video (+ <out>.render.json)
-//   node render.mjs audio [--out out/<scene>.wav]                      synthesized soundtrack only (+ <out>.render.json)
+//   node render.mjs audio [--out out/<scene>.wav]                      synthesized effects and bed stems only (+ records)
 //   node render.mjs full  [--out out/<scene>.mp4]                      video + audio, muxed (+ <out>.render.json)
 //   node render.mjs board [--slates] [--safe] [--cols N] [--out board.png]   storyboard sheet (+ board.md)
 //   node render.mjs hash 0.5,1.2 [--scale 0.25]                        SHA-256 of each frame's raw pixels
@@ -16,6 +16,9 @@
 // Paths in --out / --dir resolve against THIS folder (the piece), not your shell's cwd; absolute paths work.
 // video, audio and full write to a temporary sibling (out/x.partial.mp4) and rename it onto the output once it is
 // complete, so a failed render leaves an earlier output untouched (its old .render.json is deleted at the start).
+// The bed stem (plan 23.9): full and audio also write out/<name>.bed.wav when the piece's audio.js has a renderBed (the
+// energy preset's beat pattern on its grid, the picture's full length), recorded like the effects stem: full in its
+// own record (bed, bedSha256), audio in out/<name>.bed.wav.render.json. tools/mix.mjs mixes it as the bed.
 // board: one panel per board.js beat at its key time, captions under each (default --scale 1/3);
 //         --slates draws them with slate.js, --safe shades what is outside the target's safe area (the
 //         --target, else BOARD.target). Timing comes from cues.js once it exists, else the estimate.
@@ -123,7 +126,7 @@ let INFO = null, ff = null;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.otf': 'font/otf',
   '.woff': 'font/woff', '.woff2': 'font/woff2' };
-let audioOut = null;
+let audioOut = null, bedOut = null;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (req.method === 'POST') {
@@ -137,6 +140,9 @@ const server = http.createServer((req, res) => {
         ff.stdin.write(body) ? done() : ff.stdin.once('drain', done);
       } else if (url.pathname === '/audio') {
         fs.writeFileSync(audioOut, body);
+        res.writeHead(200); res.end('ok');
+      } else if (url.pathname === '/bed') {
+        fs.writeFileSync(bedOut, body);
         res.writeHead(200); res.end('ok');
       } else { res.writeHead(404); res.end(); }
     });
@@ -237,7 +243,7 @@ function writeRenderJson(file, src, extra) {
     scene: sceneFile, target, silent: INFO.SILENT,
     params: paramObj(params),
     size: [INFO.W, INFO.H], render: [INFO.RW, INFO.RH], scale, fps: INFO.FPS, dur: INFO.DUR, sub,
-    alpha: alphaKind, look: INFO.STYLE.look, brand: INFO.STYLE.brand, tokens: INFO.STYLE.tokens, ...extra,
+    alpha: alphaKind, look: INFO.STYLE.look, brand: INFO.STYLE.brand, tokens: INFO.STYLE.tokens, energy: INFO.ENERGY, ...extra,
     source: src,
     video: { hash: decodedVideoHash(file) },
     sha256: sha256(fs.readFileSync(file)),
@@ -250,11 +256,11 @@ function writeRenderJson(file, src, extra) {
 // audio writes a record for its WAV (out/scene.wav.render.json): the source it came from and the WAV's SHA-256, so a
 // master's effects stem can be tied to a render of the current source (check's provenance). full records the same
 // in its own record (audio, audioSha256).
-function writeAudioRecord(file, src) {
+function writeAudioRecord(file, src, extra = {}) {
   const sha = sha256(fs.readFileSync(file));
   const rec = { format: 'sabotage-motion/render@1', created: new Date().toISOString(), mode, file: path.relative(root, file) || file,
-    scene: sceneFile, target, silent: INFO.SILENT, params: paramObj(params), fps: INFO.FPS, dur: INFO.DUR,
-    audio: path.relative(root, file) || file, audioSha256: sha, source: src, sha256: sha };
+    scene: sceneFile, target, silent: INFO.SILENT, params: paramObj(params), fps: INFO.FPS, dur: INFO.DUR, energy: INFO.ENERGY,
+    audio: path.relative(root, file) || file, audioSha256: sha, source: src, sha256: sha, ...extra };
   fs.writeFileSync(recordOf(file), JSON.stringify(rec, null, 2) + '\n');
   console.log('wrote', recordOf(file));
 }
@@ -324,6 +330,19 @@ async function renderAudioTo(page, out) {
   if (INFO.SILENT) console.log(`audio: ${sceneFile} exports silent = true, so the soundtrack is silence`);
   else audioReport(out);
 }
+// The bed stem (plan 23.9) into `out`: null when the scene is silent or its audio.js has no renderBed, else
+// { silent } (the board's bed: false at subtle).
+async function renderBedTo(page, out) {
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  bedOut = out;
+  const r = await page.evaluate(() => window.renderBedSound());
+  if (!r) return null;
+  const wav = C.readWav(fs.readFileSync(out)), s = C.spikeStats(wav), db = (x) => 20 * Math.log10(Math.max(x, 1e-9));
+  console.log(r.silent ? `bed: silent (${INFO.ENERGY.name}, the board's bed: false)` : `bed: ${INFO.ENERGY.name} at ${INFO.ENERGY.bpm} BPM, peak ${db(s.peak).toFixed(1)} dBFS, RMS ${db(s.rms).toFixed(1)} dBFS`);
+  return r;
+}
+// The bed stem beside an effects stem or a picture: out/x.wav and out/x.mp4 -> out/x.bed.wav.
+const bedOf = (file) => { const ext = path.extname(file); return (ext ? file.slice(0, -ext.length) : file) + '.bed.wav'; };
 // Peak, RMS and spike check on the 16-bit WAV from wav.js. A plain "peak under -1 dBFS" test misses
 // an envelope bug that fires one full-scale blip, so also flag any 50 ms window far above the loud ones
 // (check.mjs spikeStats: the same analysis as check's audio_spike).
@@ -351,6 +370,7 @@ function boardMarkdown(r) {
   const out = [`# ${cell(r.title || 'Board')}`, '',
     r.estimated ? 'Timing: estimated timing (no cues.js yet: words / wps + 0.25 s per voiced beat).'
       : r.take ? `Timing: from cues.js. VO_OFFSET ${r.voOffset} s (picture time where vo.wav starts); take ${r.take.duration} s.`
+      : r.grid ? `Timing: the beats' durations snapped to whole beats of ${r.grid.energy}'s grid, ${r.grid.bpm} BPM (no voice).`
       : 'Timing: the beats\' own durations (no voice).',
     `Scene: ${r.scene}. ${r.rows.length} beats, ${r.dur} s.${r.safe ? ` Safe zones: ${r.safe.target}${r.safe.estimate ? ' (estimate)' : ''}.` : ''}`,
     '', '| # | Beat | Window (s) | Voice | On screen | Look | Sound |', '|---|---|---|---|---|---|---|'];
@@ -507,6 +527,11 @@ function recordSkips(rec) {
     const ext = path.extname(out);
     skip.add(out.slice(0, -ext.length) + '.video' + ext);
     if (rec.audio) { skip.add(path.resolve(root, rec.audio)); skip.add(partialOf(path.resolve(root, rec.audio))); }
+    skip.add(bedOf(out)); skip.add(partialOf(bedOf(out)));
+  }
+  if (rec.mode === 'audio') {   // an audio render writes the effects stem and its bed together; either record skips both
+    const fx = rec.role === 'bed' ? out.replace(/\.bed\.wav$/, '.wav') : out;
+    for (const f of [fx, bedOf(fx)]) { skip.add(f); skip.add(partialOf(f)); }
   }
   return skip;
 }
@@ -542,6 +567,16 @@ async function flashOnFile(file, rec) {
     return { id: 'flash', scope: 'file', level: 'SKIP', detail: 'not checked: an overlay with alpha, and what it flashes depends on the picture under it: check the video it is laid over' };
   }
   return C.flashResult(await C.measureFlash(file), { scope: 'file', what: relRoot(file) });
+}
+// The gains the mixer puts on the effects and the bed (plan 23.9: audio_spike hears what is mixed): a master's own
+// (master.json's stems), else tools/mix.mjs's defaults: a voiced board's (effects 0.9) or the effects alone (1.0), and
+// the bed at its bed gain.
+async function heardGains(mj, board) {
+  const MX = await import(pathToFileURL(path.join(root, 'tools', 'mix.mjs')).href);
+  const st = (mj && mj.stems) || [], fx = st.find((x) => x.role === 'effects'), bd = st.find((x) => x.role === 'bed' && x.generated);
+  if (fx && bd) return { sfx: fx.gain, bed: bd.gain, from: `as ${mj.name}.master.json mixed them` };
+  const voiced = !!(board && (board.beats || []).some((b) => b && b.vo != null));
+  return { sfx: voiced ? MX.DEFAULTS.sfxGain : MX.DEFAULTS.sfxGainSolo, bed: voiced ? MX.DEFAULTS.bedGain : MX.DEFAULTS.bedGainSolo, from: `tools/mix.mjs's ${voiced ? 'voiced' : '--master-only'} gains` };
 }
 async function importPiece(name) {
   const f = path.join(root, name);
@@ -648,6 +683,17 @@ async function check() {
           }
           facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands, facts.rec || null);
         }
+        // the generated bed stem it was mixed with (plan 23.9): the picture's own record, or the bed's audio record
+        const bs = (facts.mj.stems || []).find((x) => x.role === 'bed' && x.generated);
+        if (bs) {
+          const cands = [];
+          if (facts.rec) cands.push({ file: facts.mj.render.file, rec: facts.rec, sourceNow: facts.sourceNow });
+          const ar = path.resolve(root, bs.file) + '.render.json';
+          if (fs.existsSync(ar)) {
+            try { const rec = JSON.parse(fs.readFileSync(ar, 'utf8')); cands.push({ file: relRoot(ar), rec, sourceNow: sourceHash(recordSkips(rec)) }); } catch { /* not a record */ }
+          }
+          facts.bedProblem = C.bedLink({ file: bs.file, sha256: bs.sha256 }, cands, facts.rec || null);
+        }
       }
       prov = C.provenance(facts);
       push(prov.result);
@@ -667,7 +713,7 @@ async function check() {
   const BOARD = B.mod ? B.mod.BOARD || null : null;
   const boardError = B.error || (B.mod && !BOARD ? 'board.js does not export BOARD' : null);
   const cues = Q.mod ? { VO_OFFSET: Q.mod.VO_OFFSET, CUE: Q.mod.CUE, TAKE: Q.mod.TAKE, GAPS: Q.mod.GAPS || [], HOOK_END: Q.mod.HOOK_END, WORDS: Q.mod.WORDS || [], BOARD_KEY: Q.mod.BOARD_KEY } : null;
-  const timing = BOARD ? lib.boardTiming(BOARD, cues) : null;
+  const timing = BOARD ? lib.boardTiming(BOARD, cues, { energy: (settings.params || {}).energy || null, clip: !!lib.CLIP }) : null;
 
   // ---- the page, at the probe's scale, with the render's settings. When the source checks do not run (--plain, or
   // provenance failed), the scene is loaded only for file_spec, and only when no render record gives the settings;
@@ -776,21 +822,30 @@ async function check() {
         if (BOARD && timing.ok) push(C.boardCopy(samples, { fps, windows }));
         else skipIds(['board_copy_missing', 'board_copy_unread'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
       }
-      // the effects stem, rendered afresh (the source is the render's, so it is the stem that was mixed)
+      // the effects stem and the bed stem, rendered afresh (the source is the render's, so they are the stems that were
+      // mixed); audio_spike hears them summed at the mixer's gains (plan 23.9): the master's own when it records them,
+      // else tools/mix.mjs's defaults for the board (voiced, or the effects alone)
       if (INFOc.SILENT) skipIds(['board_sfx_missing', 'audio_spike'], 'source', `${settings.scene} exports silent = true, so it has no effects stem`);
       else if (want('board_sfx_missing') || want('audio_spike')) {
         audioOut = path.join(os.tmpdir(), `sm-check-${process.pid}.wav`);
+        bedOut = path.join(os.tmpdir(), `sm-check-${process.pid}.bed.wav`);
         try {
           await page.evaluate(() => window.renderSound());
           const wav = C.readWav(fs.readFileSync(audioOut));
+          const bedR = await page.evaluate(() => window.renderBedSound());
           if (dump) { const st = C.spikeStats(wav); dump.audio = { peak: st.peak, p90: st.p90, over: st.over, rms: st.rms, loudWindows: st.loud }; }
           if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));
           else skipIds(['board_sfx_missing'], 'source', BOARD ? 'the board cannot be timed (board_order)' : 'no board.js');
-          push(C.audioSpike(wav));
+          if (!bedR) push(C.audioSpike(wav));
+          else {
+            const g = await heardGains(prov && prov.mj, BOARD);
+            const heard = C.mixWavs([{ wav, gain: g.sfx }, { wav: C.readWav(fs.readFileSync(bedOut)), gain: g.bed }]);
+            push(C.audioSpike(heard, { what: `the effects (x${g.sfx}) and the bed stem (x${g.bed}) summed${g.from ? ` (${g.from})` : ''}` }));
+          }
         } catch (e) {
           // under every effects check asked for, so --only cannot hide it
           for (const id of ['board_sfx_missing', 'audio_spike']) push({ id, scope: 'source', level: 'FAIL', detail: `the effects did not render: ${e.message.split('\n')[0]}` });
-        } finally { fs.rmSync(audioOut, { force: true }); }
+        } finally { fs.rmSync(audioOut, { force: true }); fs.rmSync(bedOut, { force: true }); }
       }
     }
   }
@@ -946,7 +1001,8 @@ try {
       fs.writeFileSync(md, boardMarkdown(r));
       console.log('wrote', out, `(${r.width}x${r.height}, ${r.rows.length} beats)`);
       console.log('wrote', md);
-      console.log(r.estimated ? 'timing: estimated (no cues.js yet)' : r.take ? `timing: from cues.js (VO_OFFSET ${r.voOffset} s)` : 'timing: the beats\' durations (no voice)');
+      console.log(r.estimated ? 'timing: estimated (no cues.js yet)' : r.take ? `timing: from cues.js (VO_OFFSET ${r.voOffset} s)`
+        : r.grid ? `timing: the beats' durations on ${r.grid.energy}'s beat grid, ${r.grid.bpm} BPM (no voice)` : 'timing: the beats\' durations (no voice)');
       for (const p of r.order) console.log(`note: board_order would fail: ${p}`);
     } else if (mode === 'brand') {
       const out = resolveOut(opt('out', 'brand.png'));
@@ -969,22 +1025,31 @@ try {
       partials.clear();
     } else if (mode === 'audio') {
       const out = resolveOut(opt('out', `out/${sceneBase}.wav`)), part = partialOf(out);
-      fs.rmSync(recordOf(out), { force: true });
-      const src = sourceHash(new Set([out, part]));
-      partials.add(part);
+      const bed = bedOf(out), bpart = partialOf(bed);
+      for (const f of [out, bed]) fs.rmSync(recordOf(f), { force: true });
+      const src = sourceHash(new Set([out, part, bed, bpart]));
+      partials.add(part); partials.add(bpart);
       await renderAudioTo(page, part);
+      const b = await renderBedTo(page, bpart);
       promote(part, out);
       console.log('wrote', out);
       writeAudioRecord(out, src);
+      if (b) {
+        promote(bpart, bed);
+        console.log('wrote', bed);
+        writeAudioRecord(bed, src, { role: 'bed', bedSilent: b.silent });
+      } else fs.rmSync(bed, { force: true });   // an old bed would not belong to this render
       partials.clear();
     } else if (mode === 'full') {
       const out = resolveOut(withExt(opt('out', `out/${sceneBase}`), videoExt));
       const base = out.slice(0, -path.extname(out).length);
       const vtmp = base + '.video' + videoExt, atmp = base + '.wav', part = partialOf(out), apart = partialOf(atmp);
+      const btmp = bedOf(out), bpart = partialOf(btmp);
       fs.rmSync(recordOf(out), { force: true });
-      const src = sourceHash(new Set([out, vtmp, atmp, part, apart]));
-      partials.add(apart);
+      const src = sourceHash(new Set([out, vtmp, atmp, part, apart, btmp, bpart]));
+      partials.add(apart); partials.add(bpart);
       await renderAudioTo(page, apart);          // audio first: it takes 0.1 s, so a broken audio.js fails fast
+      const bed = await renderBedTo(page, bpart);
       const frames = await renderVideo(page, vtmp, 0, DUR);
       const acodec = alphaKind === 'prores' ? ['-c:a', 'pcm_s16le'] : alphaKind === 'webm' ? ['-c:a', 'libopus', '-b:a', '192k'] : ['-c:a', 'aac', '-b:a', '256k'];
       partials.add(part);                        // the mux writes the .partial file; a failed mux leaves no temp behind
@@ -992,10 +1057,13 @@ try {
         '-t', String(DUR), ...(videoExt === '.mp4' ? ['-movflags', '+faststart'] : []), part]);
       fs.rmSync(vtmp, { force: true }); partials.delete(vtmp);
       fs.rmSync(recordOf(atmp), { force: true });   // an `audio` record of the old effects stem no longer describes it
+      fs.rmSync(recordOf(btmp), { force: true });   // nor one of the old bed stem
       promote(apart, atmp);
+      if (bed) promote(bpart, btmp); else fs.rmSync(btmp, { force: true });   // no bed now: an old one would be mixed in
       promote(part, out);
-      console.log('wrote', out, '(audio kept at', atmp + ')');
-      writeRenderJson(out, src, { from: 0, to: DUR, frames, fonts_used: await page.evaluate(() => window.fontsUsed()), audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)) });
+      console.log('wrote', out, '(audio kept at', atmp + (bed ? `, the bed at ${btmp}` : '') + ')');
+      writeRenderJson(out, src, { from: 0, to: DUR, frames, fonts_used: await page.evaluate(() => window.fontsUsed()), audio: path.relative(root, atmp), audioSha256: sha256(fs.readFileSync(atmp)),
+        ...(bed ? { bed: path.relative(root, btmp), bedSha256: sha256(fs.readFileSync(btmp)), bedSilent: bed.silent } : {}) });
       partials.clear();
     }
     console.log(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);

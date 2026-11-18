@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { repoRoot, templateDir, examplesDir, EXAMPLES } from './helpers.mjs';
 
 const skillDir = path.join(repoRoot, 'skills', 'sabotage-motion');
@@ -58,10 +59,11 @@ test('README: every picture it shows exists, and each GIF is within its size bud
   assert.deepEqual(problems, []);
 });
 
-test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are each reported', async () => {
+test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are each reported', async (t) => {
   const { mediaProblems } = await import('../scripts/readme-media.mjs');
   const MB = 1024 * 1024;   // the plan's budgets (23.1), written out here so a looser budget in the script fails
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-media-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));   // removed whether the test passes or fails
   const gif = (name, width, bytes) => {
     const b = Buffer.alloc(bytes);
     b.write('GIF89a', 0, 'latin1'); b.writeUInt16LE(width, 6); b.writeUInt16LE(100, 8);
@@ -82,7 +84,6 @@ test('readme-media: a missing picture, a wide or heavy hero and a heavy tile are
   gif('tile-360.gif', 360, 1000);
   assert.deepEqual(mediaProblems('![t](tile-360.gif)', dir).problems, [], 'a tile at 360 px');
   assert.equal(mediaProblems('![t](tile-wide.gif)', dir).problems.length, 1, 'a tile over 360 px');
-  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('readme-media: every form GitHub renders a picture in is found, and code and links are not', async () => {
@@ -391,4 +392,20 @@ test('P11b CI: every test file runs in exactly one shard of the engine job, or i
     assert.ok(at > 0, step);
     assert.match(ci.slice(at, ci.indexOf('\n', ci.indexOf('\n', at) + 1)), /if: .*matrix\.shard\.name == 'engine'/, `${step} runs in the engine shard only`);
   }
+});
+
+// ---------------------------------------------------------------- test hygiene (P11b)
+// The suites that make a folder in the system temp directory remove it when they finish, pass or fail: each runs here
+// with a temp directory of its own, which must be empty of their folders afterwards.
+test('P11b hygiene: the readme-media and fake-ffmpeg suites leave no folder in the temp directory', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-hyg-'));
+  try {
+    for (const [file, name] of [['test/docs.test.mjs', 'readme-media: a missing picture'], ['test/render-error.test.mjs', 'a scene under out/']]) {
+      const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', `--test-name-pattern=${name}`, file], { cwd: repoRoot, encoding: 'utf8', timeout: 120000, killSignal: 'SIGKILL',
+        env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_TEST_CONTEXT')), TMPDIR: tmp + path.sep, TMP: tmp, TEMP: tmp } });
+      assert.equal(r.status, 0, `${file} failed:\n${(r.stdout || '').slice(-2000)}`);
+      assert.match(r.stdout, /# pass [1-9]/, `${file} ran no test matching "${name}"`);
+      assert.deepEqual(fs.readdirSync(tmp).filter((f) => /^sm-(media|fake-ffmpeg)-/.test(f)), [], `${file} left its folder in the temp directory`);
+    }
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });

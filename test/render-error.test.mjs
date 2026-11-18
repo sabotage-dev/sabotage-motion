@@ -1,7 +1,7 @@
 // The render error path (a P0 bug fixed in P3): when the scene throws partway through `video` or `full`,
 // render.mjs prints the error and exits non-zero within a time limit, its ffmpeg child is gone, and the partial
 // file and its render record are not left behind.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -37,6 +37,7 @@ for (const mode of ['video', 'full']) {
 // it writes a partial file, as a real encoder would have, and kills itself.
 const realFfmpeg = execFileSync('sh', ['-c', 'command -v ffmpeg'], { encoding: 'utf8' }).trim();
 const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'sm-fake-ffmpeg-'));
+after(() => fs.rmSync(fakeBin, { recursive: true, force: true }));   // the stand-in leaves nothing in the temp folder
 fs.writeFileSync(path.join(fakeBin, 'ffmpeg'), `#!/bin/sh
 last=""; for a in "$@"; do last="$a"; done
 case "$SM_FAKE_FFMPEG_DIE:$*" in

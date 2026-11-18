@@ -21,6 +21,7 @@
     "test:code": "node --test --test-concurrency=1 test/code-units.test.mjs test/code.test.mjs test/code-example.test.mjs",
     "test:launch": "node --test --test-concurrency=1 test/repo-scan.test.mjs test/shots.test.mjs test/launch-example.test.mjs",
     "test:clip": "node --test --test-concurrency=1 test/clip-units.test.mjs test/clip.test.mjs test/caption-example.test.mjs",
+    "test:energy": "node --test --test-concurrency=1 test/energy-units.test.mjs test/energy.test.mjs",
     "test:repo": "node --test test/leak.test.mjs test/assets.test.mjs test/docs.test.mjs",
     "hooks": "node scripts/leak.mjs install"
   },
