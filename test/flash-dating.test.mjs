@@ -10,11 +10,11 @@ import { C } from './check-helpers.mjs';
 import { fixtures } from './flash-fixtures.mjs';
 
 const M = 512, START = 123457;
-function byPts(fx) {
+function byPts(fx, start = START) {
   const tb = { num: 1, den: fx.rate.num * M }, step = fx.rate.den * M;
   const tr = C.flashTracker({ w: fx.w, h: fx.h, timeBase: tb, red: fx.kind === 'rgb' });
-  for (let k = 0; k < fx.n; k++) (fx.kind === 'rgb' ? tr.pushRGB : tr.pushLum)(fx.frame(k), START + k * step);
-  return tr.result();
+  for (let k = 0; k < fx.n; k++) (fx.kind === 'rgb' ? tr.pushRGB : tr.pushLum)(fx.frame(k), start + k * step);
+  return { ...tr.result(), lastTs: start + (fx.n - 1) * step };
 }
 test('every deterministic fixture dated by timestamps gives what dating by frame gives (verdict, failing frames, first, times)', () => {
   const bad = [];
@@ -26,10 +26,12 @@ test('every deterministic fixture dated by timestamps gives what dating by frame
   }
   assert.deepEqual(bad, []);
 });
-test('timestamps past 2^31 ticks stay exact (eight transitions at 3000001/100000 fps, 51,200,000 ticks a frame)', () => {
+test('timestamps past 2^31 ticks stay exact (eight transitions at 3000001/100000 fps, 51,200,000 ticks a frame, from 2^31 + 123457)', () => {
+  // every timestamp is past 2^31, the last past 4.1e9: a 32-bit ring would wrap them (council round 2, C3)
   const fx = fixtures().find((x) => x.name.startsWith('8 transitions at 3000001/100000'));
-  const r = byPts(fx);
-  assert.deepEqual([r.failing, r.first.f], [1, 31]);
+  const r = byPts(fx, 2 ** 31 + START);
+  assert.ok(r.lastTs > 2 ** 31 + 1.9e9, `the last frame is at ${r.lastTs} ticks`);
+  assert.deepEqual([r.failing, r.first.f, r.first.t], [1, 31, (31 * 100000) / 3000001]);
 });
 test('variable frame rate in memory: frames at 0, 0.2 ... 1.6 and 1.801 s alternating pass; dated as 30 fps they would fail', () => {
   const ms = [0, 200, 400, 600, 800, 1000, 1200, 1400, 1600, 1801];

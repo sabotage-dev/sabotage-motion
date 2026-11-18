@@ -572,6 +572,12 @@ const M = [
   ["P11a R1 A4 docs: check.md drops the rotation line", 'skills/sabotage-motion/references/check.md', [["- **Rotation**: a file with a display rotation is measured as displayed.", "- **Rotation**: a file is measured as coded."]], DOCS],
   ["P11a R1 M1: ffmpeg errors ignored when it exits 0", T + 'check.mjs', [["  if (errors.length) {", "  if (false) {"]], FLE],
   ["P11a R1 M1: info lines (showinfo) counted as errors", T + 'check.mjs', [["(?:error|fatal|panic)", "(?:error|fatal|panic|info)"]], FLE],
+  // ---- P11a council round 2 fold: frames paired with showinfo's lines in arrival order, and a watchdog (C1); the raw
+  // output's packets numbered so its timestamps never collide (C2); the large-timestamp fixture past 2^31 (C3).
+  ["P11a R2 C1: showinfo lines keyed by their counter n again", T + 'check.mjs', [["/showinfo.*\\] (?:\\[info\\] )?n:\\s*\\d+\\s+pts:\\s*(\\S+)/.exec(l))) pts.push(m[1] === 'NOPTS' ? null : Number(m[1]));", "/showinfo.*\\] (?:\\[info\\] )?n:\\s*(\\d+)\\s+pts:\\s*(\\S+)/.exec(l))) pts[+m[1]] = m[2] === 'NOPTS' ? null : Number(m[2]);"]], FLE],
+  ["P11a R2 C1: the watchdog never fires", T + 'check.mjs', [["    if (closed || Date.now() - quiet <= stallMs) return;", "    if (true) return;"]], FLE],
+  ["P11a R2 C2: the raw output keeps ffmpeg's own timestamps (no setts)", T + 'check.mjs', [["'-bsf:v', 'setts=pts=N:dts=N',", ""]], FLE],
+  ["P11a R2 C3: the transition rings Int32Array, not Float64Array", T + 'check.mjs', [["const ringG = new Float64Array(n * K).fill(NONE)", "const ringG = new Int32Array(n * K).fill(NONE)"], ["const ringR = new Float64Array(red ? n * K : 0).fill(NONE)", "const ringR = new Int32Array(red ? n * K : 0).fill(NONE)"]], ['test/flash-dating.test.mjs']],
 ];
 
 const argv = process.argv.slice(2);

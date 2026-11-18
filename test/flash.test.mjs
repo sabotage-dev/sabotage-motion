@@ -9,6 +9,10 @@
 //     crowd into one second passes, and one whose frames really are that close fails.
 //   - Round 1 (M1): a file cut short, which ffmpeg decodes one frame short and still exits 0, is a FAIL that says it
 //     could not be decoded, while the intact file still FAILs on its flashes.
+//   - Round 2 (C1, C2): a stream that changes size mid-way completes with every frame dated (showinfo's counter restarts
+//     there, so frames pair with its lines in the order they come); ffmpeg going quiet is stopped by a watchdog; and a
+//     valid variable-rate file whose frames come faster than its declared rate is not refused over the timestamps of
+//     the checker's own raw output.
 //   - fixture-flash rendered by the engine: a strobe lit only between the probe's samples, which the motion-blurred
 //     render shows. Source `check` runs flash on the current render of the whole piece (FAIL), while the probe sees a
 //     still card; with no render, only a partial one, or one from an older source, flash is not checked and says to
@@ -17,7 +21,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { makePiece, render } from './helpers.mjs';
 import { C, runCheck, one } from './check-helpers.mjs';
 
@@ -232,6 +236,78 @@ test('round 1, M1: a strobe cut 40 bytes short, which ffmpeg decodes a frame sho
   const d = fileFlash(cut);
   assert.equal(d.level, 'FAIL', d.out);
   assert.match(d.detail, /^out\/strobe8-cut\.mkv could not be decoded to look for flashes: ffmpeg reported "[^"]+".* and went on, so frames may be missing or damaged$/);
+});
+test('round 2, C1: an MPEG-TS whose picture changes size mid-way (12 frames at 96x64, then a 128x64 strobe) completes, all 24 frames dated', async () => {
+  // two streams, the second 1 s later (-output_ts_offset), one after the other: ffmpeg rebuilds its filter graph at the
+  // change, and showinfo's frame counter n starts again at 0
+  const ts = (name, src, extra = []) => {
+    const f = P(`out/${name}.ts`);
+    const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', src, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', ...extra, '-f', 'mpegts', f], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return fs.readFileSync(f);
+  };
+  const a = ts('size-a', 'color=c=gray:s=96x64:r=12:d=1');
+  const b = ts('size-b', "color=c=black:s=128x64:r=12:d=1,geq=lum='if(mod(N,2),235,16)':cb=128:cr=128", ['-output_ts_offset', '1']);
+  const f = P('out/size-change.ts');
+  fs.writeFileSync(f, Buffer.concat([a, b]));
+  const sizes = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'frame=width', '-of', 'csv=p=0', f], { encoding: 'utf8' }).stdout.trim().split('\n').map((l) => l.split(',')[0]);
+  assert.deepEqual([sizes.length, sizes[0], sizes[23]], [24, '96', '128'], 'the stream changes size after 12 frames');
+  // through check, with a time limit of its own so a hang shows as a failure here and not as a stuck suite
+  const r = spawnSync(process.execPath, ['render.mjs', 'check', '--file', 'out/size-change.ts', '--plain', '--only', 'flash', '--json'],
+    { cwd: dir, encoding: 'utf8', timeout: 120000, killSignal: 'SIGKILL' });
+  assert.equal(r.signal, null, 'check finished');
+  const x = JSON.parse(r.stdout)[0];
+  assert.equal(x.level, 'FAIL', x.detail);
+  // the strobe's frames sit at 75000 + 7500 j ticks of 1/90000 s from the first frame (the second stream starts two
+  // frames before the first ends); the eighth transition, its frame 7, is at 127500 ticks
+  assert.match(x.detail, /^out\/size-change\.ts: from 1\.417 s, .* 5 of 24 frames are over it, the last at 1\.750 s/);
+  const m = await C.measureFlash(f);
+  assert.deepEqual([m.frames, m.failing, m.first.f, m.last.f], [24, 5, 19, 23]);
+});
+test('round 2, C1: ffmpeg going quiet (a source that stops sending) is stopped by the watchdog: not decodable, never a hang', async () => {
+  // 10 s of a small FFV1 picture over TCP from a server in its own process (ffprobe runs while this process waits on it):
+  // every connection gets the first 70% of the file and then nothing, with the socket left open. ffprobe has its 5 s
+  // of packets by then; ffmpeg decodes about 7 s and then waits on the socket.
+  const src = P('out/quiet.mkv');
+  const e = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=64x64:r=10:d=10', '-c:v', 'ffv1', src], { encoding: 'utf8' });
+  assert.equal(e.status, 0, e.stderr);
+  const server = spawn(process.execPath, ['-e', `
+    const net = require('node:net'), fs = require('node:fs'), data = fs.readFileSync(process.argv[1]);
+    const part = data.subarray(0, Math.floor(data.length * 0.7));
+    const srv = net.createServer((s) => { s.on('error', () => {}); s.write(part); });
+    srv.listen(0, '127.0.0.1', () => console.log(srv.address().port));
+  `, src], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    const port = await new Promise((res, rej) => { server.stdout.once('data', (d) => res(String(d).trim())); server.once('exit', rej); });
+    const t0 = Date.now();
+    const m = await Promise.race([C.measureFlash(`tcp://127.0.0.1:${port}`, { stallMs: 1500 }), new Promise((res) => setTimeout(() => res({ hung: true }), 45000))]);
+    assert.ok(!m.hung, 'measureFlash returned');
+    assert.match(m.error || '', /^ffmpeg went quiet for 1\.5 s \(no frame and no log line\) and was stopped$/);
+    assert.ok(Date.now() - t0 < 20000, `stopped in ${Date.now() - t0} ms`);
+    assert.match(C.flashResult(m, { scope: 'file', what: 'x' }).detail, /^x could not be decoded to look for flashes: ffmpeg went quiet/);
+  } finally { server.kill('SIGKILL'); }
+});
+test('round 2, C2: a valid VFR file declared 30 fps whose frames then come 16-17 ms apart is checked, not refused', () => {
+  // black, H.264 in Matroska: ten frames 33 ms apart (so the stream says 30/1), then 50 frames 16 or 17 ms apart
+  const f = P('out/vfr-declared30.mkv');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=320x240:r=30:d=2',
+    '-vf', "settb=1/1000,setpts='if(lt(N,10),N*1000/30,1000/3+(N-10)*1000/60)'", '-fps_mode', 'passthrough', '-enc_time_base', '1/1000',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', f], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const probe = (args) => spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', ...args, '-of', 'csv=p=0', f], { encoding: 'utf8' }).stdout.trim();
+  assert.equal(probe(['-show_entries', 'stream=r_frame_rate']), '30/1');
+  const ms = probe(['-show_entries', 'frame=pts']).split('\n').map((l) => Number(l.split(',')[0]));
+  assert.equal(ms.length, 60);
+  assert.ok(ms.every((t, i) => !i || t > ms[i - 1]), 'every frame at its own time');
+  assert.deepEqual(ms.slice(9, 13), [300, 333, 350, 366]);
+  // decoded the way flash decodes it but with ffmpeg's own output timestamps, the raw output's 1/30 s clock puts two of
+  // these frames on one tick, and ffmpeg logs it as an error
+  const raw = spawnSync('ffmpeg', ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'level+info', '-i', f, '-map', '0:v:0', '-fps_mode', 'passthrough',
+    '-vf', 'scale=1024:768,format=rgb24', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-y', process.platform === 'win32' ? 'NUL' : '/dev/null'], { encoding: 'utf8' });
+  assert.match(raw.stderr, /\[error\] Application provided invalid, non monotonically increasing dts/, 'the case is live on this ffmpeg');
+  const d = fileFlash(f);
+  assert.equal(d.level, 'OK', d.out);
+  assert.match(d.detail, /\(60 frames at 1024x768/);
 });
 test('a file ffmpeg cannot decode is a flash FAIL that says so', () => {
   fs.writeFileSync(P('out/broken.mp4'), Buffer.from('not a video at all'));

@@ -825,7 +825,8 @@ export function flashTracker({ w, h, rate, timeBase, red = true }) {
 //                   decoder, which reports the plain yuv420p (PIX_FMTS above)
 //   timeBase        the stream's time base (ffmpeg's own filter link names the one its timestamps are in)
 export function flashProbe(file) {
-  const a = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  const a = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', file], { encoding: 'utf8', maxBuffer: 64 << 20, timeout: FLASH_STALL_MS, killSignal: 'SIGKILL' });
+  if (a.error && a.error.code === 'ETIMEDOUT') return { error: `ffprobe did not finish reading the file in ${FLASH_STALL_MS / 1000} s` };
   if (a.error || a.status !== 0) return { error: String(a.stderr || a.error).trim().split('\n').pop() };
   const v = (JSON.parse(a.stdout || '{}').streams || [])[0];
   if (!v) return { error: 'no video stream' };
@@ -845,31 +846,43 @@ export const hasAlpha = (pixFmt) => /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/.tes
 let showinfoArg = null;
 const showinfo = () => showinfoArg ?? (showinfoArg = /^\s*checksum\s/m.test(spawnSync('ffmpeg', ['-hide_banner', '-h', 'filter=showinfo'], { encoding: 'utf8' }).stdout || '') ? 'showinfo=checksum=0' : 'showinfo');
 
+// How long ffmpeg may go without a frame or a log line before it is taken to be stuck (council round 2, C1).
+export const FLASH_STALL_MS = 60000;
+
 // The rule on a file: ffmpeg decodes every frame (one out per frame in; autorotated, so as displayed), scales it to
-// flashSize (area averaging down, bilinear up) and hands it over as RGB; frames stream through flashTracker, never all
-// held. Each frame is dated by its presentation timestamp, which ffmpeg's showinfo filter prints for it on the same
-// filter link, with the link's time base, so a variable-rate file is dated by when its frames are shown.
+// flashSize (area averaging down, bilinear up; every frame to that size, so a stream that changes size mid-way still
+// arrives in whole frames) and hands it over as RGB; frames stream through flashTracker, never all held.
+// Each frame is dated by its presentation timestamp, which ffmpeg's showinfo filter prints for it on the same filter
+// link, with the link's time base, so a variable-rate file is dated by when its frames are shown. Frames and showinfo
+// lines are paired in the order they arrive: showinfo's own counter `n` restarts when the filter graph is rebuilt (a
+// change of size mid-stream), so it is never the key (council round 2, C1). The raw output's packets are numbered
+// 0, 1, 2 ... (setts), so the timestamps ffmpeg writes to the pipe can never collide, whatever the input's are; a
+// collision there was ffmpeg's own error about its output, never about the file (C2). If ffmpeg goes quiet for
+// `stallMs`, it is killed and the file counts as not decodable.
 // Returns flashTracker's result plus { src: [w, h] (as displayed), ms }, or { error }.
-export async function measureFlash(file) {
+export async function measureFlash(file, { stallMs = FLASH_STALL_MS } = {}) {
   const p = flashProbe(file);
   if (p.error) return p;
   const [sw, sh] = flashSize(p.width, p.height);
-  const scale = sw === p.width && sh === p.height ? '' : `scale=${sw}:${sh}:flags=${sw < p.width ? 'area' : 'bilinear'},`;
+  const scale = sw === p.width && sh === p.height ? `scale=${sw}:${sh}` : `scale=${sw}:${sh}:flags=${sw < p.width ? 'area' : 'bilinear'}`;
   const t0 = Date.now();
   const proc = spawn('ffmpeg', ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'level+info', '-i', file, '-map', '0:v:0',
-    '-fps_mode', 'passthrough', '-vf', `${scale}format=rgb24,${showinfo()}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'],
-  { stdio: ['ignore', 'pipe', 'pipe'] });
+    '-fps_mode', 'passthrough', '-vf', `${scale},format=rgb24,${showinfo()}`, '-bsf:v', 'setts=pts=N:dts=N',
+    '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { stdio: ['ignore', 'pipe', 'pipe'] });
   // stderr, every line tagged with its level (-loglevel level+info): showinfo's [info] lines give the link's time base and
-  // each frame's pts in order; an [error], [fatal] or [panic] line is ffmpeg reporting a damaged or cut-short input, a
-  // frame it could not decode or a packet it truncated, and it may still exit 0 (council round 1, M1)
+  // each frame's pts, in the order the frames come; an [error], [fatal] or [panic] line is ffmpeg reporting a damaged or
+  // cut-short input, a frame it could not decode or a packet it truncated, and it may still exit 0 (council round 1, M1)
   const pts = [], errors = [];
-  let tb = null, rest = '', closed = false, wake = null;
-  const nudge = () => { if (wake) { const w = wake; wake = null; w(); } };
+  let tb = null, tbMoved = null, rest = '', closed = false, wake = null, quiet = Date.now(), stalled = false;
+  const nudge = () => { quiet = Date.now(); if (wake) { const w = wake; wake = null; w(); } };
   proc.stderr.setEncoding('utf8');
   const line = (l) => {
     let m;
-    if (!tb && (m = /showinfo.*\] (?:\[info\] )?config in time_base: (\d+)\/(\d+)/.exec(l))) tb = { num: +m[1], den: +m[2] };
-    else if ((m = /showinfo.*\] (?:\[info\] )?n:\s*(\d+)\s+pts:\s*(\S+)/.exec(l))) pts[+m[1]] = m[2] === 'NOPTS' ? null : Number(m[2]);
+    if ((m = /showinfo.*\] (?:\[info\] )?config in time_base: (\d+)\/(\d+)/.exec(l))) {
+      const x = { num: +m[1], den: +m[2] };
+      if (!tb) tb = x;
+      else if (x.num * tb.den !== tb.num * x.den) tbMoved = tbMoved || `${x.num}/${x.den} after ${tb.num}/${tb.den}`;
+    } else if ((m = /showinfo.*\] (?:\[info\] )?n:\s*\d+\s+pts:\s*(\S+)/.exec(l))) pts.push(m[1] === 'NOPTS' ? null : Number(m[1]));
     else if ((m = /^(?:\[[^\]]+\] )*\[(?:error|fatal|panic)\] (.*)$/.exec(l))) errors.push(m[1].trim());
   };
   let tail = '';
@@ -884,27 +897,38 @@ export async function measureFlash(file) {
     proc.on('error', (e) => { closed = true; nudge(); res({ error: e.message }); });
     proc.on('close', (code) => { closed = true; nudge(); res({ code }); });
   });
+  // the watchdog: no frame and no log line for stallMs, and ffmpeg is stopped
+  const dog = setInterval(() => {
+    if (closed || Date.now() - quiet <= stallMs) return;
+    stalled = true;
+    proc.kill('SIGKILL');
+  }, Math.max(50, Math.min(1000, stallMs / 4)));
   const ptsOf = async (k) => { while (pts.length <= k && !closed) await new Promise((r) => { wake = r; }); return pts[k]; };
   const size = sw * sh * 3, frame = Buffer.allocUnsafe(size);
   let tr = null, have = 0, k = 0, bad = null;
   try {
     for await (const chunk of proc.stdout) {
+      quiet = Date.now();
       for (let off = 0; off < chunk.length;) {
         const n = Math.min(size - have, chunk.length - off);
         chunk.copy(frame, have, off, off + n); have += n; off += n;
         if (have < size) continue;
         have = 0;
         const x = await ptsOf(k);
-        if (x == null) { bad = `frame ${k} has no presentation timestamp`; break; }
+        if (x === undefined) { bad = stalled ? null : `frame ${k} came with no showinfo line to date it`; break; }
+        if (x === null) { bad = `frame ${k} has no presentation timestamp`; break; }
         if (!tr) tr = flashTracker({ w: sw, h: sh, timeBase: tb || p.timeBase });
         tr.pushRGB8(frame, x);
         k++;
       }
-      if (bad) break;
+      if (bad || stalled) break;
     }
   } catch (e) { bad = e.message; }
-  if (bad) { proc.kill('SIGKILL'); await done; return { error: bad }; }
+  if (bad || stalled) proc.kill('SIGKILL');
   const end = await done;
+  clearInterval(dog);
+  if (stalled) return { error: `ffmpeg went quiet for ${(stallMs / 1000).toFixed(stallMs % 1000 ? 1 : 0)} s (no frame and no log line) and was stopped` };
+  if (bad) return { error: bad };
   if (end.error || end.code !== 0) return { error: end.error || errors.pop() || tail || `ffmpeg exited ${end.code}` };
   // ffmpeg exited 0 but reported errors: a frame may be missing or damaged, so what was measured is not the picture
   if (errors.length) {
@@ -913,6 +937,9 @@ export async function measureFlash(file) {
   }
   if (!tr) return { error: 'no frames decoded' };
   if (have) return { error: `the last frame was cut short (${have} of ${size} bytes)` };
+  // every frame paired with its own showinfo line, in order, and the clock never changed under them (C1)
+  if (pts.length !== k) return { error: `ffmpeg dated ${pts.length} frames but sent ${k}, so frames and timestamps no longer pair` };
+  if (tbMoved) return { error: `the time base changed mid-stream (${tbMoved})` };
   return { ...tr.result(), src: [p.width, p.height], ms: Date.now() - t0 };
 }
 
