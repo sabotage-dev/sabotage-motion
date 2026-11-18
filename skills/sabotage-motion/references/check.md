@@ -176,27 +176,16 @@ and the lower third and the captions are overlays.
 The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` at every energy, `energy_match` OK and inside
 its preset's ranges at each (section 9 has the numbers; `flash` is not checked until it is rendered); rendered and
 mastered with its bed stem (`--master-only`), `check --file` is 0 FAIL and 0 WARN at each, `flash` included
-(`test/energy.test.mjs`), and at `extreme` on every look its `flash` stays under the limit (the most too fast, 18,658
-px, on `paper`). On `tiktok-ad` it is 0 FAIL at every energy and 0 WARN at `subtle` and `extreme`; at `normal`
+(`test/energy.test.mjs`). On `tiktok-ad` it is 0 FAIL at every energy and 0 WARN at `subtle` and `extreme`; at `normal`
 `energy_match` WARNs that its largest line is 8.3% of the frame height, under normal's 9%: beside the button column
 the title has 660 px, and its widest word fits them at that size. A piece made for `tiktok-ad` at `normal` sets a
 shorter title or lets it break into more lines.
 
-On five of the eight looks the card reads calmer than its energy, on `tiktok` too: `energy_match` WARNs at `normal`
-and at `extreme`. Its cuts swap the ground's stripes, and the stripes keep to the flash-safe tone (`energy.js`
-`groundTone`: under a 0.1 swing of relative luminance from the ground). On these grounds that tone is mostly under the
-16/255 the check needs to confirm a cut or count a pixel as moving:
-
-- `paper`, `product` and `editorial`: at `normal` none of the card's 2 cuts is confirmed (5-7% of the pixels change on
-  `product` and `editorial`, 17-19% on `paper`, under the 20% a cut needs) and its motion is 0.4-0.6% (floor 2%); at
-  `extreme` none of 11 is confirmed on `product` and `editorial` and 7 are on `paper`, and its motion is 2-5% (floor 6%).
-- `brutalist` and `gradient`: every cut is confirmed, but the motion is 0.1-0.2% at `normal` and about 2% at `extreme`.
-
-The template's own look, `neon`, `retro-crt` and `mono` read as their energy. A piece on one of those five looks reads
-as `normal` or `extreme` when it cuts with layout, scale or an accent block (a new framing, a punch-in, a block of the
-accent colour), not with the ground's brightness, and moves something with contrast. The card itself is unchanged
-here; its redesign is logged for 0.2.1.
-
+On every look the card reads at its energy: on all eight at `subtle`, `normal` and `extreme`, its source check is 0 FAIL
+and 0 WARN with `energy_match` inside the preset's ranges and every cut changing at least 40% of the frame
+(`test/card-looks.test.mjs`), and rendered and mastered, `check --file` is 0 FAIL and 0 WARN, `flash` included (the most
+too fast: 18,874 px, on `brutalist` at `extreme`). Its cuts move a block of the look's accent, which reads against any
+ground, while the ground's own stripes keep to their flash-safe tone (`groundTone`), too close to a light ground to show.
 CI runs every source check except the two probe checks and `flash` on the examples on macOS
 and Linux; the probe checks, `flash` and the masters run on a Mac before a release.
 
@@ -329,8 +318,11 @@ the text left out, and motion from the probe. This is the interface those measur
   board's `energy` or `bpm`); with none anywhere it keeps its lengths, and a voiced board never snaps.
 - **Text and the camera**: whips happen only on a cut between beats, with no copy on screen; for every other move
   `moves.js`'s rig clamps the camera at each `t` so every box stays inside the target's safe area after it.
-- **Fast cuts and flash**: at extreme, consecutive shots' grounds stay under the flash rule's 0.1 swing of relative
-  luminance (`energy.js` `groundTone`, `shotTones`), so the cuts read on the frames without making a flash sequence.
+- **Cuts that read on any ground, and flash**: the card's cuts move a block of the look's accent (normal: a band that
+  swaps sides, then drops to the bottom; extreme: 60% of the width sliding a fifth of it a cut, there and back, so a
+  pixel changes on at most every other cut), and type over it takes the ground's colour. Its ground's stripes, and the
+  stripes inside the block, stay under the flash rule's 0.1 swing of relative luminance (`energy.js` `groundTone`,
+  `shotTones`): on a light ground that is too close to show, so the block carries the cut.
 
 `energy_match` on the template card at each preset (the same card, `node render.mjs check --param energy=<name>` on
 its own target, `tiktok`, an Apple-silicon Mac); `test/energy.test.mjs` holds each inside its preset's ranges:
@@ -338,8 +330,8 @@ its own target, `tiktok`, an Apple-silicon Mac); `test/energy.test.mjs` holds ea
 | Preset | Length | Declared cuts, confirmed | Mean shot (range) | Largest line (range) | Motion, median (bound) |
 |---|---|---|---|---|---|
 | `subtle` | 3.571 s (5 beats at 84 BPM) | 0, 0 | 3.57 s, 5 beats (2.86-3.57 s) | 6.3% (4-8%) | 0.0% (at most 10%) |
-| `normal` | 3.621 s (7 beats at 116 BPM) | 2, 2 | 1.21 s, 2.33 beats (1.03-1.55 s) | 11.5% (9-16%) | 4.8% (at least 2%) |
-| `extreme` | 3.088 s (7 beats at 136 BPM) | 11, 11 | 0.26 s, 0.58 beats (0.22-0.44 s) | 28.9% (18-35%) | 20.5% (at least 6%) |
+| `normal` | 3.621 s (7 beats at 116 BPM) | 2, 2 | 1.21 s, 2.33 beats (1.03-1.55 s) | 11.5% (9-16%) | 6.6% (at least 2%) |
+| `extreme` | 3.088 s (7 beats at 136 BPM) | 11, 11 | 0.26 s, 0.58 beats (0.22-0.44 s) | 28.9% (18-35%) | 14.5% (at least 6%) |
 
 A card with no cuts is one shot as long as the piece, so `subtle`'s mean shot is its whole length, 5 beats, the top of
 its range (`subtle` is judged only on being busier than its ceiling, so a longer shot is never a WARN).

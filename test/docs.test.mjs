@@ -453,18 +453,17 @@ test('P11b README: the template card at each energy, side by side, each GIF with
     assert.equal(r.level, 'OK', r.detail);
   }
 });
-// council round 4, K1: the template card on a light or flat ground reads calmer than normal (energy_match), and the
-// docs say so and how a piece cuts there instead (the card itself is unchanged until 0.2.1)
-test('P11b K1 check.md and looks.md: the card at normal on light looks reads calm, and a piece cuts with layout, scale or an accent block', () => {
+// council round 4, K1, then the owner's "fix the card first" (0.2.0): the card reads at its energy on every look, and the
+// docs say so and how a piece of your own cuts on a light ground
+test('P11b check.md and looks.md: every look reads at its energy, and a piece cuts with layout, scale or an accent block on a light ground', () => {
   const flat = (f) => read(f).replace(/\s+/g, ' ');
   const ck = flat('references/check.md'), sec6 = ck.slice(ck.indexOf('## 6. '), ck.indexOf('## 7. '));
-  for (const x of ['On five of the eight looks the card reads calmer than its energy', '`energy_match` WARNs at `normal` and at `extreme`',
-    'the 16/255 the check needs to confirm a cut', '`paper`, `product` and `editorial`: at `normal` none of the card\'s 2 cuts is confirmed',
-    '`brutalist` and `gradient`: every cut is confirmed, but the motion is', 'cuts with layout, scale or an accent block',
-    'not with the ground\'s brightness', 'its redesign is logged for 0.2.1']) assert.ok(sec6.includes(x), `check.md section 6: ${x}`);
+  for (const x of ['On every look the card reads at its energy', 'every cut changing at least 40% of the frame', '`test/card-looks.test.mjs`',
+    'Its cuts move a block of the look\'s accent']) assert.ok(sec6.includes(x), `check.md section 6: ${x}`);
+  for (const x of ['calmer than its energy', '0.2.1', 'On five of the eight looks']) assert.ok(!ck.includes(x), `check.md no longer says: ${x}`);
   const lk = flat('references/looks.md'), sec3 = lk.slice(lk.indexOf('## 3. '), lk.indexOf('## 4. '));
-  for (const x of ['On a light or flat ground, cut and move with something other than the ground.', '`paper`, `product`, `editorial`, `brutalist` and `gradient`',
-    'at `normal` and `extreme` the card WARNs as calmer than its energy', 'cut with layout, scale or an accent block']) assert.ok(sec3.includes(x), `looks.md section 3: ${x}`);
+  for (const x of ['Every look reads at its energy.', 'cut with layout, scale or an accent block, not with the ground\'s brightness']) assert.ok(sec3.includes(x), `looks.md section 3: ${x}`);
+  assert.ok(!lk.includes('WARNs as calmer'), 'looks.md no longer says the card WARNs');
 });
 test('P11b skill text: the board names its energy and why, the craft defaults per preset, the interface check reads, the launch recipe', () => {
   const sk = read('SKILL.md');

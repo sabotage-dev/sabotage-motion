@@ -17,7 +17,7 @@
     "test:check-file": "node --test --test-concurrency=1 test/check-file.test.mjs",
     "test:flash": "node --test --test-concurrency=1 test/flash-units.test.mjs test/flash-dating.test.mjs test/flash.test.mjs",
     "test:examples": "node --test --test-concurrency=1 test/examples.test.mjs test/examples-check.test.mjs",
-    "test:looks": "node --test --test-concurrency=1 test/looks-units.test.mjs test/looks.test.mjs",
+    "test:looks": "node --test --test-concurrency=1 test/looks-units.test.mjs test/looks.test.mjs test/card-looks.test.mjs",
     "test:code": "node --test --test-concurrency=1 test/code-units.test.mjs test/code.test.mjs test/code-example.test.mjs",
     "test:launch": "node --test --test-concurrency=1 test/repo-scan.test.mjs test/shots.test.mjs test/launch-example.test.mjs",
     "test:clip": "node --test --test-concurrency=1 test/clip-units.test.mjs test/clip.test.mjs test/caption-example.test.mjs",

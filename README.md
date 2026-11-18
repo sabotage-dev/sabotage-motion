@@ -135,8 +135,8 @@ The same template card at each energy, `--param energy=subtle`, `normal` and `ex
 
 <p>
 <img src="docs/media/energy-subtle.gif" width="270" alt="The template card at subtle: the title rises gently on a still ground, no cuts">
-<img src="docs/media/energy-normal.gif" width="270" alt="The template card at normal: bigger type, the ground cutting to a new angle every two beats">
-<img src="docs/media/energy-extreme.gif" width="270" alt="The template card at extreme: each word slammed in huge on the beat, cuts every half beat, then a whip">
+<img src="docs/media/energy-normal.gif" width="270" alt="The template card at normal: bigger type, a block of the accent colour moving to a new place every two beats">
+<img src="docs/media/energy-extreme.gif" width="270" alt="The template card at extreme: each word slammed in huge on the beat, the accent block sliding on every half-beat cut, then a whip">
 </p>
 
 A board names its energy (`energy: 'normal'`, the default), and the agent says which it chose and why. The look still

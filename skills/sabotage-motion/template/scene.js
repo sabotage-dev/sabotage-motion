@@ -78,7 +78,7 @@ export const TL = {
   whipAt: null, exitAt: OUT,           // extreme: the copy is gone at exitAt, then the camera whips across the cut
 };
 
-let ctx, S = 1, ALPHA = false, P, ST, E, LAYER, lctx, SAFE, EXCL, R, TONE, CUTS = [];
+let ctx, S = 1, ALPHA = false, P, ST, E, LAYER, lctx, SAFE, EXCL, R, TONE, PTONE, CUTS = [];
 const L = {};
 const SLAM = { from: 1.75, d: 0.14 };
 
@@ -104,6 +104,7 @@ export async function init({ ctx: c, scale, params, alpha, target, style, energy
   if (span.left !== SAFE.x || span.right !== SAFE.x + SAFE.w) layout(span);
   timeline();
   TONE = groundTone([ST.tokens.bgA, ST.tokens.bgB], E.shotStep || 0.045);   // close to every colour the ground runs between
+  PTONE = groundTone([ST.tokens.accent], 0.08);   // the panel's stripes: close to the accent (never a flash), yet they read
   // the camera: a push across each shot (the base), and the preset's hits; clamped so the text stays in the safe area
   const hits = [];
   if (E.camera.punch) for (const h of E.name === 'extreme' ? TL.slams : TL.hits) hits.push({ t: h, kind: 'punch', amp: E.camera.punch, d: E.name === 'extreme' ? 0.22 : 0.3 });
@@ -231,7 +232,8 @@ function timeline() {
   }
   CUTS = cutList(list);
   TL.cuts = CUTS.map((c) => c.t);
-  TL.glitches = name === 'extreme' ? CUTS.filter((c) => c.d === 0).filter((_, i) => i % 3 === 1).map((c) => ({ t: c.t - 0.03, d: 0.08 })) : [];
+  // a glitch on every sixth hard cut, where the look allows one (each shifts slices of the panel too: more would flash)
+  TL.glitches = name === 'extreme' ? CUTS.filter((c) => c.d === 0).filter((_, i) => i % 6 === 1).map((c) => ({ t: c.t - 0.03, d: 0.08 })) : [];
   TL.flashes = name === 'extreme' ? [{ t: TL.whipAt + 0.08, d: 0.1 }] : [];
 }
 
@@ -284,30 +286,78 @@ function soloWords(t) {
 // The ground (normal and extreme): stripes in a tone close to the background's (energy.js groundTone: never a flash
 // between shots), at a new angle on every cut, scrolling; normal reveals each new shot through an iris (mask).
 const ANG = [-0.42, 0.33, -1.05, 0.62, -0.18, 1.2, -0.75, 0.05];
-function stripes(c, t, i, alpha = 1) {
-  const period = E.name === 'extreme' ? 150 : 170, speed = E.name === 'extreme' ? 420 : 110;
+function stripes(c, t, i, { tone = TONE, fast = 1 } = {}) {
+  const period = E.name === 'extreme' ? 150 : 170, speed = (E.name === 'extreme' ? 420 : 110) * fast;
   const a = ANG[i % ANG.length], diag = Math.hypot(CFG.W, CFG.H), off = (shotRand(i, 3) * period + speed * t) % period;
   c.save();
-  c.globalAlpha = alpha;
   c.translate(CFG.W / 2, CFG.H / 2); c.rotate(a);
-  c.fillStyle = TONE;
+  c.fillStyle = tone;
   for (let x = -diag / 2 - period + off; x < diag / 2; x += period) c.fillRect(x, -diag / 2, period * 0.5, diag);
   c.restore();
 }
+// The panel (normal and extreme): a block of the look's accent over the ground, in a new place on every cut, so the cut
+// reads on any ground. The ground's stripes cannot carry a cut on a light ground: they keep within a flash-safe tone of
+// it (groundTone), and on a light ground that tone is under the 16/255 a cut needs. Shot i's panel is PANELS[energy][i
+// mod n] as [x, y, w, h], shares of the frame: normal's swaps sides, then drops to the bottom (each cut moves half the
+// frame or more); extreme's is 60% of the width sliding a fifth of it a cut, there and back, so a pixel changes on at
+// most every other cut (about twice a second at 136 BPM: never a light-dark flicker). Inside it, stripes in a tone close
+// to the accent scroll (normal: at twice the ground's pace; extreme: at half of it, where a strong bloom, neon's, would
+// carry their swing past the flash rule's), motion that reads on any look and is never a flash. Type, the bar and the
+// frame marks over it are drawn in the ground's colour (recolour).
+const PANELS = {
+  normal: [[0.52, 0, 0.48, 1], [0, 0, 0.48, 1], [0, 0.56, 1, 0.44]],
+  extreme: [[0, 0, 0.6, 1], [0.2, 0, 0.6, 1], [0.4, 0, 0.6, 1], [0.2, 0, 0.6, 1]],
+};
+function panelOf(i) {
+  const list = !ALPHA && PANELS[E.name];
+  if (!list) return null;
+  const [x, y, w, h] = list[i % list.length];
+  return { x: x * CFG.W, y: y * CFG.H, w: w * CFG.W, h: h * CFG.H };
+}
+function drawPanel(c, t, i) {
+  const p = panelOf(i);
+  if (!p) return;
+  c.save(); c.beginPath(); c.rect(p.x, p.y, p.w, p.h); c.clip();
+  c.fillStyle = P.accent; c.fillRect(p.x, p.y, p.w, p.h);
+  stripes(c, t, i + 3, { tone: PTONE, fast: E.name === 'normal' ? 2 : 0.5 });
+  c.restore();
+}
+// normal's iris between shots: [the shot before, the shot after, the circle's radius], or null outside a transition
+function iris(t) {
+  const cur = E.name === 'normal' ? CUTS.find((x) => x.d > 0 && t >= x.t && t < x.t + x.d) : null;
+  if (!cur) return null;
+  return [CUTS.indexOf(cur), CUTS.indexOf(cur) + 1, maskTr(t, cur.t, cur.d).r * Math.hypot(CFG.W, CFG.H) * 0.5 + 1];
+}
 function ground(c, t) {
   if (E.name === 'subtle' || ALPHA) return;
-  const i = shotAt(CUTS, t), cur = CUTS.find((x) => x.d > 0 && t >= x.t && t < x.t + x.d);
-  if (E.name === 'normal' && cur) {
-    // the iris: the old shot's ground, the new shot's inside a circle growing from the centre
-    const j = CUTS.indexOf(cur), m = maskTr(t, cur.t, cur.d);
-    stripes(c, t, j);
-    c.save(); c.beginPath(); c.arc(CFG.W / 2, CFG.H / 2, m.r * Math.hypot(CFG.W, CFG.H) * 0.5 + 1, 0, Math.PI * 2); c.clip();
+  const ir = iris(t);
+  if (ir) {
+    // the iris: the old shot's ground and panel, the new shot's inside a circle growing from the centre
+    const [j, k, r] = ir;
+    stripes(c, t, j); drawPanel(c, t, j);
+    c.save(); c.beginPath(); c.arc(CFG.W / 2, CFG.H / 2, r, 0, Math.PI * 2); c.clip();
     c.fillStyle = ST.tokens.bgA; c.fillRect(0, 0, CFG.W, CFG.H);
-    stripes(c, t, j + 1);
+    stripes(c, t, k); drawPanel(c, t, k);
     c.restore();
     return;
   }
-  stripes(c, t, i);
+  const i = shotAt(CUTS, t);
+  stripes(c, t, i); drawPanel(c, t, i);
+}
+// Where the panel is at t, in design pixels ({ x, y, w, h }), or null: at subtle, in an overlay, and inside normal's iris
+// (two panels then). A pure function of t, like boxes(t); the test that keeps type over the panel legible reads it.
+export function panelAt(t) { return iris(t) ? null : panelOf(shotAt(CUTS, t)); }
+// Whatever the layer holds over the panel, in the ground's colour (source-atop keeps each pixel's coverage)
+function recolour(g, t) {
+  if (E.name === 'subtle' || ALPHA) return;
+  g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = ST.tokens.bgA;
+  const ir = iris(t), fill = (p) => p && g.fillRect(p.x, p.y, p.w, p.h);
+  if (ir) {
+    const [j, k, r] = ir;
+    g.save(); g.beginPath(); g.rect(0, 0, CFG.W, CFG.H); g.arc(CFG.W / 2, CFG.H / 2, r, 0, Math.PI * 2); g.clip('evenodd'); fill(panelOf(j)); g.restore();
+    g.save(); g.beginPath(); g.arc(CFG.W / 2, CFG.H / 2, r, 0, Math.PI * 2); g.clip(); fill(panelOf(k)); g.restore();
+  } else fill(panelOf(shotAt(CUTS, t)));
+  g.restore();
 }
 
 export function frame(t, jit) {
@@ -349,16 +399,15 @@ export function frame(t, jit) {
       l.restore();
     }
   }
-  c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(LAYER, 0, 0); c.setTransform(S, 0, 0, S, 0, 0);
 
   // --- frame marks: a corner bracket at each corner of the safe area, there from the first frame (so the
   // thumbnail is never a flat colour) until everything leaves; they also show where the safe area is
   const fo = exitK(t, TL.out, 0.3), arm = 54, inset = 14;
   if (fo < 1) {
-    c.strokeStyle = rgba(P.ink, 0.55 * (1 - fo)); c.lineWidth = 5;
+    l.strokeStyle = rgba(P.ink, 0.55 * (1 - fo)); l.lineWidth = 5;
     const x0 = SAFE.x + inset, y0 = SAFE.y + inset, x1 = SAFE.x + SAFE.w - inset, y1 = SAFE.y + SAFE.h - inset;
     for (const [x, y, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) {
-      c.beginPath(); c.moveTo(x, y + sy * arm * (1 - fo)); c.lineTo(x, y); c.lineTo(x + sx * arm * (1 - fo), y); c.stroke();
+      l.beginPath(); l.moveTo(x, y + sy * arm * (1 - fo)); l.lineTo(x, y); l.lineTo(x + sx * arm * (1 - fo), y); l.stroke();
     }
   }
   // --- accent bar: snaps in from the left, pulses on each landing, leaves to the right
@@ -367,17 +416,20 @@ export function frame(t, jit) {
   if (bi > 0 && bo < 1) {
     const pulse = 1 + 0.5 * env(t, TL.hits, 16);
     const x0 = L.barX + bo * L.barW, x1 = L.barX + bi * L.barW, h = L.barH * pulse;
-    c.fillStyle = P.accent; c.fillRect(x0, L.barY - (h - L.barH) / 2, Math.max(0, x1 - x0), h);
+    l.fillStyle = P.accent; l.fillRect(x0, L.barY - (h - L.barH) / 2, Math.max(0, x1 - x0), h);
   }
   // --- subtitle: tracks in from wide letter-spacing while fading up (extreme: on at once); fades on exit
   const { si, a } = subFade(t);
   if (a > 0) {
-    c.font = fontStr(ST, 'body', L.subFs); c.textAlign = 'left';
-    c.letterSpacing = `${subTrack(si).toFixed(2)}px`;
-    c.fillStyle = rgba(P.ink, a);
-    c.fillText(P.sub, L.barX, L.subY);
-    c.letterSpacing = '0px';
+    l.font = fontStr(ST, 'body', L.subFs); l.textAlign = 'left';
+    l.letterSpacing = `${subTrack(si).toFixed(2)}px`;
+    l.fillStyle = rgba(P.ink, a);
+    l.fillText(P.sub, L.barX, L.subY);
+    l.letterSpacing = '0px';
   }
+  // --- over the panel, all of it in the ground's colour; then the layer over the ground
+  recolour(l, t);
+  c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(LAYER, 0, 0); c.setTransform(S, 0, 0, S, 0, 0);
 
   // Compositing config for this subframe:
   //   use2D: composite the 2D canvas   scene: background shader id (0 = flat clear colour)

@@ -613,12 +613,18 @@ const M = [
   ["P11b merge card: the title beat back to 2.6 s", T + 'board.js', [["{ id: 'title', dur: 2.85,", "{ id: 'title', dur: 2.6,"]], EN],
   ["P11b merge card: normal's title set at 8% of the height", T + 'scene.js', [["E.name === 'normal' ? 0.115 : 0.12;", "E.name === 'normal' ? 0.08 : 0.12;"]], EN],
   ["P11b merge looks: the sheet's card names no energy", 'scripts/looks-sheet.mjs', [["  target: 'tiktok',\n  energy: 'subtle',\n", "  target: 'tiktok',\n"]], ['--test-name-pattern=the looks sheet', 'test/looks.test.mjs']],
+  ["P11b mix: loudnorm's dynamic timestamps kept", T + 'tools/mix.mjs', [["aresample=${SR},asetpts=N/SR/TB,atrim=end_sample=${frames}", "aresample=${SR},atrim=end_sample=${frames}"]], ['--test-name-pattern=dynamic mode keeps', 'test/energy.test.mjs']],
+  // the owner's "fix the card first" (0.2.0): the card's cuts move an accent panel, and type over it is the ground's colour
+  ["P11b card panel: the panel stays put across cuts", T + 'scene.js', [["  const [x, y, w, h] = list[i % list.length];", "  const [x, y, w, h] = list[0];"]], ['test/card-looks.test.mjs']],
+  ["P11b card panel: no panel", T + 'scene.js', [["  stripes(c, t, i); drawPanel(c, t, i);\n}", "  stripes(c, t, i);\n}"]], ['test/card-looks.test.mjs']],
+  ["P11b card panel: its stripes still", T + 'scene.js', [["stripes(c, t, i + 3, { tone: PTONE, fast: E.name === 'normal' ? 2 : 0.5 });", "c.fillStyle = PTONE;"]], ['test/card-looks.test.mjs']],
+  ["P11b card panel: type over the panel not recoloured", T + 'scene.js', [["  recolour(l, t);\n", ""]], ['test/card-looks.test.mjs']],
   // CI on Linux (P11b): energy_match's scan renders every frame with its text first, then the frames without it
   ["P11b CI energyScan interleaves the text-off renders again", T + 'main.js', [["interleave = false, debug = false }) => {", "interleave = true, debug = false }) => {"]], ['--test-name-pattern=never renders a frame without', 'test/energy.test.mjs']],
   ["P11b CI renderProbe ignores noText", T + 'main.js', [["  if (opts.noText) NOTEXT++;\n", "  if (false) NOTEXT++;\n"], ["finally { if (opts.noText) NOTEXT--; }", "finally { if (false) NOTEXT--; }"]], EMT],
   // council round 4, K1: the light looks' note, in check.md and looks.md
-  ["P11b K1 docs: check.md without the light looks' note", 'skills/sabotage-motion/references/check.md', [["`brutalist` and `gradient`: every cut is confirmed, but the motion is", "`brutalist` and `gradient`: the cuts read"]], DOCS],
-  ["P11b K1 docs: looks.md says to cut with the ground", 'skills/sabotage-motion/references/looks.md', [["To read as the energy on those looks, cut with layout, scale or an\n  accent block", "To read as the energy on those looks, cut with the ground's\n  brightness"]], DOCS],
+  ["P11b K1 docs: check.md says some looks read calm", 'skills/sabotage-motion/references/check.md', [["On every look the card reads at its energy: on all eight", "On most looks the card reads at its energy: on all eight"]], DOCS],
+  ["P11b K1 docs: looks.md says to cut with the ground", 'skills/sabotage-motion/references/looks.md', [["cut with layout, scale or an accent\n  block, not with the ground's brightness", "cut with the ground's\n  brightness"]], DOCS],
   ["P11b-2 cuts(): any d taken", T + 'check.mjs', [["if (d < 0 || d > T.energy.cut.d + EPS) return", "if (d < 0) return"]], EMU],
   ["P11b-2 cuts(): t outside the piece taken", T + 'check.mjs', [["    if (c.t < 0 || c.t > dur + EPS) return", "    if (false) return"]], EMU],
   ["P11b-2 regions: overlapping transitions kept apart", T + 'check.mjs', [["if (m && x.a <= m.b + EPS) {", "if (false) {"]], EMU],

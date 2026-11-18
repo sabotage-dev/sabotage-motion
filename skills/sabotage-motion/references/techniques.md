@@ -223,6 +223,9 @@ plays at all three (`--param energy=subtle|normal|extreme`). The helpers are in 
   says which shot `t` is in, and the scene exports `cuts()` so `check` can confirm them on the frames
   (`references/check.md` section 8). At extreme, give consecutive shots grounds close in luminance
   (`groundTone`, `shotTones` in `energy.js`): eight cuts a second between dark and light shots are a flash sequence.
+  On a light ground such tones are too close to read as a cut, so cut with something that contrasts with the ground:
+  the template card moves a block of the accent on every cut (its `panelAt(t)` says where), sliding it so a pixel
+  changes on at most every other cut.
 - **Transitions**: `crossfade`, `wipe`, `slide`, `mask` (an iris), `whip`, `zoomPunch`, `glitchCut` and `flash` (both
   nothing on a look with `glitch: false`), and `speedRamp` (a time warp that lands back on time). `flashBudget(times)`
   throws on four flash frames in a second.

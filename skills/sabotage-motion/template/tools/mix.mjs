@@ -501,7 +501,9 @@ export function mixPiece(argv, log = console.log) {
     const ln2 = `${ln}:measured_I=${m1.input_i}:measured_TP=${m1.input_tp}:measured_LRA=${m1.input_lra}:measured_thresh=${m1.input_thresh}:offset=${m1.target_offset}:linear=true:print_format=json`;
     const tmpMaster = path.join(tmp, 'master.mp4');
     const m2 = loudnormJson(run(['-y', '-i', picture, '-i', premix, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
-      '-filter:a', `${ln2},aresample=${SR},atrim=end_sample=${frames}`, '-c:a', 'aac', '-b:a', '256k', '-ar', String(SR),
+      // asetpts: loudnorm's dynamic mode (its fallback when the linear gain would break the true-peak ceiling) leaves gaps
+      // in its frames' timestamps, which the mux kept: the audio ran past its samples and the picture (P11b)
+      '-filter:a', `${ln2},aresample=${SR},asetpts=N/SR/TB,atrim=end_sample=${frames}`, '-c:a', 'aac', '-b:a', '256k', '-ar', String(SR),
       '-movflags', '+faststart', tmpMaster], 'master'));
     const M = loudness(tmpMaster, { peak: true });
     log(`  master  ${rel(master)}: ${fmt(M.lufs, 1)} LUFS, ${fmt(M.tp, 1)} dBTP, LRA ${fmt(M.lra, 1)} LU (loudnorm ${m2 ? m2.normalization_type : '?'})`);

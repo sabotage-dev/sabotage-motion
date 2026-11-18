@@ -418,6 +418,25 @@ test('P11b R2 H2 a bed muted around the hit no longer masks it: audio_spike hear
   assert.equal(x.level, 'WARN', x.detail); assert.match(x.detail, /the effects \(x1\) and the bed stem \(x0\.5, muted 0\.1-1\.95\) summed/);
   assert.equal(mixedSpike('a', ['--master-only']).level, 'OK', 'unmuted, the bed masks it');
 });
+// loudnorm falls back to its dynamic mode when its linear gain would break the true-peak ceiling (a quiet premix with
+// one loud hit); that mode's frames carry gaps in their timestamps, which the mux kept: the master's audio ran 67 ms
+// past its samples and the picture, and check --file's file_spec failed (found on the light looks at normal, P11b).
+test('P11b mix: a master that loudnorm normalizes in its dynamic mode keeps the picture\'s length', async () => {
+  // the card at normal on paper: 3.6 s (loudnorm's dynamic mode needs 3 s or more) and a quiet premix
+  const LK = await import(pathToFileURL(path.join(templateDir, 'looks.js')).href);
+  const d = path.join(work, 'energy-dynamic');
+  fs.rmSync(d, { recursive: true, force: true }); fs.cpSync(card, d, { recursive: true });
+  for (const f of fs.readdirSync(P(d, 'out'))) fs.rmSync(P(d, `out/${f}`), { force: true });
+  for (const f of LK.lookFiles('paper')) fs.copyFileSync(path.join(templateDir, '..', 'looks', 'fonts', f), P(d, `fonts/${f}`));
+  render(d, ['full', '--param', 'energy=normal', '--param', 'look=paper', ...R, '--out', 'out/h.mp4']);
+  const r = runMix(d, ['h', '--master-only']);
+  ok(r); assert.match(r.out, /\(loudnorm dynamic\)/, 'this mix is the dynamic case');
+  const dur = (sel) => +spawnSync('ffprobe', ['-v', 'error', ...sel, '-show_entries', 'stream=duration', '-of', 'csv=p=0', P(d, 'out/h-final.mp4')], { encoding: 'utf8' }).stdout.trim();
+  const v = dur(['-select_streams', 'v:0']), a = dur(['-select_streams', 'a:0']);
+  assert.ok(Math.abs(a - v) <= 1 / 30, `audio ${a} s against the picture's ${v} s`);
+  const x = JSON.parse(render(d, ['check', '--file', 'out/h-final.mp4', '--only', 'file_spec', '--json'], { allowFail: true }).stdout).find((y) => y.id === 'file_spec');
+  assert.equal(x.level, 'OK', x.detail);
+});
 // H3, and the bed's own record: a bed stem from `audio` is taken only when it is still what that render wrote, from the
 // picture's source, at the picture's params and energy
 function sepBed(name) {
