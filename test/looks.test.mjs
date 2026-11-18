@@ -277,8 +277,9 @@ for (const look of SHEET.LOOK_NAMES) {
     assert.equal(c.status, 0);
     const fonts = c.results.find((x) => x.id === 'fonts');
     for (const r of LK.ROLES) assert.ok(fonts.detail.includes(LK.LOOKS[look].fonts[r].family), `${fonts.detail} names ${LK.LOOKS[look].fonts[r].family}`);
-    // only hook_long (the card has no voice) and flash (it reads a render, and the card is checked before any) are not checked
-    assert.deepEqual(c.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['flash', 'hook_long']);
+    // only hook_long (the card has no voice), flash (it reads a render, and the card is checked before any) and
+    // energy_match (the card declares no cuts()) are not checked
+    assert.deepEqual(c.results.filter((x) => x.level === 'SKIP').map((x) => x.id).sort(), ['energy_match', 'flash', 'hook_long']);
     assert.match(c.results.find((x) => x.id === 'flash').detail, /not checked: no render of the whole piece/);
   });
 }

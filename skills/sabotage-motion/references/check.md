@@ -26,7 +26,8 @@ The colour match against a brand kit is its own mode, `node render.mjs palette`,
 5. Blind spots: when to look and listen yourself
 6. The examples' results
 7. Flashes: `flash`
-8. Energy: what a scene gives the energy measurements
+8. Energy: `energy_match`
+9. Energy: what a scene gives the energy measurements
 
 ## 1. Source checks
 Run on the piece as it is now, at half size with one subframe and grain off (the probe), and on the scene's text
@@ -45,6 +46,7 @@ boxes at every subframe time the render uses.
 | `text_safe` | FAIL, or WARN on an estimate | Each text box, mapped through the camera `frame(t)` returns at every subframe sample, is outside the safe area (or inside an `exclude` rectangle). More than 0.25 s of exposure in one beat is a FAIL on a measured target; less (a slam, a whip) is a WARN. On an estimate target it is always a WARN. Needs `boxes(t)`. | `deco: true` on a box that is decoration, not reading text. |
 | `text_overlap` | WARN | Two boxes from different groups overlap by more than 2% of the smaller one's area, at the same sample. | Put text that is meant to touch in one `group`, or mark decoration `deco: true`. |
 | `audio_spike` | WARN | The loudest 50 ms window of what is heard peaks more than 18 dB above the 90th percentile of the windows that are not silent (peak above -60 dBFS): a click, or a gain envelope that starts after its source. What is heard is the effects stem, and with a bed stem (`audio.js` `renderBed`, plan 23.9) the effects and the bed summed at the mixer's own gains. With `--file`, each stem at the gain the master's `master.json` records for it, and a stem the mix left out (`--no-sfx`, `--no-bed`, `--sting`, or a bed from a file) at zero: it is not heard, so it can neither hide a spike nor raise one. Without a master, `tools/mix.mjs`'s defaults (a voiced board: effects 0.9, bed 0.22; otherwise effects 1.0, bed 0.5). So an extreme piece's hits are judged against the beat under them, and a click over the bed still stands out. | Fix the envelope (`envGain` in `audio.js` starts at 0 for this reason); section 5 has its blind spot. |
+| `energy_match` | WARN | Section 8. The piece's cuts (declared by `cuts()` and confirmed by the frames), its largest line of type (from ink) and its motion, measured on the probe, against the ranges of the energy it states (`--param energy`, else `CFG.ENERGY`, else the board's `energy`, else `normal`): a `normal` or `extreme` piece calmer than its floor, or a `subtle` one busier than its ceiling. A declared cut the frames do not show, and a box with no ink, are a WARN each. Not checked without `cuts()`, on an overlay (`--alpha`), or with an energy that is not a preset; a `cuts()` list that is not `[{ t, d }]` with d 0-0.3 s is a scene FAIL. | Nothing to switch off: state the energy the piece has, or cut, size and move it like the energy it states. |
 | `flash` | FAIL | Run on the piece's current render: the newest `video` or `full` render in `out/` of the whole piece, with the scene, params and frame rate being checked, whose render record still matches the file and the source. Something flashes more than three times a second over too large an area (section 7). With no such render (none yet, only part of the piece, or the source changed since), it is not checked and says to render. An `--alpha` check is not checked: an overlay's flashes depend on what it is laid over. | Nothing: keep it to three flashes a second or fewer, make the flashing area smaller, or lower its contrast. |
 
 `boxes(t)` is the scene's list of the text on screen at `t`: `[{ id, text, x, y, w, h, group?, deco? }]`, one box per
@@ -120,6 +122,11 @@ on purpose to prove a test notices.
 | flash: a transition | General: 0.1 of relative luminance from the pixel's last turning point, the darker end under 0.80. Red: more than 0.2 in CIE 1976 u'v' back from the far end of the swing, one end a saturated red (R/(R+G+B) of 0.8 or more on linear RGB) | WCAG 2.3.1's definitions of a general flash and a red flash, applied to each pixel (section 7). |
 | flash: too fast | more than 7 transitions of one kind (four complete flashes) in a half-open second | WCAG 2.3.1: no more than three flashes in any one-second period. Counted on each frame's presentation timestamp in exact integer ticks of the stream's time base, so 29.97 fps is 30000/1001, never 30, and a variable-rate file is dated by when its frames are shown. |
 | flash: area | more than 21,824 px of a 341x256 window, either way round, at 1024 px on the longer side | WCAG's area: a 341x256 px rectangle at 1024x768 stands for 10 degrees of the visual field, and a flash may cover a quarter of it (21,824 px). A phone is held either way, so the window is tried both ways; a frame smaller than the window clips it. |
+| energy: a cut | the probe frames at the middles of the shots either side differ in 20% of their pixels or more, by 16/255 or more on any of R, G and B | Tuned in P11b-2 on the calibration fixtures (section 8), from the plan's first value of 30%: a new angle on the same card (1.3x) changes 32.6% of the pixels and a layer swapped over a quarter of the frame 25.0%, both cuts the plan names, while a 25%-tall word swapped for another changes 8.8% and a 12/255 shift of every colour 0.9%; 20% sits between them. Hard cuts, wipes, whips and the A-B-A-B run change 100%. |
+| energy: a shot | 0.15 s or longer; a shorter "shot" is part of the transition around it | The plan's value: a one-frame flash (0.033 s) is never a shot, extreme's half-beat shot (0.22 s at 136 BPM) always is. |
+| energy: motion | the median share of probe pixels whose luma changes by 16/255 or more, per frame pair | Tuned in P11b-2 from the plan's 8/255: at 8/255 a slow drift (12 px a second on a textured card) moved 2.48% of the pixels and a slow push (6% over 2 s) 2.69%, both over normal's 2% floor though both are subtle moves; at 16/255 they move 1.78% and 1.10%. A static card is 0. |
+| energy: ink | a pixel differs from the text-off render by 32/255 or more on any channel, and by half the largest difference inside its box or more; a row with one such pixel has ink | The half is the glyph's half-covered edge: with the absolute 32/255 alone, a bloom of 0.6 (threshold 0.4) joined a three-line block of 3% type into one 9.5% line; with the half it reads 3.3%. The fixtures, built from `measureText`'s ink bounds, measure 2.97% for three lines of 3%, 5.00% for a 5% line in a box that claims 30%, and 18.12% for a 12% line punched in to 1.5x. |
+| energy: the presets | subtle: 4-5 beats at 84 BPM, type 4-8%, motion at most 10%; normal: 2-3 beats at 116 BPM, 9-16%, at least 2%; extreme: 0.5-1 beat at 136 BPM, 18-35%, at least 6% | Plan 23.9's table and Q23. The cut interval is in beats of the piece's tempo: the preset's, or the board's own `bpm` within 10% of it, else the nearer end of that band (Q22). |
 | captions | lines fill the safe width / 1.165; between words, a space or the pop's growth plus half a space and the stroke, whichever is larger | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). A popped long word used to touch its neighbours, and a word wider than the line was drawn whole, past the safe edge or into an `exclude` rectangle; both are fixed (P4, council round 1): the gap grows beside long words, and an oversized word is scaled to fit the line. |
 
 The organic safe zones (`tiktok`, `reels`, `shorts`) are estimates, so `text_safe` only warns on them; the ad
@@ -141,6 +148,10 @@ zones are measured from the platforms' templates and fail. `references/delivery.
 - **`vo_delay` and `hook_long` trust the mix's recorded delay**; a `VO_OFFSET` past the end of the picture passes
   and plays no voice (`references/voice.md`, section 10). Listen to every master once.
 - **Loudness is not balance.** `loudness` passes a master whose bed drowns the voice. Listen.
+- **`energy_match` sees what the scene declares and draws.** A cut it does not declare never counts, and type drawn
+  from an image (text cached in `init`, a logo) has no ink: its box is reported, but its size is not measured.
+  Motion is a share of pixels, so a busy texture drifting slowly moves more than a flat one: read the contact sheet.
+  A glow far past any look's (a bloom of 0.9 at a threshold of 0.2) can still join close lines of type into one.
 - **`flash` is a safety net, not a certified test** (section 7). It also needs a picture: without `--file` it reads
   the newest current render in `out/`, so render the whole piece before you trust a source check's `flash` line.
 
@@ -156,6 +167,9 @@ each example's README names them:
 | `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 | `repo-launch` (at `normal`) | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice); `flash` ok (12,685 px at most); `audio_spike` over the effects and the bed stem | none |
 | `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | 15 ok, 0 WARN, 3 not checked (the scene is silent, no hook); `flash` ok on the composite (the most too fast: 63 px) | none |
+
+Since P11b-2 each source check above also reports `energy_match` as not checked: no example declares `cuts()` yet, and
+the lower third and the captions are overlays besides.
 
 The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad` at every energy (`flash`
 is not checked until it is rendered); rendered and mastered with its bed stem (`--master-only`), `check --file` is
@@ -222,7 +236,47 @@ three flashes a second (cut, faded, or ramped), four 7-frame pulses spanning 1.0
 29.97 fps, 8 px halves swapping four times a second, a 6x6 px spot flashing in every 16x16 cell, a bar crossing the
 frame once, swings of 0.08, a slow fade, and grain.
 
-## 8. Energy: what a scene gives the energy measurements
+## 8. Energy: `energy_match`
+A piece states its energy (`subtle`, `normal` or `extreme`: `--param energy`, else `CFG.ENERGY`, else the board's
+`energy`, else `normal`), and `energy_match` measures whether it moves like it, from the frames, never on the
+scene's word. It runs in the source check, on the probe (half size, one subframe, grain off), and needs the scene's
+`cuts()`: its visual cuts and transitions as `[{ t, d }]`, `t` in seconds and `d` the transition's length (0 for a hard
+cut, at most 0.3 s).
+
+- **Cuts.** A declared cut at `t` (or a transition from `t` to `t + d`) is confirmed when the probe frames at the
+  middles of the shots before and after it differ in 20% of their pixels or more, by 16/255 or more on any of R, G and
+  B. A "shot" shorter than 0.15 s is part of the transition around it, so a flash declared as a cut (or as two, in and
+  out) is never confirmed, while an A-B-A-B run of half-beat shots is. A change nobody declared (a shake, a flash, a
+  glitch) never counts, and a declared cut the frames do not show is a WARN of its own. Mean shot length = the piece's
+  length / (confirmed cuts + 1).
+- **Type size, from ink.** Each probe frame with text is rendered a second time with `fillText` and `strokeText`
+  drawing nothing; where the two differ is the text, after the camera and the post chain. Each box that is not
+  `deco`, mapped through the camera as `text_safe` maps it, cuts its part of that mask; its rows with ink split into
+  lines at empty rows, and a line's height is its run of rows. The tallest line over the piece, as a share of the frame
+  height, is the type size: a three-line block of small type reads as small type, and a box that claims more than its
+  ink is measured by its ink. A box with no ink at any frame is a WARN of its own.
+- **Motion.** The median, over the probe's frame pairs outside holds (`HOLDS` and `hold: true` beats), of the share of
+  pixels whose luma changes by 16/255 or more. Only the pairs that straddle a confirmed cut or lie in a transition are
+  left out: a declared one, or declared cuts closer than a shot (a flash declared in and out) merged into one, confirmed
+  or not. The pairs across a lone hard cut the frames do not confirm stay in.
+- **The verdict.** A `normal` or `extreme` piece WARNs when it is calmer than its floor on any of the three (its mean
+  shot longer than its range, its largest line smaller, its motion under its floor), and a `subtle` piece when it is
+  busier than its ceiling (shorter shots, larger type, more motion; a piece with no confirmed cut is never busy on
+  cuts). Type or motion that cannot be measured (no `boxes(t)`, no text, every pair held) is said so and not judged.
+  The ranges are section 4's.
+
+The calibration fixtures (`test/fixtures/fixture-energy/energy.js`, 720x1280 at 30 fps) build their ground truth in:
+a hard cut, a 0.3 s wipe and a 0.25 s whip between two cards (one cut each), an A-B-A-B run at extreme's half-beat
+shot (14 cuts), a shake and a full-frame flash (no cut, declared or not), a static card with a declared cut (reported),
+a new angle and a swapped layer (cuts), a swapped word and a 12/255 shift (not cuts), a slow drift and a slow push
+(calm for `normal`), and type sized from `measureText`'s ink bounds: three lines of 3%, a 5% line in a box that claims
+30%, a 12% line punched in to 1.5x, outlined type, and type drawn from an image. A static card with one full-frame
+flash, declared `extreme`, WARNs; so do a `normal` board rendered calm and an `extreme` board cut at normal pace.
+
+It takes about 4 s for a 15 s, 1080x1920, 30 fps piece with text on every frame (an Apple-silicon Mac, 2026-11-17):
+two probe renders a frame with text, one without.
+
+## 9. Energy: what a scene gives the energy measurements
 A piece's energy (`subtle`, `normal` or `extreme`, plan 23.9) is measured from its frames, never taken on the scene's
 word: cuts the scene declares count only when the frames confirm them, type size comes from the ink of a render with
 the text left out, and motion from the probe. This is the interface those measurements read, and it stays exactly so:
