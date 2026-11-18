@@ -458,7 +458,7 @@ test('P11b README: the template card at each energy, side by side, each GIF with
 test('P11b check.md and looks.md: every look reads at its energy, and a piece cuts with layout, scale or an accent block on a light ground', () => {
   const flat = (f) => read(f).replace(/\s+/g, ' ');
   const ck = flat('references/check.md'), sec6 = ck.slice(ck.indexOf('## 6. '), ck.indexOf('## 7. '));
-  for (const x of ['On every look the card reads at its energy', 'every cut changing at least 40% of the frame', '`test/card-looks.test.mjs`',
+  for (const x of ['On every look the card reads at its energy', 'every cut changing at least 40% of the frame', '`test/card-looks-subtle.test.mjs`, `-normal` and `-extreme`',
     'Its cuts move a block of the look\'s accent']) assert.ok(sec6.includes(x), `check.md section 6: ${x}`);
   for (const x of ['calmer than its energy', '0.2.1', 'On five of the eight looks']) assert.ok(!ck.includes(x), `check.md no longer says: ${x}`);
   const lk = flat('references/looks.md'), sec3 = lk.slice(lk.indexOf('## 3. '), lk.indexOf('## 4. '));

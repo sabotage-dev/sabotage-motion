@@ -36,7 +36,7 @@ jobs:
             what: check's detectors, fixture-check and the safe zones, the flash check
             run: npm run test:check && npm run test:flash
           - name: masters
-            what: check --file on mixed masters
+            what: check --file on mixed masters, and flash as a file on the template card's tightest extreme looks
             run: npm run test:check-file
           - name: looks and mix
             what: looks and brand kits, mix and parity
@@ -47,6 +47,16 @@ jobs:
           - name: energy
             what: the energy presets, the template card at each one, the bed stem
             run: npm run test:energy
+          # the template card on all 8 looks, one shard per energy: about a minute a cell on Ubuntu's SwiftShader
+          - name: card looks subtle
+            what: the template card on every look at subtle
+            run: npm run test:card-looks-subtle
+          - name: card looks normal
+            what: the template card on every look at normal, and type over its accent panel
+            run: npm run test:card-looks-normal
+          - name: card looks extreme
+            what: the template card on every look at extreme, and type over its accent panel
+            run: npm run test:card-looks-extreme
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'

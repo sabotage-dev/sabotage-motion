@@ -183,7 +183,7 @@ shorter title or lets it break into more lines.
 
 On every look the card reads at its energy: on all eight at `subtle`, `normal` and `extreme`, its source check is 0 FAIL
 and 0 WARN with `energy_match` inside the preset's ranges and every cut changing at least 40% of the frame
-(`test/card-looks.test.mjs`), and rendered and mastered, `check --file` is 0 FAIL and 0 WARN, `flash` included (the most
+(`test/card-looks-subtle.test.mjs`, `-normal` and `-extreme`, a CI shard each), and rendered and mastered, `check --file` is 0 FAIL and 0 WARN, `flash` included (the most
 too fast: 18,874 px, on `brutalist` at `extreme`). Its cuts move a block of the look's accent, which reads against any
 ground, while the ground's own stripes keep to their flash-safe tone (`groundTone`), too close to a light ground to show.
 CI runs every source check except the two probe checks and `flash` on the examples on macOS

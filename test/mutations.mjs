@@ -615,10 +615,10 @@ const M = [
   ["P11b merge looks: the sheet's card names no energy", 'scripts/looks-sheet.mjs', [["  target: 'tiktok',\n  energy: 'subtle',\n", "  target: 'tiktok',\n"]], ['--test-name-pattern=the looks sheet', 'test/looks.test.mjs']],
   ["P11b mix: loudnorm's dynamic timestamps kept", T + 'tools/mix.mjs', [["aresample=${SR},asetpts=N/SR/TB,atrim=end_sample=${frames}", "aresample=${SR},atrim=end_sample=${frames}"]], ['--test-name-pattern=dynamic mode keeps', 'test/energy.test.mjs']],
   // the owner's "fix the card first" (0.2.0): the card's cuts move an accent panel, and type over it is the ground's colour
-  ["P11b card panel: the panel stays put across cuts", T + 'scene.js', [["  const [x, y, w, h] = list[i % list.length];", "  const [x, y, w, h] = list[0];"]], ['test/card-looks.test.mjs']],
-  ["P11b card panel: no panel", T + 'scene.js', [["  stripes(c, t, i); drawPanel(c, t, i);\n}", "  stripes(c, t, i);\n}"]], ['test/card-looks.test.mjs']],
-  ["P11b card panel: its stripes still", T + 'scene.js', [["stripes(c, t, i + 3, { tone: PTONE, fast: E.name === 'normal' ? 2 : 0.5 });", "c.fillStyle = PTONE;"]], ['test/card-looks.test.mjs']],
-  ["P11b card panel: type over the panel not recoloured", T + 'scene.js', [["  recolour(l, t);\n", ""]], ['test/card-looks.test.mjs']],
+  ["P11b card panel: the panel stays put across cuts", T + 'scene.js', [["  const [x, y, w, h] = list[i % list.length];", "  const [x, y, w, h] = list[0];"]], ['--test-name-pattern=energy_match reads its energy', 'test/card-looks-normal.test.mjs', 'test/card-looks-extreme.test.mjs']],
+  ["P11b card panel: no panel", T + 'scene.js', [["  stripes(c, t, i); drawPanel(c, t, i);\n}", "  stripes(c, t, i);\n}"]], ['--test-name-pattern=energy_match reads its energy', 'test/card-looks-normal.test.mjs', 'test/card-looks-extreme.test.mjs']],
+  ["P11b card panel: its stripes still", T + 'scene.js', [["stripes(c, t, i + 3, { tone: PTONE, fast: E.name === 'normal' ? 2 : 0.5 });", "c.fillStyle = PTONE;"]], ['--test-name-pattern=energy_match reads its energy', 'test/card-looks-normal.test.mjs', 'test/card-looks-extreme.test.mjs']],
+  ["P11b card panel: type over the panel not recoloured", T + 'scene.js', [["  recolour(l, t);\n", ""]], ['--test-name-pattern=legible', 'test/card-looks-normal.test.mjs', 'test/card-looks-extreme.test.mjs']],
   // CI on Linux (P11b): energy_match's scan renders every frame with its text first, then the frames without it
   ["P11b CI energyScan interleaves the text-off renders again", T + 'main.js', [["interleave = false, debug = false, budget = 256 * 1024 * 1024 }) => {", "interleave = true, debug = false, budget = 256 * 1024 * 1024 }) => {"]], ['--test-name-pattern=never renders a frame without', 'test/energy.test.mjs']],
   ["P11b CI renderProbe ignores noText", T + 'main.js', [["  if (opts.noText) NOTEXT++;\n", "  if (false) NOTEXT++;\n"], ["finally { if (opts.noText) NOTEXT--; }", "finally { if (false) NOTEXT--; }"]], EMT],
@@ -626,9 +626,9 @@ const M = [
   // extreme's glitch on every sixth cut, held by flash on neon (L4)
   ["P11b R5 L1 energyScan ignores its budget", T + 'main.js', [["    if (held && held + bytes > budget) flush();\n", ""]], ['--test-name-pattern=R5 energyScan holds', 'test/energy.test.mjs']],
   ["P11b R5 L1 a run let go is still counted", T + 'main.js', [["    withText.clear(); held = 0;", "    withText.clear();"]], ['--test-name-pattern=R5 energyScan holds', 'test/energy.test.mjs']],
-  ["P11b R5 L2 the iris not recoloured", T + 'scene.js', [["    g.fillRect(m.x, m.y, m.w, m.h);\n    g.restore();", "    if (!m.inside && !m.outside) g.fillRect(m.x, m.y, m.w, m.h);\n    g.restore();"]], ['--test-name-pattern=legible', 'test/card-looks.test.mjs']],
-  ["P11b R5 L2 panelMasks without the iris", T + 'scene.js', [["    return [...(a ? [{ ...a, outside: circle(r) }] : []), ...(b ? [{ ...b, inside: circle(r) }] : [])];", "    return [];"]], ['--test-name-pattern=legible', 'test/card-looks.test.mjs']],
-  ["P11b R5 L4 a glitch on every third cut", T + 'scene.js', [["filter((_, i) => i % 6 === 1)", "filter((_, i) => i % 3 === 1)"]], ['--test-name-pattern=passes flash as a file', 'test/card-looks.test.mjs']],
+  ["P11b R5 L2 the iris not recoloured", T + 'scene.js', [["    g.fillRect(m.x, m.y, m.w, m.h);\n    g.restore();", "    if (!m.inside && !m.outside) g.fillRect(m.x, m.y, m.w, m.h);\n    g.restore();"]], ['--test-name-pattern=legible', 'test/card-looks-normal.test.mjs']],
+  ["P11b R5 L2 panelMasks without the iris", T + 'scene.js', [["    return [...(a ? [{ ...a, outside: circle(r) }] : []), ...(b ? [{ ...b, inside: circle(r) }] : [])];", "    return [];"]], ['--test-name-pattern=legible', 'test/card-looks-normal.test.mjs']],
+  ["P11b R5 L4 a glitch on every third cut", T + 'scene.js', [["filter((_, i) => i % 6 === 1)", "filter((_, i) => i % 3 === 1)"]], ['test/card-flash.test.mjs']],
   // council round 4, K1: the light looks' note, in check.md and looks.md
   ["P11b K1 docs: check.md says some looks read calm", 'skills/sabotage-motion/references/check.md', [["On every look the card reads at its energy: on all eight", "On most looks the card reads at its energy: on all eight"]], DOCS],
   ["P11b K1 docs: looks.md says to cut with the ground", 'skills/sabotage-motion/references/looks.md', [["cut with layout, scale or an accent\n  block, not with the ground's brightness", "cut with the ground's\n  brightness"]], DOCS],

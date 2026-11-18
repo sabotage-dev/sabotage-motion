@@ -3,7 +3,9 @@
 // On a light or flat ground the card's cuts and motion come from contrast (its accent panel, moved on every cut, with
 // stripes close to the accent scrolling inside it), not from the ground's own stripes, which keep within a flash-safe
 // tone of the ground. The renders, check --file and flash for each cell run on a Mac before a release
-// (references/check.md section 9 has the table); here, the source check at check's own probe, two cells at a time.
+// (references/check.md section 6); here, the source check at check's own probe, two cells at a time.
+// The cells run in three CI shards, one per energy (test/card-looks-<energy>.test.mjs): on Ubuntu's SwiftShader a cell
+// takes about a minute, and the 24 cells and the legibility pages together ran past a job's 30 minutes in one shard.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,13 +19,17 @@ import { repoRoot, templateDir } from './helpers.mjs';
 const LK = await import(pathToFileURL(path.join(templateDir, 'looks.js')).href);
 const C = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
 const { ENERGY } = await import(pathToFileURL(path.join(templateDir, 'energy.js')).href);
-const LOOKS = Object.keys(LK.LOOKS), ENERGIES = ['subtle', 'normal', 'extreme'];
+export const LOOKS = Object.keys(LK.LOOKS);
 
-// one piece: the template as it ships, with every look's fonts copied in (as the skill tells the agent to)
-const dir = path.join(repoRoot, 'test', '.work', 'card-looks');
-fs.rmSync(dir, { recursive: true, force: true });
-fs.cpSync(templateDir, dir, { recursive: true, filter: (s) => !s.split(path.sep).includes('node_modules') });
-for (const look of LOOKS) for (const f of LK.lookFiles(look)) fs.copyFileSync(path.join(templateDir, '..', 'looks', 'fonts', f), path.join(dir, 'fonts', f));
+// one piece per shard: the template as it ships, with every look's fonts copied in (as the skill tells the agent to)
+let dir = null;
+export function piece(name) {
+  dir = path.join(repoRoot, 'test', '.work', name);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.cpSync(templateDir, dir, { recursive: true, filter: (s) => !s.split(path.sep).includes('node_modules') });
+  for (const look of LOOKS) for (const f of LK.lookFiles(look)) fs.copyFileSync(path.join(templateDir, '..', 'looks', 'fonts', f), path.join(dir, 'fonts', f));
+  return dir;
+}
 
 function check(energy, look) {
   return new Promise((resolve) => {
@@ -41,8 +47,8 @@ async function all(cells, n = 2) {
   return out;
 }
 
-test('the template card on all 8 looks at subtle, normal and extreme: energy_match reads its energy, inside the preset\'s ranges, and check has no FAIL or WARN', async () => {
-  const cells = ENERGIES.flatMap((e) => LOOKS.map((l) => [e, l]));
+export const matrix = (energy) => test(`the template card on all 8 looks at ${energy}: energy_match reads its energy, inside the preset's ranges, and check has no FAIL or WARN`, async () => {
+  const cells = LOOKS.map((l) => [energy, l]);
   const res = await all(cells), bad = [], table = [];
   res.forEach((r, i) => {
     const [e, l] = cells[i], tag = `${e}/${l}`;
@@ -109,9 +115,9 @@ function overMask(b, m) {
   }
   return [base];
 }
-test('the template card on all 8 looks at normal and extreme: type over the accent panel is legible (it has ink there), through normal\'s iris too', async () => {
+export const legible = (energy) => test(`the template card on all 8 looks at ${energy}: type over the accent panel is legible (it has ink there)${energy === 'normal' ? ', through the iris too' : ''}`, async () => {
   const ink = C.T.energy.ink, bad = [], seen = [];
-  for (const energy of ['normal', 'extreme']) for (const look of LOOKS) {
+  for (const look of LOOKS) {
     const { page, ready } = await openPage({ 'p.energy': energy, 'p.look': look });
     if (ready) { bad.push(`${energy}/${look}: the page did not load (${ready})`); await page.close(); continue; }
     const I = await page.evaluate(() => ({ W: window.INFO.W, H: window.INFO.H, RW: window.INFO.RW, RH: window.INFO.RH, FPS: window.INFO.FPS }));
@@ -143,7 +149,7 @@ test('the template card on all 8 looks at normal and extreme: type over the acce
 // The flash limit holds on the tightest extreme cells, rendered and read as files (check --file): brutalist (the most
 // too fast of all, 18,874 px of 21,824, on a Mac) and neon (its bloom; its glitch on every sixth cut: on every third it
 // is 23,465 px, over the limit)
-test('the template card at extreme on brutalist and neon passes flash as a file', () => {
+export const flashCells = () => test('the template card at extreme on brutalist and neon passes flash as a file', () => {
   const out = [];
   for (const look of ['brutalist', 'neon']) {
     const file = `out/flash-${look}.mp4`;
