@@ -334,6 +334,7 @@ test('P11a references/check.md: the flash rule, its thresholds as check.mjs sets
   assert.ok(rows[2].includes(`more than ${n(F.area)} px of a ${F.win[0]}x${F.win[1]} window, either way round, at ${F.side} px on the longer side`), rows[2]);
   assert.ok(rows[1].includes(`more than ${F.count} transitions of one kind`), rows[1]);
   assert.ok(md.includes('| `flash` | FAIL | Run on the piece\'s current render') && md.includes('| `flash` | FAIL | The rule of section 7 on the file itself'), 'a row in the source and the artifact tables');
+});
 
 // ---------------------------------------------------------------- caption a clip (plan 23.5)
 const RATES_TOOL = await import(pathToFileURL(path.join(templateDir, 'tools', 'clip.mjs')).href);

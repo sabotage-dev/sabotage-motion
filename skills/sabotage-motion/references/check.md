@@ -154,7 +154,7 @@ each example's README names them:
 | `showreel` | 1 FAIL, 1 WARN, 5 not checked | 1 FAIL, 1 WARN | `first_frame_empty`: the reel fades up from black, as a reel does. It has no `boxes(t)`, so its four text checks say "not checked"; its board sets no `hookMax`, so `hook_long` is not checked either. Not kept on purpose, and re-cut in P11b: `flash` FAILs in four stretches (the inverting frame and its slices at 3.7-4.6 s, the particle burst at 6.3-8.9 s, the liquid at 10.0-10.9 s, and the quarter-second montage cuts into the lockup's flash at 14.1-16.7 s), up to 87,296 px of a window, general. |
 | `terminal-demo` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
 | `repo-launch` | 11 ok, 0 WARN, 1 not checked (no `hookMax`) | 15 ok, 0 WARN, 2 not checked (no `hookMax`, no voice) | none |
-| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 4 not checked (silent, no hook, an overlay's first frame) | 14 ok, 0 WARN, 3 not checked (the scene is silent, no hook) | none |
+| `caption-clip` (`--scene caption.js --alpha`) | 7 ok, 5 not checked (silent, no hook, an overlay's first frame and its flashes) | 15 ok, 0 WARN, 3 not checked (the scene is silent, no hook); `flash` ok on the composite (the most too fast: 63 px) | none |
 
 The template itself, copied fresh, reports 0 FAIL and 0 WARN on `tiktok` and on `tiktok-ad` (`flash` is not checked
 until it is rendered). CI runs every source check except the two probe checks and `flash` on the examples on macOS
