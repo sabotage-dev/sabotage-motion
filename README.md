@@ -405,7 +405,9 @@ npm run test:engine                        # determinism, frame count and contai
 npm run test:voice                         # cues, board timing, the ElevenLabs tool against a local fake server
 npm run test:mix                           # the mixer, control by control, and the parity script
 npm run test:footage                       # frame sequences: the cut, the manifest, seqAt in a render
-npm run test:check                         # check's detectors, fixture-check and its masters, the safe zones
+npm run test:check                         # check's detectors, fixture-check, the safe zones
+npm run test:check-file                    # check --file on mixed masters
+npm run test:flash                         # the flash check: the rule on frames built in code, dating, files
 npm run test:looks                         # looks and brand kits: precedence, fonts, fonts_used, palette, brand sheet, look cards
 node test/mutations.mjs [--fast]           # break each check detector and threshold on purpose: a test must fail
 npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks

@@ -634,6 +634,9 @@ const M = [
   ["P10 R2 D3 an odd size not cropped", T + "tools/clip.mjs", [["const crop = !size && (c.w % 2 || c.h % 2) ? [c.w - (c.w % 2), c.h - (c.h % 2)] : null;", "const crop = null;"]], CLU],
   ["P10 R2 D3 the crop planned but not applied", T + "tools/clip.mjs", [["plan.crop ? `crop=${plan.crop[0]}:${plan.crop[1]}:0:0` : ''", "''"]], CL],
   ["P10 R2 docs: delivery.md without the odd-size crop", "skills/sabotage-motion/references/delivery.md", [["right or bottom edge (no pixel is invented)", "edge (no pixel is invented)"]], DOCS],
+  // ---- P11b-1: energy presets (and the CI shards they run in)
+  ["P11b CI: a shard drops the flash suites", ".github/workflows/ci.yml", [["run: npm run test:check && npm run test:flash", "run: npm run test:check"]], DOCS],
+  ["P11b CI: the doctor runs in every shard", ".github/workflows/ci.yml", [["      - name: doctor\n        if: matrix.shard.name == 'engine'\n", "      - name: doctor\n"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

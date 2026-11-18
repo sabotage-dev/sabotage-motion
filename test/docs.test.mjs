@@ -360,3 +360,35 @@ test('P10 SKILL.md: the caption-a-clip branch beside the overlay branch, its too
   assert.match(pkg.scripts['test:clip'], /clip-units\.test\.mjs.*clip\.test\.mjs.*caption-example\.test\.mjs/);
   assert.match(fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8'), /npm run test:clip/);
 });
+
+// ---------------------------------------------------------------- CI runs every suite (P11b)
+// The engine job runs in shards (ci.yml); each shard runs whole npm test groups, so a new test file that no group
+// lists, or a group no shard runs, would silently drop out of CI. Every test/*.test.mjs must run in some shard (or in
+// the leak job), and no file runs twice.
+test('P11b CI: every test file runs in exactly one shard of the engine job, or in the leak job', () => {
+  const ci = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  const runs = [...ci.matchAll(/^\s+run: (npm run test:.*)$/gm)].map((m) => m[1]);
+  assert.ok(runs.length >= 4, `the engine job runs its suites in shards (found ${runs.length})`);
+  const files = [];
+  for (const line of runs) {
+    for (const m of line.matchAll(/npm run (test:[\w-]+)/g)) {
+      assert.ok(pkg.scripts[m[1]], `ci.yml runs ${m[1]}, which package.json does not define`);
+      files.push(...pkg.scripts[m[1]].match(/test\/[\w.-]+\.test\.mjs/g));
+    }
+    for (const m of line.matchAll(/node --test ((?:test\/[\w.-]+\.test\.mjs ?)+)/g)) files.push(...m[1].trim().split(/\s+/));
+  }
+  const leak = ci.slice(ci.indexOf('\n  leak:'));
+  assert.match(leak, /node --test test\/leak\.test\.mjs/);
+  files.push('test/leak.test.mjs');
+  const twice = files.filter((f, i) => files.indexOf(f) !== i);
+  assert.deepEqual(twice, [], 'a test file runs in two shards');
+  const all = fs.readdirSync(path.join(repoRoot, 'test')).filter((f) => f.endsWith('.test.mjs')).map((f) => `test/${f}`);
+  assert.deepEqual(all.filter((f) => !files.includes(f)), [], 'test files no shard runs');
+  // the doctor, the render speed and the informational steps run once per OS and node: in the engine shard
+  for (const step of ['- name: doctor', '- name: ms per frame at full size', "- name: Playwright's own Chromium"]) {
+    const at = ci.indexOf(step);
+    assert.ok(at > 0, step);
+    assert.match(ci.slice(at, ci.indexOf('\n', ci.indexOf('\n', at) + 1)), /if: .*matrix\.shard\.name == 'engine'/, `${step} runs in the engine shard only`);
+  }
+});
