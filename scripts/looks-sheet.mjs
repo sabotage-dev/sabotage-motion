@@ -25,7 +25,9 @@ export const cardCopy = (look) => ({ title: LK.LOOKS[look].label, sub: LK.LOOKS[
 export const cardParams = (look) => { const c = cardCopy(look); return ['--param', `look=${look}`, '--param', `title=${c.title}`, '--param', `sub=${c.sub}`]; };
 
 // A card piece for a look: the template, the look's font files and licences copied in from looks/fonts/ (as the skill
-// tells the agent to), and a 5 s board.
+// tells the agent to), and a 5 s board at the subtle energy (seven beats of 84 BPM): the sheet shows each look's type
+// and colour on a calm card, with no cuts. At normal the card's title is the look's own name, and a long one in a wide
+// face (Editorial, Product) fits the safe width only under normal's 9% type floor, so energy_match would call it calm.
 export function cardPiece(look, dir = path.join(repoRoot, 'test', '.work', 'looks', look)) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
@@ -36,6 +38,7 @@ export function cardPiece(look, dir = path.join(repoRoot, 'test', '.work', 'look
 export const BOARD = {
   title: ${JSON.stringify(c.title)},
   target: 'tiktok',
+  energy: 'subtle',
   beats: [
     { id: 'title', dur: ${(CARD.dur - CARD.out).toFixed(2)}, on: [${JSON.stringify(c.title)}, ${JSON.stringify(c.sub)}],
       look: 'the template card in the ${look} look', sfx: 'whooshes and ticks in the look\\'s timbre' },
