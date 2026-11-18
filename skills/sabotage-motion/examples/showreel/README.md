@@ -12,11 +12,16 @@ software WebGL on Linux (use `--scale 0.5` there).
 ```sh
 node render.mjs board                              # board.png and board.md
 node render.mjs contact                            # contact.png
-node render.mjs check                              # the source: 0 FAIL, 1 WARN (first_frame_empty, on purpose)
+node render.mjs check                              # the source: 1 WARN (first_frame_empty, on purpose); 1 FAIL (flash) once rendered
 node render.mjs full --out out/showreel.mp4        # the picture and the music (out/showreel.wav)
 node tools/mix.mjs showreel --master-only          # the music mastered to -14 LUFS
-node render.mjs check --file out/showreel-final.mp4   # the master: 0 FAIL, the same 1 WARN
+node render.mjs check --file out/showreel-final.mp4   # the master: 1 FAIL (flash, below), the same 1 WARN
 ```
+
+**The reel fails `flash`.** It flashes more than three times a second over too large an area in four stretches:
+3.7-4.6 s (the frame inverts and its slices whip out), 6.3-8.9 s (the particle burst), 10.0-10.9 s (the liquid) and
+14.1-16.7 s (the quarter-second montage cuts into the lockup's flash). P11b (`docs/PLAN.md`, section 23.9) re-cuts
+it; until then, do not post it as it is.
 
 The one WARN is kept on purpose: the reel fades up from black, so its first frame is flat. It has no `boxes(t)`, so
 `check`'s text checks report "not checked" (`references/check.md`). Its board mirrors the reel's sections rather
