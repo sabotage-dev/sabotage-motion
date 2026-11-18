@@ -18,6 +18,7 @@ under `${CLAUDE_SKILL_DIR}`).
 10. Data and UI motion
 11. Captions and lower thirds
 12. Sound design and sync
+13. Energy: presets, the rig, cuts and slams
 
 ## 1. Timing and easing
 - **Four curves cover almost everything** (`lib.js`): `snap` for entrances (fast out, long settle), `swift` for
@@ -100,8 +101,9 @@ under `${CLAUDE_SKILL_DIR}`).
 
 ## 6. Camera and depth
 - `cam: [zoom, rotation, panX, panY]` from `frame()` is applied in the composite shader to the whole frame (the 2D
-  layer and the background). Small values: zoom 1 to 1.05, rotation under 0.02 rad. `check` maps text boxes
-  through it, so a push can carry text out of the safe area.
+  layer and the background). Small values at subtle: zoom 1 to 1.05, rotation under 0.02 rad. `check` maps text boxes
+  through it, so a push can carry text out of the safe area: drive it with `moves.js`'s `rig` (section 13), which
+  clamps every move at each `t` so the boxes stay inside (T: `cam: R.at(t, boxes(t))`).
 - **Parallax**: draw layers with different offsets driven by one camera value (far x 0.3, mid x 0.6, near x 1).
 - **Shake**: noise on `panX`/`panY` that decays from an impact (R: `shake()` in `frame()`).
 - **Whip-pan transitions**: animate `panX` by about 1.5 with `whip` across a 0.25 s cut window and raise
@@ -199,3 +201,33 @@ under `${CLAUDE_SKILL_DIR}`).
   voice, keep effects sparse and 6 to 10 dB below it; `tools/mix.mjs` sets the balance (`--sfx-gain`) and masters
   the whole mix (`references/voice.md`).
 - End the soundtrack with a short fade (the template fades the last 0.18 s) so nothing clicks at the cut.
+- **The bed stem**: `renderBed` in `audio.js` writes the energy's beat pattern on its grid (beat 0 on the first frame),
+  the picture's full length, to `out/<name>.bed.wav` beside the effects (T: a soft pad a bar at subtle, a kick, offbeat
+  hats and a bass note at normal, a driving beat with claps and sixteenth hats at extreme). Render it at full level,
+  like a music track: `tools/mix.mjs` mixes it as the bed (x0.22 under a voice, ducked; x0.5 in `--master-only`), from
+  0, with no fade, and `check`'s `audio_spike` hears the effects with it. Keep each hit, riser and drop under
+  `audio_spike` against that sum.
+
+## 13. Energy: presets, the rig, cuts and slams
+The board's `energy` (`references/storyboard.md` section 7) sets the amounts; `init` gets the resolved preset as
+`energy` (`energy.js`: `bpm`, `spb`, `cutBeats`, `camera`, `transitions`, `ease`, `post`, `sound`). The template's card
+plays at all three (`--param energy=subtle|normal|extreme`). The helpers are in `moves.js`, pure functions of `t`:
+
+- **The rig**: `rig({ W, H, safe, exclude, hits, base })`, hits `{ t, kind, amp, d }` of kind `push` (a held zoom gain),
+  `punch` (a zoom kick that settles), `bounce` (a damped zoom spring), `shake` (seeded noise, in design pixels) and
+  `whip` (a sideways whip across a cut). `R.at(t, boxes(t))` is the camera, clamped so every text box stays in the
+  safe area and out of `exclude`. Put whips only on a cut between beats, with no copy on screen: over copy the clamp
+  cuts a whip to nothing (T).
+- **Cuts**: a cut happens inside a beat (a new angle, a new ground, a punch-in, a swapped layer) while the copy stays.
+  `cutGrid(from, to, spb, every)` lays them on the beat grid inside a window, `cutList` checks a list, `shotAt(cuts, t)`
+  says which shot `t` is in, and the scene exports `cuts()` so `check` can confirm them on the frames
+  (`references/check.md` section 8). At extreme, give consecutive shots grounds close in luminance
+  (`groundTone`, `shotTones` in `energy.js`): eight cuts a second between dark and light shots are a flash sequence.
+- **Transitions**: `crossfade`, `wipe`, `slide`, `mask` (an iris), `whip`, `zoomPunch`, `glitchCut` and `flash` (both
+  nothing on a look with `glitch: false`), and `speedRamp` (a time warp that lands back on time). `flashBudget(times)`
+  throws on four flash frames in a second.
+- **Kinetic type**: `entrance(energy.ease)` (gentle springs, snap, or overshoot), `slam`, `scaleIn`, `rotateIn`;
+  `inkFont(ctx, text, fontAt, share, H)` sizes type by its ink as a share of the frame height (the presets' type
+  ranges); `slamWords(ctx, words, t, { group, draw })` slams words in one at a time and returns one box per word under
+  the phrase's `group` (`draw: false` for `boxes(t)`), and `slamFrom(box, safe)` keeps a slam's start inside the safe
+  area (T: extreme's word slams).

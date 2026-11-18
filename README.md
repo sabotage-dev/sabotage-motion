@@ -15,8 +15,11 @@ frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
 - **Voice-driven timing.** Word or character timings from a TTS take or a transcript become cue points, so cuts
   land on the words. A hook-length check is optional.
 - **Captions.** Word-by-word captions from the same timings.
-- **Mix and master.** Voice, an optional music bed ducked under it, and the synthesized effects, mastered to
-  -14 LUFS for social.
+- **Energy presets.** `subtle`, `normal` or `extreme` on the board sets how much a piece moves: the tempo of its beat
+  grid, how often it cuts, how hard the camera moves, how big the type is, and the beat under it. The look decides
+  the kind of motion, the energy the amount.
+- **Mix and master.** Voice, a music bed ducked under it (the energy's own beat, rendered with the piece, or yours),
+  and the synthesized effects, mastered to -14 LUFS for social.
 - **Footage.** Screen recordings and clips as frame sequences, so they stay frame-exact.
 - **`check`.** Measured checks before you post: size, fps and frame count, loudness and true peak, stretches where
   nothing moves, an empty first frame, and text outside the platform's safe zones.
@@ -118,13 +121,40 @@ node tools/mix.mjs my-piece --master-only     # out/my-piece-final.mp4, mastered
 node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master: 0 FAIL, 0 WARN
 ```
 
-The template is a 3 s, 1080x1920 kinetic title card. `--param "title=Hello there"` (and `sub`; `look`, one of the
-eight looks below; the colour tokens `bgA`, `bgB`, `ink`, `muted`, `accent` and `accent2` as `#hex`; and `bg`, the
+The template is a kinetic title card of about 3 s at 1080x1920, at the `normal` energy. `--param "title=Hello there"`
+(and `sub`; `energy`, `subtle`, `normal` or `extreme`, below; `look`, one of the eight looks below; the colour tokens `bgA`, `bgB`, `ink`, `muted`, `accent` and `accent2` as `#hex`; and `bg`, the
 background shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour) changes it without code
 (new in 0.2: the `paper` shader takes its colour from `bgA`, and 0.1's `paper` colour param is gone; `look=paper` gives
 the warm paper with its fonts);
 `check` then warns that the board's copy is not on screen until `board.js` says the same. Change the piece itself in `scene.js` (the picture), `board.js` (the beats) and `audio.js` (the effects);
 [SKILL.md](skills/sabotage-motion/SKILL.md) is the full workflow, and its `references/` go deeper.
+
+## Energy presets
+
+The same template card at each energy, `--param energy=subtle`, `normal` and `extreme`:
+
+<p>
+<img src="docs/media/energy-subtle.gif" width="270" alt="The template card at subtle: the title rises gently on a still ground, no cuts">
+<img src="docs/media/energy-normal.gif" width="270" alt="The template card at normal: bigger type, the ground cutting to a new angle every two beats">
+<img src="docs/media/energy-extreme.gif" width="270" alt="The template card at extreme: each word slammed in huge on the beat, cuts every half beat, then a whip">
+</p>
+
+A board names its energy (`energy: 'normal'`, the default), and the agent says which it chose and why. The look still
+decides the kind of motion (a look without glitches never glitches or flash-frames); the energy decides the amount:
+
+| | subtle | normal | extreme |
+|---|---|---|---|
+| Tempo of the beat grid and the bed | 84 BPM | 116 BPM | 136 BPM |
+| Cut every | 4 to 5 beats | 2 to 3 beats | half a beat to one |
+| Largest line of type | 4 to 8% of the frame height | 9 to 16% | 18 to 35% |
+| Camera | a slow push | push-ins, a punch on each hit | punches, whips between beats, shake |
+| Sound | a soft pad, few hits | a beat, whooshes on cuts | a driving beat, impacts, risers and drops |
+
+Cuts happen inside beats while the copy stays on screen, so a fast energy never shortens a read; a board with no
+voice snaps its beats to the grid, a voiced one keeps the voice's timing. `moves.js` has the camera rig (it keeps text
+inside the safe area through every push and punch), the transitions, the cuts and the word slams; `audio.js` renders
+the energy's bed as its own stem, which the mixer lays under the piece. At extreme, consecutive shots stay close in
+luminance, so fast cuts never become a flash sequence: all three cards pass `flash`, as GIFs too.
 
 ## Looks and brand kits
 
@@ -355,11 +385,11 @@ contact sheet and board sheet committed:
 
 | Example | What it shows | `check` |
 |---|---|---|
-| `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage and an end card, with a synthesized score. It ends on the end card of sabotage development, the studio behind this repo. | 1 FAIL: `flash`, in four stretches (3.7-4.6, 6.3-8.9, 10.0-10.9 and 14.1-16.7 s), until P11b re-cuts it; 1 WARN kept on purpose (it fades up from black) |
+| `showreel/` | 20 s, 16:9, 60 fps: kinetic type, shape morphs, 22,000 particles, a raymarched blob, liquid metaballs, a data panel, a montage of four style frames and an end card, with a synthesized score. It ends on the end card of sabotage development, the studio behind this repo. | 0 FAIL, 0 WARN on the source and the master, `flash` included |
 | `explainer-beat/` | 16.7 s, 9:16: a three-beat explainer with a voice take from an openly licensed TTS voice (Kokoro-82M, Apache-2.0, `VOICE.md`), cues, captions, a synthesized bed, the mix | 0 FAIL, 0 WARN on the source and the master |
 | `lower-third/` | 5 s, 16:9: a name strap rendered with alpha to ProRes 4444 and WebM, and composited over footage | 0 FAIL, 0 WARN (checked as an overlay) |
 | `terminal-demo/` | 8 s, 9:16: a made-up command-line tool installed and run in a terminal (typed commands, a progress bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look | 0 FAIL, 0 WARN on the source and the master |
-| `repo-launch/` | 15 s, 9:16: a launch video for a made-up project kept in the example: its scan, the brand kit the scan drafted, the install in a terminal, its code, a full-page screenshot of its app panned in a phone, and an end card | `palette` passes; 0 FAIL, 0 WARN on the source and the master |
+| `repo-launch/` | 15 s, 9:16, at the `normal` energy: a launch video for a made-up project kept in the example: its scan, the brand kit the scan drafted, the install in a terminal, its code, a full-page screenshot of its app panned in a phone, and an end card, cut on the beat over its bed | `palette` passes; 0 FAIL, 0 WARN on the source and the master |
 | `caption-clip/` | 15 s, 9:16 at 540x960: a made-up screen recording (rendered by the engine, no person in it) with the explainer's voice as its sound, captioned word by word from its transcript: the captions rendered with alpha on the clip's clock, laid over the clip by ffmpeg, the clip's sound mastered | 0 FAIL, 0 WARN on the captions (as an overlay) and the master |
 
 Each example's README has its commands. `ASSETS.md` lists every binary file in the repo with its source and licence.

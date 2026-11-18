@@ -104,16 +104,25 @@ test('P11b the beat grid: a silent board that names its energy snaps each beat t
   assert.deepEqual(EN.gridTimes(0, 1, 0.5, 0.5), [0, 0.25, 0.5, 0.75]);
 });
 
-test('P11b grounds close in luminance: consecutive shots never swing 0.1 (or stay at 0.8 and above), and still differ', async () => {
+test('P11b grounds close in luminance: a shot\'s tone never swings 0.1 from any colour its ground runs between, and still differs', async () => {
   const LK = await imp('looks.js');
-  const grounds = [LK.TEMPLATE.tokens.bgA, ...LK.LOOK_NAMES.map((n) => LK.LOOKS[n].tokens.bgA), '#000000', '#FFFFFF', '#808080', '#FF0000'];
   const luma = (h) => { const n = parseInt(h.slice(1), 16); return 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255); };
+  // every look's ground pair (its background shader blends bgA into bgB), the template's, and single grounds at the edges
+  const grounds = [[LK.TEMPLATE.tokens.bgA, LK.TEMPLATE.tokens.bgB], ...LK.LOOK_NAMES.map((n) => [LK.LOOKS[n].tokens.bgA, LK.LOOKS[n].tokens.bgB]),
+    ['#000000'], ['#FFFFFF'], ['#808080'], ['#FF0000'], ['#F0F0F0'], ['#5E2404']];
   for (const g of grounds) {
-    const b = EN.groundTone(g, 0.08), l0 = EN.relLum(g), l1 = EN.relLum(b);
-    const safe = Math.abs(l1 - l0) < EN.FLASH_SWING || Math.min(l0, l1) >= EN.FLASH_DARK;
-    assert.ok(safe, `${g} -> ${b}: ${l0.toFixed(3)} and ${l1.toFixed(3)} would be a general transition`);
-    assert.ok(Math.abs(luma(b) - luma(g)) >= 6, `${g} -> ${b}: the shots do not differ`);
+    const b = EN.groundTone(g, 0.08), lt = EN.relLum(b);
+    for (const x of g) {
+      assert.ok(Math.abs(EN.relLum(x) - lt) < EN.FLASH_SWING, `${g.join('/')} -> ${b}: ${EN.relLum(x).toFixed(3)} and ${lt.toFixed(3)} would be a general transition`);
+      if (g.length === 1) assert.ok(Math.abs(luma(b) - luma(x)) >= 6, `${x} -> ${b}: the shots do not differ`);
+    }
   }
+  // the bright exemption (both ends at 0.8 or more) is never leaned on: a vignette takes a bright ground under it
+  const p = EN.groundTone(['#F6F7F9', '#E3E8F0'], 0.08);
+  assert.ok(Math.abs(EN.relLum(p) - EN.relLum('#E3E8F0')) < EN.FLASH_SWING && p !== '#FFFFFF');
+  // a single ground: `step` brighter (near white: darker)
+  near(EN.relLum(EN.groundTone('#101018', 0.08)) - EN.relLum('#101018'), 0.08, 0.002);
+  near(EN.relLum('#FFFFFF') - EN.relLum(EN.groundTone('#FFFFFF', 0.08)), 0.08, 0.002);
   // on the template's dark ground the two read as different shots on the probe (16/255 and more)
   assert.ok(luma(EN.groundTone('#101018', 0.08)) - luma('#101018') >= 16);
   assert.deepEqual(EN.shotTones('#101018', 3, 0.08), ['#101018', EN.groundTone('#101018', 0.08), '#101018']);
@@ -153,9 +162,12 @@ test('P11b the rig clamps every move so each text box stays inside the safe area
   assert.equal(MV.clampShare([1.3, 0, 0, 0], [{ ...box, x: 0 }], { W, H, safe }), 1);
   // an exclude rectangle is kept clear too (tiktok-ad's button column)
   const ex = [{ x: 900, y: 500, w: 180, h: 700 }];
-  const cam = MV.rig({ W, H, safe: { x: 0, y: 0, w: W, h: H }, exclude: ex, hits: [{ t: 0, kind: 'punch', amp: 0.4, d: 1 }] }).at(0.01, [{ ...box, x: 300, w: 500 }]);
-  const v = C.visibleBox({ ...box, x: 300, w: 500 }, cam, W, H);
-  assert.ok(v.x + v.w <= 900 + 1e-6 || v.y >= 1200 || v.y + v.h <= 500, 'the box stays out of the exclude rectangle');
+  const inner = { ...box, x: 300, w: 560 };   // 300-860: clear of the rectangle at rest, into it at the full punch
+  const R2 = MV.rig({ W, H, safe: { x: 0, y: 0, w: W, h: H }, exclude: ex, hits: [{ t: 0, kind: 'punch', amp: 0.4, d: 1 }] });
+  const raw = C.visibleBox(inner, R2.raw(0.01), W, H);
+  assert.ok(raw.x + raw.w > 900 + 20, 'without the clamp the punch would carry the box into the rectangle');
+  const v = C.visibleBox(inner, R2.at(0.01, [inner]), W, H);
+  assert.ok(v.x + v.w <= 900 + 1e-6, `the box stays out of the exclude rectangle (it reaches ${(v.x + v.w).toFixed(1)})`);
   assert.throws(() => MV.rig({ W, H, hits: [{ t: 0, kind: 'spin' }] }).raw(1), /unknown hit kind "spin"/);
 });
 

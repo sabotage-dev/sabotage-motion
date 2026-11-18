@@ -1,11 +1,15 @@
 // THE STORYBOARD of the repo-launch example: 15 s, 9:16, a launch video for a made-up project, Snagwick (fixture/),
 // built the way references/launch.md says: a hook, the install in a terminal, two feature beats (code in a window, the
 // app's screenshot in a phone), and an end card with the logo and the install command. Silent of voice: the sound is
-// the typing, the beats landing and the end card. The copy comes from the scan of fixture/ (its pitch, install command
+// the typing, the beats landing and the end card, over the energy's bed. The copy comes from the scan of fixture/ (its pitch, install command
 // and features); the project and every name in it are made up. The field reference is in the template's board.js.
 export const BOARD = {
   title: 'Snagwick: a launch video',
   target: 'tiktok',
+  // normal: a launch for developers should read as made, cut on the beat, without shouting (extreme would slam the
+  // pitch; the terminal and the code need their reading time). A silent board, so each beat snaps to whole beats of
+  // 116 BPM: 5, 6, 6, 6 and 6 (15.0 s).
+  energy: 'normal',
   beats: [
     { id: 'hook', dur: 2.4, on: ['Your TODOs,', 'on one board.'],
       look: 'the logo springs in on the brand ground, the two lines of the pitch rise under it',

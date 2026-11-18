@@ -103,7 +103,7 @@ export async function init({ ctx: c, scale, params, alpha, target, style, energy
   const span = freeSpan(SAFE, EXCL, L.top, L.bottom);
   if (span.left !== SAFE.x || span.right !== SAFE.x + SAFE.w) layout(span);
   timeline();
-  TONE = groundTone(ST.tokens.bgA, E.shotStep || 0.045);
+  TONE = groundTone([ST.tokens.bgA, ST.tokens.bgB], E.shotStep || 0.045);   // close to every colour the ground runs between
   // the camera: a push across each shot (the base), and the preset's hits; clamped so the text stays in the safe area
   const hits = [];
   if (E.camera.punch) for (const h of E.name === 'extreme' ? TL.slams : TL.hits) hits.push({ t: h, kind: 'punch', amp: E.camera.punch, d: E.name === 'extreme' ? 0.22 : 0.3 });

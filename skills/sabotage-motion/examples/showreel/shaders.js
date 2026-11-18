@@ -4,7 +4,7 @@
 //   2 liquid metaballs over a cobalt ground, the 2D layer refracted through them (uBlobs, uQ = flood line, waves)
 //   3 op-art rings  4 ASCII render of the blob  5 halftone  6 duotone blob  7 stripes
 //   8 climax: rays, a nebula and rings around the end card's mark (uP = rays, ring radius, ring, nebula; uQ.xy = centre)
-// cfg.l = 1 floods the liquid in over whichever look is up (the 3D-to-liquid transition).
+// cfg.l = 1 floods the liquid in over whichever look is up (the reel no longer uses it: it cuts to the liquid on the beat).
 
 export const VERT = `#version 300 es
 layout(location=0) in vec2 aPos;
@@ -107,7 +107,7 @@ vec3 renderBlob(vec2 fc, out float lum, out float cov){
 float liquidSD(vec2 p){
   float d=1e3;
   for(int i=0;i<12;i++){ vec4 b=uBlobs[i]; if(b.z<=0.) continue; d=smin(d, length(p-b.xy)-b.z, 0.13); }
-  float wave=(0.022*sin(p.x*8.+uT*5.)+0.014*sin(p.x*17.-uT*7.3)+0.01*sin(p.x*29.+uT*9.))*uQ.z;
+  float wave=(0.016*sin(p.x*8.+uT*2.5)+0.009*sin(p.x*17.-uT*3.6)+0.005*sin(p.x*29.+uT*4.5))*uQ.z;
   float fl = p.y-(uQ.x+wave);
   if(uQ.y>0.) fl = abs(fl)-uQ.y;
   return smin(d, fl, 0.1);
@@ -128,11 +128,11 @@ vec4 renderLiquid(vec2 fc, bool transparent){
   float spec2=pow(max(dot(reflect(-normalize(vec3(0.6,-0.3,0.7)),n),vec3(0,0,1)),0.),20.);
   vec3 base=mix(EMBER, PINK, smoothstep(-0.45,0.45,p.y+0.18*sin(p.x*2.6+uT*1.3)));
   base=mix(base, vec3(1.,0.76,0.18), smoothstep(0.55,0.8,fbm(p*2.5+vec2(uT*0.4,-uT*0.3)))*0.6);
-  vec2 tuv=fc/uRes + n.xy*0.05*edge + n.xy*0.012;
+  vec2 tuv=fc/uRes + n.xy*0.012*edge + n.xy*0.004;   // a gentle refraction: a strong one swept the word across its own pixels
   vec4 tx=texture(uTex, tuv);
   vec3 col=base*(0.5+0.6*dif);
-  col=mix(col, mix(col*0.18, VIOLET*0.35, 0.3), tx.a*0.9*uQ.w);
-  col+=spec*1.1+spec2*vec3(0.5,0.6,1.)*0.35;
+  col=mix(col, vec3(0.95,0.92,0.88), tx.a*0.85*uQ.w);   // the word stays light inside the liquid as outside it (no flash at the edges)
+  col+=spec*0.45+spec2*vec3(0.5,0.6,1.)*0.15;
   col+=pow(edge,4.)*0.12;
   if(transparent) return vec4(col,cov);
   vec3 bgc=mix(vec3(0.05,0.06,0.42), COBALT, smoothstep(-0.7,0.6,p.y));
@@ -148,9 +148,9 @@ vec4 renderLiquid(vec2 fc, bool transparent){
 // ------------------------------------------------------------------ style frames
 vec3 renderOpArt(vec2 fc){
   vec2 p=(fc-0.5*uRes)/uRes.y;
-  vec2 c1=vec2(sin(uT*3.1)*0.3, cos(uT*2.3)*0.12), c2=vec2(-sin(uT*2.2)*0.34, sin(uT*3.4)*0.14);
-  float a=step(0.5,fract(length(p-c1)*26.-uT*5.));
-  float b=step(0.5,fract(length(p-c2)*26.+uT*5.));
+  vec2 c1=vec2(sin(uT*0.31)*0.3, cos(uT*0.23)*0.12), c2=vec2(-sin(uT*0.22)*0.34, sin(uT*0.34)*0.14);
+  float a=step(0.5,fract(length(p-c1)*26.-uT*0.5));
+  float b=step(0.5,fract(length(p-c2)*26.+uT*0.5));
   return mix(INK, PAPER, abs(a-b));
 }
 vec3 renderHalftone(vec2 fc){
@@ -158,8 +158,8 @@ vec3 renderHalftone(vec2 fc){
   float ang=0.45, cell=0.03;
   vec2 q=rot(ang)*p; vec2 gi=floor(q/cell); vec2 f=fract(q/cell)-0.5;
   vec2 cp=rot(-ang)*((gi+0.5)*cell);
-  float v=0.5+0.5*sin(length(cp-vec2(0.1,0.))*13.-uT*12.);
-  v=mix(v, 0.5+0.5*sin(cp.x*9.+uT*6.), 0.35);
+  float v=0.5+0.5*sin(length(cp-vec2(0.1,0.))*13.-uT*1.5);
+  v=mix(v, 0.5+0.5*sin(cp.x*9.+uT*0.8), 0.35);
   v*=smoothstep(1.1,0.2,length(cp*vec2(0.8,1.2)));
   float r=sqrt(clamp(v,0.,1.))*0.62;
   float m=smoothstep(0.04,-0.04,length(f)-r);
@@ -196,8 +196,8 @@ vec3 renderDuotone(vec2 fc){
 }
 vec3 renderStripes(vec2 fc){
   vec2 p=(fc-0.5*uRes)/uRes.y;
-  p*=rot(0.62+uT*0.4);
-  float w=p.x*9.+sin(p.y*5.+uT*7.)*0.55*sin(uT*3.)-uT*4.;
+  p*=rot(0.62+uT*0.08);
+  float w=p.x*9.+sin(p.y*5.+uT*1.2)*0.55*sin(uT*0.6)-uT*0.6;
   return mix(INK, LIME, step(0.5,fract(w)));
 }
 vec3 renderClimax(vec2 fc){

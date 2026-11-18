@@ -23,7 +23,8 @@ reference, never copy it as a starting point (its `brand.json`, `fixture/` and s
 2. **Write `brand.json` from what the scan found** (`--brand`), **render the kit sheet** (`node render.mjs brand`) and
    **show it** to the person, with the draft and the scan's notes. They correct it; you never guess a brand silently.
 3. **Write the board**: a hook, the install in a terminal, two or three feature beats with code or screenshots in a
-   frame, and an end card with the logo and the install command (section 5).
+   frame, and an end card with the logo and the install command (section 5). Name its energy (a launch is `normal`
+   or `extreme`; say which and why) and let the beats snap to its grid.
 4. **Render the board sheet before rendering** (`node render.mjs board --slates`) and show it. The structure is
    cheapest to change here.
 5. **Render, mix, then `palette` and `check`**, as for any piece (section 6).
@@ -118,7 +119,8 @@ draws large, so it stays sharp).
 - There is no live screen recording. To show a real recording, cut it with `tools/frames.mjs`.
 
 ## 5. The board
-A launch video is short: 12 to 20 s for social. A shape that works (the example's, 15 s):
+A launch video is short: 12 to 20 s for social. A shape that works (the example's, 15 s at `normal`, `energy: 'normal'`
+on the board: a silent board, so each beat snaps to whole beats of 116 BPM):
 
 | Beat | Length | What it shows |
 |---|---|---|
@@ -130,11 +132,18 @@ A launch video is short: 12 to 20 s for social. A shape that works (the example'
 Put each beat's exact copy in `on` (the install command too: `check` finds it in the terminal's boxes), keep every text
 box inside the safe area (fade or lift windows in place), and give each beat a sound note. Then show the slates.
 
+Animate to the energy (`references/storyboard.md` section 7, `references/techniques.md` section 13): at `normal`, cut
+inside each beat every two or three beats of the grid (`cutGrid` in `moves.js`; a new framing or a new ground while the
+terminal or the code stays on screen), push in across each shot and punch on each hit with `rig`, which keeps every
+text box inside the safe area, and export `cuts()`. The template's `audio.js` `renderBed` is the bed stem: keep it, so
+the mix carries the preset's beat (the example's `audio.js` does).
+
 ## 6. Render, mix, `palette`, `check`
 As in SKILL.md's step 10: `node render.mjs check` (0 FAIL; read every WARN), `node render.mjs palette` (the kit's
 background must take 15% of the pixels and its accent 0.5%, and no look more: a failure means a look's or the
-template's colours took over, so fix the scene, not the kit), then `node render.mjs full --out out/<name>.mp4`,
-`node tools/mix.mjs <name> --master-only` (no voice; or the voiced mix), and
+template's colours took over, so fix the scene, not the kit), then `node render.mjs full --out out/<name>.mp4` (the
+picture, its effects and its bed stem), `node tools/mix.mjs <name> --master-only` (no voice: the effects over the bed
+stem; or the voiced mix, the bed ducked under the voice), and
 `node render.mjs check --file out/<name>-final.mp4`. A screenshot is a picture, not text: `check` does not read it, so
 look at the contact sheet for text in the shot that a platform's buttons would cover.
 

@@ -141,7 +141,7 @@ test('references/looks.md: its table of looks is looks.js, look by look (shader,
 });
 test('README: the --param line names the colour tokens and the shader id; "Looks and brand kits" follows "Your first piece" and shows docs/media/looks.png', () => {
   const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
-  const at = md.indexOf('The template is a 3 s, 1080x1920 kinetic title card.');
+  const at = md.indexOf('The template is a kinetic title card of about 3 s at 1080x1920, at the `normal` energy.');
   assert.ok(at > 0, 'the line is there');
   const para = md.slice(at, md.indexOf('\n\n', at));
   for (const k of LK.TOKENS) assert.ok(para.includes(`\`${k}\``), `the --param line names the ${k} token`);
@@ -408,4 +408,36 @@ test('P11b hygiene: the readme-media and fake-ffmpeg suites leave no folder in t
       assert.deepEqual(fs.readdirSync(tmp).filter((f) => /^sm-(media|fake-ffmpeg)-/.test(f)), [], `${file} left its folder in the temp directory`);
     }
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// ---------------------------------------------------------------- energy presets (P11b)
+test('P11b README: the template card at each energy, side by side, each GIF within the tile budget and passing flash as a file', async () => {
+  const md = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  assert.match(md, /^## Energy presets$/m);
+  const row = md.slice(md.indexOf('## Energy presets'), md.indexOf('## Looks and brand kits'));
+  const gifs = ['subtle', 'normal', 'extreme'].map((e) => `docs/media/energy-${e}.gif`);
+  for (const g of gifs) assert.match(row, new RegExp(`<img src="${g}" width="270"`), `the row shows ${g}`);
+  const { mediaProblems } = await import('../scripts/readme-media.mjs');
+  assert.deepEqual(mediaProblems(row, repoRoot).problems, []);
+  // check --file skips a GIF as an overlay (ffmpeg decodes it as bgra), so the rule is run on it directly
+  const C = await import(pathToFileURL(path.join(templateDir, 'check.mjs')).href);
+  for (const g of gifs) {
+    const r = C.flashResult(await C.measureFlash(path.join(repoRoot, g)), { scope: 'file', what: g });
+    assert.equal(r.level, 'OK', r.detail);
+  }
+});
+test('P11b skill text: the board names its energy and why, the craft defaults per preset, the interface check reads, the launch recipe', () => {
+  const sk = read('SKILL.md');
+  assert.match(sk, /\*\*Name its energy\*\*/); assert.match(sk, /`subtle` is a choice for a calm brand or a long read, never a\s+fallback/);
+  for (const x of ['| subtle | normal (the default) | extreme |', '`energy.js`', '`moves.js`', 'cam: R.at(t, boxes(t))', '`cuts()`']) assert.ok(sk.includes(x), `SKILL.md: ${x}`);
+  assert.doesNotMatch(sk, /Post effects stay subtle/, 'the old rule became the subtle row');
+  const ck = read('references/check.md');
+  assert.match(ck, /^## 8\. Energy: what a scene gives the energy measurements$/m);
+  for (const x of ['window.INFO.ENERGY = { name, from, bpm }', '`window.sceneCuts()`', 'inkHeight:\n  [min, max]', 'motion: { min?, max? }', '`[{ t, d }]`']) assert.ok(ck.includes(x), `check.md: ${x}`);
+  assert.doesNotMatch(ck, /re-cut in P11b|P11b re-cuts/, 'no note that the showreel fails flash');
+  const sb = read('references/storyboard.md');
+  assert.match(sb, /^## 7\. Energy$/m); assert.match(sb, /snaps to a whole number of musical beats/);
+  const ln = read('references/launch.md');
+  assert.match(ln, /Name its energy/); assert.match(ln, /`cutGrid` in `moves\.js`/); assert.match(ln, /bed stem/);
+  for (const f of [path.join(examplesDir, 'showreel', 'README.md'), path.join(repoRoot, 'README.md')]) assert.doesNotMatch(fs.readFileSync(f, 'utf8'), /fails `flash`|until P11b|P11b re-cuts/, f);
 });

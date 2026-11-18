@@ -155,22 +155,24 @@ const hexRgb = (hex) => { const n = parseInt(String(hex).replace('#', ''), 16); 
 // The flash rule's two thresholds (check.mjs T.flash): a general transition is a swing of 0.1 relative luminance or more
 // with the darker end under 0.8. A pair of tones closer than that, or both at 0.8 or brighter, never makes one.
 export const FLASH_SWING = 0.1, FLASH_DARK = 0.8;
-// A tone that reads as a different ground from `hex` (as far from it as the rule allows) while every swing between the
-// two stays under the flash rule: on a ground at 0.8 or brighter, toward white (both ends bright, so no transition at
-// any size); on a darker one, toward white until the two are `step` apart in relative luminance (default 0.08).
-export function groundTone(hex, step = 0.08) {
-  const A = hexRgb(hex), l0 = relLum(hex), mix = (k) => toHex(A.map((v) => v + (255 - v) * k));
-  if (l0 >= FLASH_DARK) {
-    if (1 - l0 > 0.05) return mix(1);
-    // a ground at white already: darken it, staying at 0.8 or brighter
-    const dark = (k) => toHex(A.map((v) => v * (1 - k)));
-    let lo = 0, hi = 1;
-    for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (relLum(dark(m)) >= FLASH_DARK + 0.005) lo = m; else hi = m; }
-    return dark(lo);
-  }
-  let lo = 0, hi = 1;
-  for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (relLum(mix(m)) - l0 < step) lo = m; else hi = m; }
-  return mix(lo);
+// A tone that reads as a different ground from `ground` (as far from it as the rule allows) while every swing between the
+// two stays under the flash rule's 0.1 of relative luminance. `ground` is one #hex, or a list of them: the colours a
+// ground runs between (a look's bgA and bgB, which its background shader blends), and then the tone suits every one of
+// them. It is `step` (default 0.08) brighter than the darkest ground, or, on grounds near white, `step` darker than the
+// brightest, and never 0.1 or more from any of them (grounds more than 0.2 apart cannot all be served: it then sits
+// halfway between them). It never leans on the rule's exemption for two bright ends (both at 0.8 or more): a vignette or
+// a textured shader can take a bright ground under 0.8.
+export function groundTone(ground, step = 0.08) {
+  const list = (Array.isArray(ground) ? ground : [ground]).map((h) => String(h).toUpperCase());
+  const lums = list.map(relLum), lo = Math.min(...lums), hi = Math.max(...lums), room = FLASH_SWING - 0.005;
+  const up = lo + step <= 0.98;
+  let want = up ? Math.min(Math.max(lo + step, hi - room), lo + room) : Math.max(Math.min(hi - step, lo + room), hi - room);
+  if (hi - lo >= 2 * room) want = (lo + hi) / 2;
+  // the darkest ground mixed toward white, or the brightest toward black, until it reaches the luminance wanted
+  const from = hexRgb(list[lums.indexOf(up ? lo : hi)]), mix = (k) => toHex(from.map((v) => (up ? v + (255 - v) * k : v * (1 - k))));
+  let a = 0, b = 1;
+  for (let i = 0; i < 30; i++) { const m = (a + b) / 2; if (up ? relLum(mix(m)) < want : relLum(mix(m)) > want) a = m; else b = m; }
+  return mix(a);
 }
 // n shot grounds alternating between `ground` and its groundTone: consecutive shots differ (their pixels change, so the
 // cut reads) without a flash between them (23.9: at extreme's cut rate, shots alternating dark and light would be one).

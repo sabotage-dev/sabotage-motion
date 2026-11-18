@@ -25,12 +25,14 @@ chmod -R u+w motion/<piece>                   # cp keeps the source's modes: a r
 cd motion/<piece> && npm install              # playwright-core; it drives the installed Google Chrome
 node render.mjs doctor                        # Chrome, WebGL2, ffmpeg, fonts: says what to install if anything is missing
 node render.mjs contact --param "title=Hello there"   # 12 frames of the whole timeline in contact.png
+node render.mjs contact --param energy=extreme        # the same card at another energy: subtle, normal, extreme
 node render.mjs stills 0.4,1.2,2.6            # style frames in stills/
 node render.mjs check                         # measured checks on the source
 node render.mjs full --out out/<piece>.mp4    # the video with its synthesized sound
 ```
 
-Out of the box it is a 3 s, 1080x1920 kinetic title card that passes `check`. `--param look=<name>` (one of eight
+Out of the box it is a kinetic title card of about 3 s at 1080x1920, at its board's energy (`normal`), that passes
+`check` and `check --file` at every energy (`--param energy=subtle|normal|extreme` plays it at each). `--param look=<name>` (one of eight
 looks: `product`, `neon`, `paper`, `editorial`, `retro-crt`, `brutalist`, `gradient`, `mono`), the colour tokens
 `bgA`, `bgB`, `ink`, `muted`, `accent`, `accent2` (`=#hex`), `bg=<shader id>` (`none`, `gradient`, `paper`, `grid`,
 `crt`, `mesh`; never a colour), `title=...` and `sub=...` show how far parameters go before you write code. `--alpha`
@@ -42,9 +44,11 @@ size, frame rate and safe area from `safezones.json`. On an Apple-silicon Mac a 
 
 | File | Role | Edit? |
 |---|---|---|
-| `scene.js` | `CFG` (size, fps, duration, fonts), `TL` timeline, `init`, `frame(t)`, `post(t)`, optional `subBoost(t)`, `drawHud(t)`, `boxes(t)`, `HOLDS` | Yes: this is the piece |
+| `scene.js` | `CFG` (size, fps, duration, fonts), `TL` timeline, `init`, `frame(t)`, `post(t)`, optional `subBoost(t)`, `drawHud(t)`, `boxes(t)`, `cuts()`, `HOLDS` | Yes: this is the piece |
 | `board.js` | The storyboard: beats with voice lines, on-screen copy, visual and sound notes | Yes, first |
-| `audio.js` | Synthesized sound effects scheduled from the scene's `TL`, in the style's timbre | Yes |
+| `audio.js` | Synthesized sound effects scheduled from the scene's `TL`, in the style's timbre and the energy's amount, and the bed stem (`renderBed`: the energy's beat on its grid) | Yes |
+| `energy.js` | The energy presets (`ENERGY`: tempo, cut interval in beats, camera, transitions, type scale, easing, post, sound), which energy a piece resolves to, the beat grid, grounds that never flash between shots (`groundTone`) | No |
+| `moves.js` | Moves for the presets, pure functions of `t`: the camera rig with its safe-area clamp (`rig`), transitions (`whip`, `wipe`, `mask`, `zoomPunch`, `glitchCut`, `flash`, `speedRamp`), cuts on the grid (`cutGrid`, `shotAt`), kinetic type (`slam`, `slamWords`, `inkFont`) | Rarely |
 | `brand.json` | The project's brand kit, copied in with every file it names: colour tokens, fonts, logo, a base look | Copy, don't invent |
 | `looks.js` | The eight looks, the kit's fields, and how a style resolves (`fontStr`, `bgConfig`, `lookFiles`) | To add a look |
 | `index.html` | `@font-face` declarations; the bundled faces are in `fonts/` | Fonts only |
@@ -132,6 +136,9 @@ now (the request asked for the finished file): go on, and name both in your repl
      `...bgConfig(style)`), not hard-coded colours and faces, as the template's `scene.js` does.
 3. **Write the board** (`board.js`): one beat per idea, each with a voice line (`vo`) or a length (`dur`), the
    on-screen copy (`on`), a visual note (`look`) and a sound note (`sfx`). `references/storyboard.md` has the format.
+   **Name its energy** (`energy: 'subtle' | 'normal' | 'extreme'`) and say in your reply which you chose and why:
+   `normal` is the default, `extreme` stops a scroll, and `subtle` is a choice for a calm brand or a long read, never a
+   fallback. A silent board's beats then snap to the energy's beat grid (`references/storyboard.md` section 7).
 4. **Board sheet:** `node render.mjs board --slates` writes `board.png` and `board.md`, a placeholder panel per beat
    with estimated timing. The person approves the structure here, before any voice or animation.
 5. **(voice) Voice it.** `node tools/voice-elevenlabs.mjs --model <id>` voices the board in one take, or bring any
@@ -150,9 +157,10 @@ now (the request asked for the finished file): go on, and name both in your repl
     source file in the piece counts, `board.js` notes included (only `out/`, `stills/`, the review sheets and render
     records do not), so finish them before the final render: a later edit makes a mixed master stale, and
     `check --file` fails it until you render and mix again. Then, for:
-    - **a video**: `node render.mjs full --out out/<name>.mp4`, then `node tools/mix.mjs <name>` (voice, bed and
-      effects, mastered to -14 LUFS; `--master-only` for the effects alone, also -14 LUFS; `--sting` for an asset cut
-      into someone else's video, -20 LUFS), then `node render.mjs check --file out/<name>-final.mp4`;
+    - **a video**: `node render.mjs full --out out/<name>.mp4` (the picture, its effects and its bed stem), then
+      `node tools/mix.mjs <name>` (voice, the bed ducked under it, and effects, mastered to -14 LUFS; `--master-only`
+      for the effects over the bed stem, also -14 LUFS; `--sting` for an asset cut into someone else's video, -20
+      LUFS), then `node render.mjs check --file out/<name>-final.mp4`;
     - **a captioned clip**: the branch above; the overlay is composited over the clip and mixed, unlike an overlay;
     - **an overlay** (transparent, with no mix: the mixer takes only an `.mp4` picture):
       `node render.mjs video --alpha --out out/<name>.mov`, then `node render.mjs check --alpha` and
@@ -166,24 +174,40 @@ now (the request asked for the finished file): go on, and name both in your repl
 
 ## Craft defaults that make it look designed
 
-- Entrances use `snap` or a spring; moves between holds use `swift`; exits use `whip`. Avoid linear motion except
-  for slow drifts.
-- Stagger related elements by 40 to 90 ms.
-- Hold text about 0.25 s per word, and never less than 1 s for a title (`check` warns under that).
+The amounts depend on the energy the board names (`references/storyboard.md` section 7; the helpers are in `moves.js`,
+`references/techniques.md` section 13). The look decides the kind of move, the energy how much:
+
+| | subtle | normal (the default) | extreme |
+|---|---|---|---|
+| Tempo, and the bed stem's beat | 84 BPM, a soft pad | 116 BPM, a beat | 136 BPM, a driving beat |
+| Cuts | every 4 to 5 beats; often none in a short piece | every 2 to 3 beats, inside beats | every half beat to one, grounds close in luminance (`shotTones`) |
+| Camera | a slow push, a drift | push-ins across each shot, a punch on each hit | punch-ins, whips between beats, shake on impacts, zoom bounces |
+| Transitions | crossfade, soft wipe | mask wipe, slide, whip | whip, glitch cut and flash frame where the look allows, speed ramp |
+| Largest line of type | 4 to 8% of the frame height | 9 to 16% | 18 to 35%: words slammed one at a time |
+| Easing | gentle springs (`entrance('spring')`) | `snap` in, `swift` between holds, `whip` out | overshoot and anticipation, `whip` |
+| Post | bloom 0.15 to 0.5 and grain 0.02 to 0.035 at most, chromatic aberration under 0.0015 | the look's own | chromatic aberration on hits, a glitch or a flash frame at a cut where the look allows, within `flash` |
+| Sound | few, soft hits | whooshes into the cuts, a hit per landing | impacts, a riser into a whip, a drop |
+
+- Avoid linear motion except for slow drifts. Stagger related elements by 40 to 90 ms (subtle at the slow end).
+- Hold text about 0.25 s per word, and never less than 1 s for a title (`check` warns under that), at every energy:
+  a beat holds its copy that long, and extreme's fast cuts happen inside it while the copy stays on screen.
 - Keep something alive during holds: a slow push, a breathe, one light sweep. A hold that is meant to be still (an
   end card held to the last frame) goes in `HOLDS` or gets `hold: true` on its beat.
 - The first frame is the thumbnail: open on content, not a flat colour (`check` warns on a flat first frame).
 - End cards and loops hold to the last frame, with no exit: the last frame is the loop point and often the
   thumbnail. The template's title card exits because it is a standalone sting.
 - Raise `subBoost(t)` (2 to 4x) wherever motion is fast, or motion blur shows stepped copies instead of a smear.
-- Post effects stay subtle: bloom 0.15 to 0.5, grain 0.02 to 0.035, chromatic aberration under 0.0015. Glitch and
-  flash are accents at cut points.
+- Glitch and flash are accents at cut points, never a texture: `flash` fails four flashes in a second over a
+  quarter of the view, and at extreme's cut rate shots that alternate dark and light are a flash sequence.
 - Match the effect vocabulary to the brand. Neon, glitch and scramble-decode suit tech and sci-fi; warm, human
   brands get paper texture, gentle springs, hand-feel type and no glitch at all. Each look carries its vocabulary
   (`style.motion`: entrance, stagger, whether a sweep or a glitch is allowed, hard cuts or whips); keep to it.
 - Code and terminals: build the blocks in `init` from `codeTheme(style)`, so the code takes the piece's colours and
   mono face; type with a seeded cadence, fade or lift windows in place rather than sliding them in from off screen, and
   thin the key ticks with `keyTicks` (`references/code.md`).
+- Drive the camera with `moves.js`'s `rig` (`cam: R.at(t, boxes(t))`): it clamps every push, punch, bounce and shake
+  so the text stays inside the safe area. Whip only on a cut between beats, with no copy on screen, and export
+  `cuts()` so `check` can count the cuts.
 - Keep text inside the target's safe area, and out of its `exclude` rectangles (TikTok's button column on
   `tiktok-ad`). `sceneTarget(target)` gives a scene its target's safe area even without `--target`, `freeSpan()` the
   width an exclude rectangle leaves free at a given height, and `captions(..., { safe, exclude })` keeps captions
@@ -199,8 +223,9 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
 `repo-launch/`: it is a reference only, and a launch piece starts from the template (`references/launch.md`).
 
 - `showreel/` (20 s, 16:9, 60 fps): what the engine can draw, cut to a 120 BPM grid: kinetic type, shape morphs,
-  22,000 particles, a raymarched blob, liquid metaballs refracting type, a data panel, an eight-cut montage, and an
-  end card with a mark and a wordmark, with a fully synthesized score.
+  22,000 particles, a raymarched blob, liquid metaballs refracting type, a data panel, a montage of four style frames
+  with a word on every beat, and an end card with a mark and a wordmark, with a fully synthesized score; bold, and
+  `flash` clean (its README says what the re-cut changed to get there).
 - `explainer-beat/` (16.7 s, 9:16): a three-beat explainer built the workflow's way: board, a voice take from an
   openly licensed TTS voice (`VOICE.md`), cues, word-by-word captions, a synthesized bed, the mix, and `check`
   clean on the master.
@@ -213,7 +238,7 @@ Each is a full piece in `${CLAUDE_SKILL_DIR}/examples/`, runnable from its folde
 - `terminal-demo/` (8 s, 9:16): a made-up command-line tool installed and run in a terminal (typed commands, a progress
   bar, a spinner), then its fix landing as a diff, with key ticks thinned to 12 a second, in the `neon` look, and
   `check` clean on the source and the master (`references/code.md`).
-- `repo-launch/` (15 s, 9:16): a launch video for a made-up project kept in its `fixture/`: the scan, the kit it drafted,
+- `repo-launch/` (15 s, 9:16, at `normal`): a launch video for a made-up project kept in its `fixture/`: the scan, the kit it drafted,
   a full-page screenshot of the app panned in a phone, the install in a terminal, code with its TODOs lighting up, and
   an end card, with `palette`, `check` and `check --file` clean (`references/launch.md`).
 

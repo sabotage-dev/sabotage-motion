@@ -28,6 +28,8 @@ const RLC = ['--test-name-pattern=repo-launch', 'test/examples-check.test.mjs'];
 const FLU = ['test/flash-units.test.mjs'], FLE = ['test/flash.test.mjs'];
 // P10: caption a clip
 const CLU = ['test/clip-units.test.mjs'], CL = ['test/clip.test.mjs'];
+// P11b-1: energy presets; EN renders the template card at each energy (about 40 s on an Apple-silicon Mac)
+const EU = ['test/energy-units.test.mjs'], EN = ['test/energy.test.mjs'], BSH = ['test/board-sheet.test.mjs'];
 
 // [name, file, [[from, to], ...], tests]
 const M = [
@@ -110,7 +112,7 @@ const M = [
   ['render.mjs: text_overlap not run', T + 'render.mjs', [['        push(C.textOverlap(samples, { fps }));\n', '']], SRC],
   ['render.mjs: board copy not run', T + 'render.mjs', [['if (BOARD && timing.ok) push(C.boardCopy(samples, { fps, windows }));', 'if (false) push(C.boardCopy(samples, { fps, windows }));']], SRC],
   ['render.mjs: board_sfx_missing not run', T + 'render.mjs', [['if (BOARD && timing.ok) push(C.boardSfx(wav, { windows }));', 'if (false) push(C.boardSfx(wav, { windows }));']], SRC],
-  ['render.mjs: audio_spike not run', T + 'render.mjs', [['          push(C.audioSpike(wav));\n', '']], SRC],
+  ['render.mjs: audio_spike not run', T + 'render.mjs', [['          if (!bedR) push(C.audioSpike(wav));\n', '          if (!bedR) { /* not run */ }\n']], SRC],
   ['render.mjs: HOLDS ignored', T + 'render.mjs', [['C.holdIntervals(holdsErr ? null : INFOc.HOLDS,', 'C.holdIntervals(null,']], SRC],
   ['main.js: the probe keeps the grain', T + 'main.js', [['post: opts.post || { grain: 0 } });', 'post: opts.post || {} });']], SRC],
   ['main.js: boxes sampled at the shutter centre only', T + 'main.js', [['      const n = subCount(t);\n      for (let s = 0; s < n; s++) {\n        const ts = subTime(t, s, n);', '      const n = 1;\n      for (let s = 0; s < n; s++) {\n        const ts = subTime(t, s, n);']], SRC],
@@ -137,14 +139,14 @@ const M = [
   ['F6 render.mjs: a scene problem FAILs a run that does not check the scene', T + 'render.mjs', [['  const quiet = !runSource;', '  const quiet = false;']], FILE],
   ['F7 render.mjs: --only file checks without --file is allowed', T + 'render.mjs', [['  if (fileOnly.length) return usage(', '  if (false) return usage(']], SRC],
   ['F8 provenance: the effects problem ignored', T + 'check.mjs', [['    if (f.effectsProblem) probs.push(f.effectsProblem);\n', '']], UNIT],
-  ['F8 effectsLink: the source not compared', T + 'check.mjs', [['  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {', '  if (false) {']], UNIT],
+  ['F8 effectsLink: the source not compared', T + 'check.mjs', [['  if (!match.rec.source || !match.sourceNow || match.rec.source.hash !== match.sourceNow.hash) {\n    return `the effects stem', '  if (false) {\n    return `the effects stem']], UNIT],
   ['F8 render.mjs: audio writes no record', T + 'render.mjs', [['      writeAudioRecord(out, src);\n', '']], FILE],
-  ['F8 render.mjs: full does not record its stem\'s hash', T + 'render.mjs', [[', audioSha256: sha256(fs.readFileSync(atmp)) });', ' });']], FILE],
+  ['F8 render.mjs: full does not record its stem\'s hash', T + 'render.mjs', [[' audioSha256: sha256(fs.readFileSync(atmp)),', '']], FILE],
   ['F8 render.mjs: the effects stem not looked up', T + 'render.mjs', [['          facts.effectsProblem = C.effectsLink({ file: fx.file, sha256: fx.sha256 }, cands, facts.rec || null);\n', '']], FILE],
   // ---- council round 2 fold
   ['R2 sceneProblem: the folder\'s case counts', T + 'render.mjs', [['low = parts.map((x) => x.toLowerCase());', 'low = parts;']], ['test/render-error.test.mjs']],
-  ['R2 effectsLink: the settings not compared', T + 'check.mjs', [['hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];', 'hits[0] : hits[0];']], UNIT],
-  ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['cands, facts.rec || null);', 'cands);']], FILE],
+  ['R2 effectsLink: the settings not compared', T + 'check.mjs', [['hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];\n  if (!match) {', 'hits[0] : hits[0];\n  if (!match) {']], UNIT],
+  ['R2 render.mjs: the picture\'s record not passed to effectsLink', T + 'render.mjs', [['sha256: fx.sha256 }, cands, facts.rec || null);', 'sha256: fx.sha256 }, cands);']], FILE],
   ['R2 render.mjs: a mixed --only drops its file checks', T + 'render.mjs', [['[...only].filter((id) => C.FILE_IDS.includes(id)) : [];', '([...only].every((id) => C.FILE_IDS.includes(id)) ? [...only] : []) : [];']], SRC],
   ['render.mjs: ffmpeg left running when a scene throws', T + 'render.mjs', [['  process.exitCode = 1;\n  await abortVideo();', '  process.exitCode = 1;']], ['test/render-error.test.mjs']],
   // ---- P4: render to a temporary sibling, rename on success
@@ -202,15 +204,15 @@ const M = [
   ['P7 main.js: a missing look or kit font not reported under check', T + 'main.js', [['FONT_PROBLEMS.push(problem); failed.add(f.family);', 'failed.add(f.family);']], LB],
   ['P7 main.js: look and kit families not added to CFG.FONTS', T + 'main.js', [['if (fams.length) { CFG.FONTS = CFG.FONTS || []; for (const f of fams) if (!CFG.FONTS.includes(f)) CFG.FONTS.push(f); }', '']], LB],
   ['P7 main.js: brand.json not read', T + 'main.js', [['  BRAND = await loadBrand();', '  BRAND = null;']], LB],
-  ['P7 main.js: the style not handed to init', T + 'main.js', [['target: T, style: STYLE }));', 'target: T }));']], LB],
-  ['P7 main.js: the style not handed to audio.js', T + 'main.js', [['CFG, params, dur, sr, style: STYLE });', 'CFG, params, dur, sr });']], LB],
+  ['P7 main.js: the style not handed to init', T + 'main.js', [['target: T, style: STYLE, energy: ENERGY }));', 'target: T, energy: ENERGY }));']], LB],
+  ['P7 main.js: the style not handed to audio.js', T + 'main.js', [['renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, style: STYLE, energy: ENERGY });', 'renderAudio({ TL: scene.TL || {}, CFG, params, dur, sr, energy: ENERGY });']], LB],
   ['P7 main.js: strokeText not recorded', T + 'main.js', [["for (const m of ['fillText', 'strokeText']) {", "for (const m of ['fillText']) {"]], LB],
   ['P7 main.js: measureText recorded as a draw', T + 'main.js', [["for (const m of ['fillText', 'strokeText']) {", "for (const m of ['fillText', 'strokeText', 'measureText']) {"]], LB],
   ['P7 main.js: the colour probe keeps the grain', T + 'main.js', [['const p = window.renderProbe(f / FPS, { rgb: true });', 'const p = window.renderProbe(f / FPS, { rgb: true, post: {} });']], LB],
   ['P7 main.js: the colour probe skips frames', T + 'main.js', [['for (let f = 0; f < N; f++) {\n    const p = window.renderProbe(f / FPS, { rgb: true });', 'for (let f = 0; f < N; f += 2) {\n    const p = window.renderProbe(f / FPS, { rgb: true });']], LB],
   ['P7 main.js: brand sheet swatches in one colour', T + 'main.js', [['sc.fillStyle = hex; sc.fillRect(x, y, sw, swH);', 'sc.fillStyle = S.tokens.bgA; sc.fillRect(x, y, sw, swH);']], LB],
   ['P7 main.js: brand sheet logos not drawn', T + 'main.js', [['sc.drawImage(img, x + (gw - iw) / 2, y + (logoH - ih) / 2 - 12, iw, ih);', 'void iw;']], LB],
-  ['P7 render.mjs: tokens not in the record', T + 'render.mjs', [['brand: INFO.STYLE.brand, tokens: INFO.STYLE.tokens, ...extra,', 'brand: INFO.STYLE.brand, ...extra,']], LB],
+  ['P7 render.mjs: tokens not in the record', T + 'render.mjs', [['brand: INFO.STYLE.brand, tokens: INFO.STYLE.tokens, energy: INFO.ENERGY, ...extra,', 'brand: INFO.STYLE.brand, energy: INFO.ENERGY, ...extra,']], LB],
   ['P7 render.mjs: fonts_used not in the video record', T + 'render.mjs', [['writeRenderJson(out, src, { from, to, frames, fonts_used: await page.evaluate(() => window.fontsUsed()) });', 'writeRenderJson(out, src, { from, to, frames });']], LB],
   ['P7 render.mjs: fonts_used not in the full record', T + 'render.mjs', [['frames, fonts_used: await page.evaluate(() => window.fontsUsed()), audio:', 'frames, audio:']], LB],
   ['P7 render.mjs: palette exits 0 on a failure', T + 'render.mjs', [['return res.ok ? 0 : 1;', 'return 0;']], LB],
@@ -221,7 +223,7 @@ const M = [
   ['P7 render.mjs: brand.png in the source hash', T + 'render.mjs', [["['board.png', 'contact.png', 'board.md', 'brand.png']", "['board.png', 'contact.png', 'board.md']"]], LB],
   ['P7 scene.js: the title ink not the style\'s', T + 'scene.js', [['ink: ST.tokens.ink, accent: ST.tokens.accent,', "ink: '#F4F1EA', accent: ST.tokens.accent,"]], LB],
   ['P7 scene.js: the background not the style\'s', T + 'scene.js', [['...bgConfig(ST, { alpha: ALPHA }),', "...bgConfig({ ...ST, bg: 'gradient', tokens: { ...ST.tokens, bgA: '#101018', bgB: '#2A1630' } }, { alpha: ALPHA }),"]], LB],
-  ['P7 scene.js: the title not in the display face', T + 'scene.js', [["l.font = fontStr(ST, 'display', L.fs);", 'l.font = `${L.fs}px DISPLAY`;']], LB],
+  ['P7 scene.js: the title not in the display face', T + 'scene.js', [["with the energy's ease; leave upward\n    l.font = fontStr(ST, 'display', L.fs);", "with the energy's ease; leave upward\n    l.font = `${L.fs}px DISPLAY`;"]], LB],
   ['P7 audio.js: the timbre ignored', T + 'audio.js', [["...(style ? style.sound : {}) };", '};']], LB],
   ['P7 docs: the README --param line names bg as a colour again', 'README.md', [['and `bg`, the\nbackground shader id: `none`, `gradient`, `paper`, `grid`, `crt` or `mesh`, never a colour)', 'and `bg`, `ink`)']], ['test/docs.test.mjs']],
   ['P7 docs: the looks table drifts from looks.js', 'skills/sabotage-motion/references/looks.md', [['| `brutalist` | condensed type, primaries, snaps | `none` |', '| `brutalist` | condensed type, primaries, snaps | `grid` |']], ['test/docs.test.mjs']],
@@ -469,7 +471,7 @@ const M = [
   ["P9 docs: SKILL.md's launch branch shows the board after rendering", "skills/sabotage-motion/SKILL.md", [["4. **Show the board**: render the board sheet (`node render.mjs board --slates`) before rendering.\n5. **Render, mix, `palette` and `check`**: step 10 below.", "4. **Render, mix, `palette` and `check`**: step 10 below.\n5. **Show the board**: render the board sheet (`node render.mjs board --slates`) before rendering."]], DOCS],
   ["P9 docs: SKILL.md's branch does not name the recipe", "skills/sabotage-motion/SKILL.md", [["follow\n`references/launch.md`, in this order.", "follow\nthe recipe, in this order."]], DOCS],
   ["P9 docs: CI does not run the launch suites", ".github/workflows/ci.yml", [[" && npm run test:launch &&", " &&"]], DOCS],
-  ["P9 docs: README has no repo-launch row", "README.md", [["| `repo-launch/` | 15 s, 9:16:", "| `launch/` | 15 s, 9:16:"]], DOCS],
+  ["P9 docs: README has no repo-launch row", "README.md", [["| `repo-launch/` | 15 s, 9:16, at", "| `launch/` | 15 s, 9:16, at"]], DOCS],
   ["P9 ASSETS.md: the example's shot not listed", "ASSETS.md", [["| `skills/sabotage-motion/examples/repo-launch/assets/shots/app.png` |", "| `skills/sabotage-motion/examples/repo-launch/assets/shots/app-gone.png` |"]], ASSETS],
   ["P9 examples: the template's shots.mjs changed, not its copies", T + "tools/shots.mjs", [["// tools/shots.mjs: pictures of a running local app or a local HTML file,", "// tools/shots.mjs: pictures of a running local app or of a local HTML file,"]], EXT],
   // ---- P9 council round 1 fold: Chrome closed whatever throws, the final URL local, the scroll checked after the clock;
@@ -589,7 +591,7 @@ const M = [
   ["P10 whispercpp: a one-word segment estimated", T + "tools/cues.mjs", [["est: text.split(/\\s+/).length > 1 });", "est: true });"]], CLU],
   ["P10 vtt: markup left in the words", T + "tools/cues.mjs", [[".join(' ').replace(/<[^>]*>/g, '')", ".join(' ')"]], CLU],
   ["P10 vtt: a file without WEBVTT read", T + "tools/cues.mjs", [["  if (!/^\\uFEFF?WEBVTT/.test(String(text))) throw new CueError('vtt: a WebVTT file starts with WEBVTT');\n", ""]], CLU],
-  ["P10 styles: extreme gets pop", T + "lib.js", [["normal: 'pop', extreme: 'karaoke' });", "normal: 'pop', extreme: 'pop' });"]], CLU],
+  ["P10 styles: extreme gets pop", T + "energy.js", [["caption: 'karaoke', shotStep: 0.08,", "caption: 'pop', shotStep: 0.08,"]], CLU],
   ["P10 styles: subtle by default", T + "lib.js", [["const e = energy == null || energy === '' ? 'normal' : String(energy);", "const e = energy == null || energy === '' ? 'subtle' : String(energy);"]], CLU],
   ["P10 zones: another shape scaled too", T + "lib.js", [["if (!(W > 0 && H > 0) || Math.abs(W / H - T.w / T.h) > 0.005 * (T.w / T.h)) return null;", "if (!(W > 0 && H > 0)) return null;"]], CLU],
   ["P10 rate: variable only past 60% off the median", T + "tools/clip.mjs", [["Math.abs(x - median) > 0.25 * median", "Math.abs(x - median) > 0.6 * median"]], CLU],
@@ -637,6 +639,53 @@ const M = [
   // ---- P11b-1: energy presets (and the CI shards they run in)
   ["P11b CI: a shard drops the flash suites", ".github/workflows/ci.yml", [["run: npm run test:check && npm run test:flash", "run: npm run test:check"]], DOCS],
   ["P11b CI: the doctor runs in every shard", ".github/workflows/ci.yml", [["      - name: doctor\n        if: matrix.shard.name == 'engine'\n", "      - name: doctor\n"]], DOCS],
+  ["P11b hygiene: the fake ffmpeg's folder kept", "test/render-error.test.mjs", [["after(() => fs.rmSync(fakeBin, { recursive: true, force: true }));", ""]], DOCS],
+  ["P11b hygiene: the media test's folder kept", "test/docs.test.mjs", [["  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));   // removed whether the test passes or fails\n", ""]], DOCS],
+  // the table, and which energy a piece resolves to
+  ["P11b energy: normal at 120 BPM, not 116", T + "energy.js", [["bpm: 116, cutBeats: [2, 3]", "bpm: 120, cutBeats: [2, 3]"]], EU],
+  ["P11b energy: extreme cuts every 1 to 2 beats", T + "energy.js", [["bpm: 136, cutBeats: [0.5, 1]", "bpm: 136, cutBeats: [1, 2]"]], EU],
+  ["P11b energy: subtle's motion ceiling 0.2", T + "energy.js", [["motion: { max: 0.10 }", "motion: { max: 0.2 }"]], EU],
+  ["P11b energy: the board over --param", T + "energy.js", [["  const pick = [['--param', params && params.energy], ['CFG.ENERGY', CFG && CFG.ENERGY], ['board.js', BOARD && BOARD.energy]]", "  const pick = [['board.js', BOARD && BOARD.energy], ['--param', params && params.energy], ['CFG.ENERGY', CFG && CFG.ENERGY]]"]], EU],
+  ["P11b energy: CFG.ENERGY and the board may disagree", T + "energy.js", [["    throw new Error(`CFG.ENERGY \"${CFG.ENERGY}\" and board.js's energy", "    if (0) throw new Error(`CFG.ENERGY \"${CFG.ENERGY}\" and board.js's energy"]], EU],
+  ["P11b energy: a board's tempo 20% off", T + "energy.js", [["export const TEMPO_SLACK = 0.10;", "export const TEMPO_SLACK = 0.20;"]], EU],
+  ["P11b energy: a silent bed at any energy", T + "energy.js", [["  if (board.bed === false && name !== 'subtle') p.push(", "  if (false) p.push("]], EU],
+  // the beat grid
+  ["P11b grid: beats rounded down", T + "energy.js", [["Math.round(dur / spb - 1e-9)", "Math.floor(dur / spb + 1e-9)"]], EU],
+  ["P11b grid: a beat shorter than its copy needs", T + "energy.js", [["  const n = Math.max(1, Math.round(dur / spb - 1e-9), Math.ceil(need / spb - 1e-9));", "  const n = Math.max(1, Math.round(dur / spb - 1e-9));"]], EU],
+  ["P11b grid: a voiced board snaps", T + "energy.js", [["  board.beats.every((b) => b && b.vo == null) && (board.energy", "  board.beats.some((b) => b && b.vo == null) && (board.energy"]], EU],
+  ["P11b grid: a clip's board snaps", T + "lib.js", [["  if (!problems.length && !opts.clip && boardSnaps(board)) {", "  if (!problems.length && boardSnaps(board)) {"]], EN],
+  ["P11b grid: the board's energy, not the param's, sets the grid", T + "lib.js", [["    const name = opts.energy || board.energy || DEFAULT_ENERGY;", "    const name = board.energy || DEFAULT_ENERGY;"]], EU],
+  ["P11b grid: the page ignores --param energy", T + "lib.js", [["  if (!_timing) _timing = boardTiming(BOARD, CUES, { energy: PAGE_ENERGY, clip: !!CLIP });", "  if (!_timing) _timing = boardTiming(BOARD, CUES, { clip: !!CLIP });"]], BSH],
+  ["P11b grounds: two shots 0.15 apart", T + "energy.js", [["if (relLum(mix(m)) - l0 < step) lo = m;", "if (relLum(mix(m)) - l0 < step + 0.07) lo = m;"]], EU],
+  // moves.js
+  ["P11b rig: no clamp", T + "moves.js", [["      return s >= 1 ? c : [1 + s * (c[0] - 1), s * c[1], s * c[2], s * c[3]];", "      return c;"]], EU],
+  ["P11b rig: the exclude rectangles ignored", T + "moves.js", [["  for (const r of exclude || []) if (x0 < r.x + r.w && x1 > r.x && y0 < r.y + r.h && y1 > r.y) return false;", ""]], EU],
+  ["P11b rig: pan y the wrong way", T + "moves.js", [["0.5 - y / H + panY;", "0.5 - y / H - panY;"]], EU],
+  ["P11b cuts: a transition up to 0.5 s", T + "moves.js", [["export const CUT_MAX_D = 0.3;", "export const CUT_MAX_D = 0.5;"]], EU],
+  ["P11b cuts: a transition switches shots at its start", T + "moves.js", [["if (t >= c.t + c.d / 2) i++;", "if (t >= c.t) i++;"]], EU],
+  ["P11b transitions: a glitch on any look", T + "moves.js", [["glitch: ok && x.active ? amp", "glitch: x.active ? amp"]], EU],
+  ["P11b transitions: a flash frame on any look", T + "moves.js", [["flash: ok && x.active ? amp", "flash: x.active ? amp"]], EU],
+  ["P11b transitions: four flash frames in a second pass", T + "moves.js", [["if (s[i + 3] - s[i] < 1) throw", "if (s[i + 3] - s[i] < 0.9) throw"]], EU],
+  ["P11b slams: a group per word", T + "moves.js", [["group: opts.group || 'slam' });", "group: `${opts.group || 'slam'}${i}` });"]], EU],
+  ["P11b slams: grown past the safe area", T + "moves.js", [["  return clamp(k * 0.98, 1, max);", "  return max;"]], EU],
+  // the harness, the render, check and the mixer
+  ["P11b page: a cut longer than 0.3 s accepted", T + "main.js", [["(c.d ?? 0) <= 0.3 + 1e-9", "(c.d ?? 0) <= 1"]], EN],
+  ["P11b page: init gets no energy", T + "main.js", [["target: T, style: STYLE, energy: ENERGY }));", "target: T, style: STYLE }));"]], EN],
+  ["P11b render: full writes no bed stem", T + "render.mjs", [["      const bed = await renderBedTo(page, bpart);", "      const bed = null;"]], EN],
+  ["P11b check: audio_spike hears the effects alone", T + "render.mjs", [["          if (!bedR) push(C.audioSpike(wav));", "          if (true) push(C.audioSpike(wav));"]], EN],
+  ["P11b check: provenance ignores the bed stem", T + "render.mjs", [["          facts.bedProblem = C.bedLink({ file: bs.file, sha256: bs.sha256 }, cands, facts.rec || null);", "          facts.bedProblem = null;"]], EN],
+  ["P11b check: a bed made with other settings passes", T + "check.mjs", [["  const match = pic ? hits.find((c) => c.rec === pic || !soundDiff(c.rec, pic).length) : hits[0];\n  if (!match) return `the bed stem", "  const match = hits[0];\n  if (!match) return `the bed stem"]], EU],
+  ["P11b check: the stems summed without their gains", T + "check.mjs", [["L[i] += wav.L[i] * gain; R[i] += wav.R[i] * gain;", "L[i] += wav.L[i]; R[i] += wav.R[i];"]], EU],
+  ["P11b mix: the bed stem end-aligned", T + "tools/mix.mjs", [["  const start = generated ? 0 : at != null", "  const start = at != null"]], EU],
+  ["P11b mix: the bed stem faded", T + "tools/mix.mjs", [["  const fadeSec = generated ? 0 : longer", "  const fadeSec = longer"]], EU],
+  ["P11b mix: the bed with the effects alone at 0.22", T + "tools/mix.mjs", [["bedGainSolo: 0.5,", "bedGainSolo: 0.22,"]], EU],
+  ["P11b mix: a missing bed stem left out", T + "tools/mix.mjs", [["    if (!fs.existsSync(file)) return { problem: `the bed stem ${r} that", "    if (!fs.existsSync(file)) return {}; if (0) return { problem: `the bed stem ${r} that"]], EN],
+  ["P11b mix: a changed bed stem mixed", T + "tools/mix.mjs", [["      if (!own) return { problem: `the bed stem ${r} changed", "      if (0) return { problem: `the bed stem ${r} changed"]], EN],
+  ["P11b mix: no bed in a --master-only mix", T + "tools/mix.mjs", [["  const withBed = (voiced || mode === 'master-only') && !o['no-bed'];", "  const withBed = voiced && !o['no-bed'];"]], EN],
+  ["P11b captions: the style ignores the board's energy", T + "caption.js", [["captionStyleFor(energy.name);", "captionStyleFor(params.energy);"]], EN],
+  ["P11b bed: off the beat grid", T + "audio.js", [["    const t = b * spb, bar = Math.floor(b / 4), inBar = b % 4;", "    const t = b * spb + spb / 3, bar = Math.floor(b / 4), inBar = b % 4;"]], EN],
+  ["P11b docs: SKILL.md without the per-preset defaults", "skills/sabotage-motion/SKILL.md", [["| | subtle | normal (the default) | extreme |", "| | quiet | normal | loud |"]], DOCS],
+  ["P11b docs: check.md without the interface", "skills/sabotage-motion/references/check.md", [["`window.sceneCuts()`", "`sceneCuts()`"]], DOCS],
 ];
 
 const argv = process.argv.slice(2);

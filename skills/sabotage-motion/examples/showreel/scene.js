@@ -7,9 +7,9 @@
 //   4-6   shape systems     8 x 4 tiles morph in three waves; one tile zooms to fill the frame
 //   6-8   particles         22,000 particles: a spiral galaxy, the word FLOW, a sphere
 //   8-10  3D / SDF          a raymarched blob morphs through four shapes (shaders.js, look 1), with callouts
-//   10-12 liquid            metaballs refract the word LIQUID (look 2, the 2D layer read in the shader)
+//   10-12 liquid            metaballs refract the word LIQUID (look 2, the 2D layer read in the shader); it cuts in on the beat
 //   12-14 data              bars, a line chart, an odometer, rings
-//   14-16 style frames      eight quarter-second cuts, one word and one shader look each
+//   14-16 style frames      four half-second style frames, one shader look each, a word landing on every beat
 //   16-20 mark + end card   impact, the orrery mark, the wordmark, a glint, and out
 // The board (board.js) mirrors these sections; the reel is locked to its grid, so init checks the board against it.
 // No boxes(t): check's text checks report "not checked" here (references/check.md says why that is fine for a reel).
@@ -130,6 +130,13 @@ function sIntro(t) {
   const c = ctx;
   c.fillStyle = C.ink; c.fillRect(0, 0, W, H);
   const cx = W / 2, gy = H / 2 + 70, R = 24;
+  // an ember glow where the dot lands, there from the first frame (the thumbnail) and gone as the dot pops
+  const glow = 1 - E.inQuad(prog(t, 0, 0.5));
+  if (glow > 0) {
+    const g = c.createRadialGradient(cx, gy - R, 0, cx, gy - R, 560);
+    g.addColorStop(0, rgba(C.ember, 0.38 * glow)); g.addColorStop(1, rgba(C.ember, 0));
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+  }
 
   // ground line with ticks
   const gl = E.outExpo(prog(t, 0.05, 0.75)) * (1 - E.inExpo(prog(t, 1.4, 1.6)));
@@ -243,8 +250,8 @@ function sKinetic(t) {
       if (a <= 0) continue;
       const yy = base + k * 330 * lerp(0.35, 1, a);
       const dir = k % 2 ? 1 : -1;
-      const off = (t - 3.0) * 820 * dir + k * 173;
-      c.globalAlpha = a * (Math.abs(k) === 1 ? 1 : 0.6);
+      const off = (t - 3.0) * 300 * dir + k * 173;
+      c.globalAlpha = a * (Math.abs(k) === 1 ? 0.32 : 0.2);   // faint and slow: a stroke passing a pixel never swings 0.1 (flash)
       let sx = (((x0 + off) % unit) + unit) % unit - unit;
       for (let xx = sx - unit; xx < W + unit; xx += unit) c.strokeText('EMOTION', xx, yy);
     }
@@ -296,7 +303,10 @@ function kineticExit(t) {
     const dir = i % 2 ? 1 : -1;
     ctx.save();
     ctx.beginPath(); ctx.rect(0, i * sh, W, sh + 0.5); ctx.clip();
-    ctx.translate(dir * e * W * 1.02, 0);
+    // each slice slides a little and fades as it goes: a whip across the whole frame swept every letter over every pixel
+    // in the band several times (a strobe, flash)
+    ctx.globalAlpha = 1 - clamp(e * 2.2);
+    ctx.translate(dir * e * 380, 0);
     sKinetic(t);
     ctx.restore();
   }
@@ -454,7 +464,7 @@ function sParticles(t) {
 
   const cx = W / 2, cy = H / 2, gr = -0.32, cg = Math.cos(gr), sg = Math.sin(gr);
   const eA = E.outExpo(prog(u, 0, 0.8));
-  const ry = u * 1.4, cry = Math.cos(ry), sry = Math.sin(ry), tl = 0.42, ctl = Math.cos(tl), stl = Math.sin(tl);
+  const ry = u * 0.6, cry = Math.cos(ry), sry = Math.sin(ry), tl = 0.42, ctl = Math.cos(tl), stl = Math.sin(tl);
   const { X, Y, Z } = P;
   for (let i = 0; i < NP; i++) {
     const th = P.th[i] + P.om[i] * u;
@@ -468,8 +478,8 @@ function sParticles(t) {
     const dB = 0.8 + 0.24 * P.txn[i] + 0.06 * P.r2[i];
     const eB = E.inOutCubic(prog(u, dB, dB + 0.36));
     if (eB > 0) {
-      x = lerp(x, P.tx[i] + Math.sin(u * 11 + i * 1.7) * 1.3, eB);
-      y = lerp(y, P.ty[i] + Math.cos(u * 9 + i * 2.3) * 1.3, eB);
+      x = lerp(x, P.tx[i], eB);   // the word holds still (a shimmer here strobes its every pixel: flash)
+      y = lerp(y, P.ty[i], eB);
     }
     const dC = 1.5 + 0.12 * P.r3[i];
     const eC = E.inOutExpo(prog(u, dC, dC + 0.4));
@@ -485,10 +495,11 @@ function sParticles(t) {
   }
   c.globalCompositeOperation = 'lighter';
   const tf = 1 + 0.45 * E.inOutCubic(prog(u, 0.9, 1.2)) * (1 - 0.5 * prog(u, 1.5, 1.8));
+  const sph = 1 - 0.5 * E.inOutExpo(prog(u, 1.5, 1.9));   // the turning sphere is dimmer: each dot crossing a pixel stays faint
   for (let b = 0; b < 3; b++) {
     const zl = b === 0 ? -2 : b === 1 ? -0.33 : 0.33, zh = b === 0 ? -0.33 : b === 1 ? 0.33 : 2;
     const sz = (b === 0 ? 1.9 : b === 1 ? 2.7 : 3.3) * tf;
-    c.globalAlpha = b === 0 ? 0.45 : b === 1 ? 0.85 : 1;
+    c.globalAlpha = (b === 0 ? 0.25 : b === 1 ? 0.45 : 0.55) * sph;   // lighter blending builds the bright core; one dot passing stays faint
     for (let gi = 0; gi < 5; gi++) {
       c.fillStyle = PCOL[gi];
       c.beginPath();
@@ -506,7 +517,7 @@ function sParticles(t) {
 // ============================================================ 04 3D SDF (8-10 s)
 function blobParams(t) {
   const m = snap(prog(t, 8.5, 8.85)) + snap(prog(t, 9.0, 9.35)) + snap(prog(t, 9.5, 9.85));
-  const pulse = 0.35 + env(t, TL.kicks, 6) * 1.1;
+  const pulse = 0.35 + env(t, TL.kicks, 6) * 0.3;   // a gentle pulse on the kick: a strong one strobed the film's colours
   const orb = 1.75 * snap(prog(t, 8.05, 8.8));
   const dist = lerp(5.0, 4.35, E.inOutCubic(prog(t, 8.0, 10.0)));
   return [m, pulse, orb, dist];
@@ -552,22 +563,12 @@ function s3D(t) {
 // ============================================================ 05 LIQUID (9.65-12 s)
 function liquidBlobs(t) {
   const arr = new Float32Array(48);
-  if (t < 10) {
-    const u = prog(t, 9.62, 10.0);
-    for (let k = 0; k < 7; k++) {
-      const x = -0.78 + k * 0.26 + 0.05 * Math.sin(k * 3.1);
-      const lead = clamp(u * 1.35 - hash(k + 9) * 0.35);
-      const y = lerp(-0.8, 0.15 + 0.3 * hash(k * 2.2), E.outCubic(lead));
-      arr.set([x, y, 0.035 + 0.045 * hash(k + 3), 0], k * 4);
-    }
-    return arr;
-  }
   const kE = env(t, TL.kicks, 7);
   for (let k = 0; k < 11; k++) {
     const ph = hash(k * 1.9) * TAU, sp = 0.6 + 0.5 * hash(k * 2.3);
     let x = 0.66 * Math.sin(t * sp * 0.9 + ph) * (0.55 + 0.45 * hash(k * 4.1));
     let y = 0.26 * Math.sin(t * sp * 1.3 + ph * 1.7) + 0.04;
-    let r = (0.05 + 0.085 * hash(k * 5.7)) * (1 + 0.14 * kE);
+    let r = (0.05 + 0.085 * hash(k * 5.7)) * (1 + 0.03 * kE);
     // mitosis at 10.5: blob 0 and 1 share a start point and separate
     if (k < 2) {
       const sep = E.outBack(prog(t, 10.5, 10.9), 2.2);
@@ -575,7 +576,7 @@ function liquidBlobs(t) {
       x = lerp(bx, x, sep); y = lerp(by, y, sep);
       r = lerp(0.14, r, sep);
     }
-    const em = E.outBack(prog(t, 10.0 + k * 0.025, 10.5 + k * 0.025), 1.4);
+    const em = snap(prog(t, 10.0 + k * 0.025, 10.5 + k * 0.025));
     y = lerp(-0.6, y, em);
     const dr = prog(t, 11.42 + hash(k * 3) * 0.14, 11.82 + hash(k * 3) * 0.14);
     y = lerp(y, -0.3, E.inQuad(dr));
@@ -584,9 +585,10 @@ function liquidBlobs(t) {
   }
   return arr;
 }
+// The liquid's surface rises from below the frame into place on the cut at 10 s. (It used to flood over the 3D blob and
+// drain away, with drops falling first: five changes on every pixel within a second, a flash.)
 function liquidFlood(t) {
-  if (t < 10) return [lerp(-0.75, 0.62, E.inCubic(prog(t, 9.62, 10.0))), -3, 1, 0];
-  let top = lerp(0.62, -0.43, snap(prog(t, 10.0, 10.42)));
+  let top = lerp(-0.75, -0.43, snap(prog(t, 10.0, 10.42)));
   top = lerp(top, -0.25, E.inOutCubic(prog(t, 11.5, 11.9)));
   const bottom = lerp(-3, -0.2535, E.inOutCubic(prog(t, 11.66, 12.0)));
   const waves = 1 - E.inOutCubic(prog(t, 11.7, 12.0));
@@ -601,9 +603,12 @@ function sLiquidText(t) {
   for (let i = 0; i < word.length; i++) {
     const bob = 16 * Math.sin(t * 3.2 + i * 0.9);
     const sink = 900 * E.inQuad(prog(t, 11.35 + i * 0.03, 11.75 + i * 0.03));
-    const rise = (1 - snap(prog(t, 10.0 + i * 0.04, 10.55 + i * 0.04))) * 700;
-    c.fillText(word[i], x0 + m.xs[i], base + bob + sink + rise);
+    // each letter fades up where it floats (a letter sliding in swept every pixel under it: flash)
+    const k = snap(prog(t, 10.0 + i * 0.04, 10.55 + i * 0.04));
+    c.globalAlpha = k;
+    c.fillText(word[i], x0 + m.xs[i], base + bob + sink + (1 - k) * 60);
   }
+  c.globalAlpha = 1;
 }
 
 // ============================================================ 06 DATA (12-14 s)
@@ -762,7 +767,7 @@ const CODE_LINES = [
 ];
 function codeScroll(c, t) {
   c.font = F.monoR(24);
-  const lh = 40, scroll = t * 900;
+  const lh = 40, scroll = t * 220;
   for (let k = -1; k < 30; k++) {
     const idx = ((k + Math.floor(scroll / lh)) % CODE_LINES.length + CODE_LINES.length) % CODE_LINES.length;
     const y = k * lh - (scroll % lh) + 40;
@@ -777,27 +782,11 @@ function codeScroll(c, t) {
     }
   }
 }
-function isoCubes(c, lt) {
-  c.fillStyle = C.ember; c.fillRect(0, 0, W, H);
-  const s = 84, dx = s * Math.cos(Math.PI / 6), dy = s * 0.5;
-  for (let sum = 0; sum < 36; sum++) for (let i = 0; i <= sum; i++) {
-    const j = sum - i;
-    const x = W / 2 + (i - j) * dx, y = -260 + (i + j) * dy;
-    if (x < -dx * 2 || x > W + dx * 2 || y > H + s * 2) continue;
-    const h = s * (0.15 + 2.2 * Math.pow(0.5 + 0.5 * Math.sin(i * 1.15 - j * 0.85 - lt * 26), 2));
-    const top = y - h;
-    c.fillStyle = C.paper;
-    c.beginPath(); c.moveTo(x, top - dy); c.lineTo(x + dx, top); c.lineTo(x, top + dy); c.lineTo(x - dx, top); c.closePath(); c.fill();
-    c.fillStyle = '#B8300F';
-    c.beginPath(); c.moveTo(x - dx, top); c.lineTo(x, top + dy); c.lineTo(x, y + dy + 400); c.lineTo(x - dx, y + 400); c.closePath(); c.fill();
-    c.fillStyle = C.ink;
-    c.beginPath(); c.moveTo(x + dx, top); c.lineTo(x, top + dy); c.lineTo(x, y + dy + 400); c.lineTo(x + dx, y + 400); c.closePath(); c.fill();
-  }
-}
 function bigWord(c, word, font, color, lt, opts = {}) {
   const sc = 1 + (opts.zoom ?? 0.22) * (1 - snap(prog(lt, 0, 0.2)));
   c.save();
-  c.translate(W / 2 + (opts.dx || 0) * (1 - snap(prog(lt, 0, 0.18))), H / 2);
+  if (lt < 0) return;
+  c.translate(W / 2 + (opts.ox || 0) + (opts.dx || 0) * (1 - snap(prog(lt, 0, 0.18))), H / 2 + (opts.oy || 0));
   c.scale(sc, sc);
   if (opts.skew) c.transform(1, 0, -opts.skew * (1 - snap(prog(lt, 0, 0.2))), 1, 0, 0);
   c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -812,57 +801,42 @@ function bigWord(c, word, font, color, lt, opts = {}) {
 }
 function montage(t, cfg) {
   const c = ctx;
-  const k = Math.min(7, Math.floor((t - 14) / 0.25)), lt = t - 14 - k * 0.25;
+  // Four style frames of half a second, two words each: the first lands on the frame's cut, the second joins it on the
+  // next beat (TL.cuts still marks every quarter second for the music). A cut a quarter second apart over every shader
+  // look flipped most of the picture four times a second, and anything moving inside a frame then made it a strobe
+  // (flash); half-second frames that hold still under their words keep the pace on the grid without one.
+  const k = Math.min(3, Math.floor((t - 14) / 0.5)), lt = t - 14 - k * 0.5, lt2 = lt - 0.25;
   switch (k) {
     case 0:
-      cfg.scene = 3;
-      bigWord(c, 'I', F.didone(820), C.ember, lt, { dy: 40, zoom: 0.4 });
+      cfg.scene = 5;
+      bigWord(c, 'I', F.didone(620), C.ink, lt, { ox: -430, dy: 30, zoom: 0 });
+      bigWord(c, 'MAKE', F.cond(430), C.ink, lt2, { ox: 150, dy: 18, zoom: 0 });
       break;
     case 1:
-      cfg.scene = 5;
-      bigWord(c, 'MAKE', F.cond(470), C.ink, lt, { dx: 260, skew: 0.3, dy: 18 });
+      cfg.scene = 4; cfg.P = [4, 0.3, 1.6, 3.9];
+      bigWord(c, 'PIXELS', F.mono(170), C.ink, lt, { oy: -170, box: C.lime, boxH: 180, dy: 8, zoom: 0 });
+      bigWord(c, 'MOVE', F.cond(330), C.paper, lt2, { oy: 170, dy: 18, zoom: 0 });
       break;
-    case 2:
-      cfg.scene = 4; cfg.P = [4, 1.2, 1.6, 3.9];
-      bigWord(c, 'PIXELS', F.mono(200), C.ink, lt, { box: C.lime, boxH: 210, dy: 8, zoom: 0.3 });
-      break;
-    case 3: {
-      c.fillStyle = C.cobalt; c.fillRect(0, 0, W, H);
-      c.font = F.cond(300); c.fillStyle = C.paper; c.strokeStyle = C.paper; c.lineWidth = 3;
-      const unit = measure(F.cond(300), 'MOVE ').total;
-      for (let r = -2; r <= 2; r++) {
-        const y = H / 2 + r * 250 + 105;
-        const off = lt * 2400 * (r % 2 ? 1 : -1) + r * 211;
-        const sx = ((off % unit) + unit) % unit - unit;
-        for (let x = sx - unit; x < W + unit; x += unit) r === 0 ? c.fillText('MOVE', x, y) : c.strokeText('MOVE', x, y);
-      }
+    case 2: {
+      cfg.scene = 7;
+      const band = 1;
+      c.fillStyle = C.ink; c.fillRect(0, H / 2 - 330 * band, W, 660 * band);
+      bigWord(c, 'with', F.didone(260), C.paper, lt, { oy: -150, dy: 20, zoom: 0 });
+      bigWord(c, 'NOTHING', F.geo(220), C.paper, lt2, { oy: 140, track: () => 30, dy: 10, zoom: 0 });
       break;
     }
-    case 4:
-      cfg.scene = 7;
-      c.fillStyle = C.ink; c.fillRect(0, H / 2 - 170 * snap(prog(lt, 0, 0.12)), W, 340 * snap(prog(lt, 0, 0.12)));
-      bigWord(c, 'with', F.didone(330), C.paper, lt, { dy: 20, zoom: 0.1 });
-      break;
-    case 5:
-      cfg.scene = 6; cfg.P = [2.4, 1.0, 1.7, 4.0];
-      bigWord(c, 'NOTHING', F.geo(250), C.paper, lt, { track: (l) => lerp(0, 36, snap(prog(l, 0, 0.25))), dy: 10 });
-      break;
-    case 6:
-      isoCubes(c, lt);
-      bigWord(c, 'BUT', F.heavy(380), C.ink, lt, { dy: 20 });
-      break;
-    case 7:
+    case 3:
       c.fillStyle = C.ink; c.fillRect(0, 0, W, H);
-      if (t < 15.9) {
-        codeScroll(c, t);
-        bigWord(c, 'CODE', F.mono(330), C.lime, lt, { dy: 10, zoom: 0.12 });
-        c.font = F.mono(330); const w = c.measureText('CODE').width;
-        if (Math.floor(t * 16) % 2 === 0) { c.fillStyle = C.lime; c.fillRect(W / 2 + w / 2 + 20, H / 2 - 130, 40, 260); }
+      codeScroll(c, t);
+      bigWord(c, 'BUT', F.heavy(280), C.paper, lt, { oy: -170, dy: 20, zoom: 0 });
+      if (lt2 >= 0) {
+        bigWord(c, 'CODE', F.mono(300), C.lime, lt2, { oy: 150, dy: 10, zoom: 0 });
+        c.font = F.mono(300); const w = c.measureText('CODE').width;
+        if (Math.floor(t * 4) % 2 === 0) { c.fillStyle = C.lime; c.fillRect(W / 2 + w / 2 + 20, H / 2 + 150 - 115, 36, 230); }
       }
       break;
   }
-  const kick = 1 + 0.06 * Math.exp(-lt * 25);
-  cfg.cam = [kick, (hash(k * 3.3) - 0.5) * 0.03 * Math.exp(-lt * 20), 0, 0];
+  cfg.cam = [1, 0, 0, 0];
 }
 
 // ============================================================ 08 MARK + END CARD (16-20 s)
@@ -1073,7 +1047,6 @@ export function frame(t, jit) {
   else if (t < 10) {
     cfg.scene = 1; cfg.P = blobParams(t);
     s3D(t);
-    if (t >= 9.62) { cfg.l = 1; cfg.Q = liquidFlood(t); cfg.blobs = liquidBlobs(t); }   // the liquid floods in over the blob
   } else if (t < 12) {
     cfg.scene = 2; cfg.Q = liquidFlood(t); cfg.blobs = liquidBlobs(t);
     sLiquidText(t); cfg.consume2D = true;
@@ -1107,11 +1080,10 @@ export function post(t) {
   else if (sec(14, 16)) { p.bloom = 0.3; p.thr = 0.95; p.ca += 0.002; }
   else { p.bloom = 0.8; p.thr = 0.96; if (t < 16.6) { p.bloom = 1.0; p.thr = 0.6; } }
   const flash = (t0, a, d) => { if (t >= t0) p.flash = Math.max(p.flash, a * Math.exp(-(t - t0) * d)); };
-  flash(2.0, 0.3, 12); flash(6.0, 0.35, 10); flash(8.0, 0.25, 10); flash(16.0, 1.0, 6);
-  for (const tc of TL.cuts) if (t >= tc) p.glitch = Math.max(p.glitch, 0.75 * Math.exp(-(t - tc) * 40));
-  p.glitch = Math.max(p.glitch, 0.6 * prog(t, 13.7, 14.0) * (t < 14 ? 1 : 0), t >= 15.84 && t < 15.9 ? 0.9 : 0);
-  p.fade = prog(t, 0, 0.06) * (1 - prog(t, 19.82, 19.97));
-  if (t >= 15.9 && t < 16) p.fade = 0;
+  flash(2.0, 0.3, 12); flash(6.0, 0.35, 10); flash(8.0, 0.25, 10); flash(16.0, 0.35, 6);
+  for (const tc of TL.cuts) if (t >= tc && !(tc > 14 && tc < 16)) p.glitch = Math.max(p.glitch, 0.75 * Math.exp(-(t - tc) * 40));
+  p.glitch = Math.max(p.glitch, 0.6 * prog(t, 13.7, 14.0) * (t < 14 ? 1 : 0));
+  p.fade = 1 - prog(t, 19.82, 19.97);   // it opens on the dot (the first frame is the thumbnail) and fades out at the end
   return p;
 }
 

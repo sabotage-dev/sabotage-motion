@@ -2,8 +2,10 @@
 // the building blocks this keeps): a quiet pad under the whole piece; a whoosh into a pop as the logo lands and a tick per
 // line of the pitch; key ticks from code.js (keySounds) at the presses the scene thinned to 12 a second, a tone rising
 // with the progress bar and a chime when the install lands; a pluck as each TODO lights up; a whoosh as the phone rises
-// and a soft swell under the pan; a low hit and a shimmer as the end card lands. A short whoosh marks each cut. The
-// timbre is the look's (style.sound).
+// and a soft swell under the pan; a low hit and a shimmer as the end card lands. A short whoosh marks each cut, and a
+// shorter one each cut inside a beat. The timbre is the look's (style.sound). renderBed (plan 23.9) is the bed stem: the
+// normal energy's beat on its 116 BPM grid (a kick on every beat, an offbeat hat, a bass note on 1 and 3), the
+// picture's full length; render.mjs writes it to out/<name>.bed.wav and tools/mix.mjs mixes it under the effects.
 import { mulberry32 } from './lib.js';
 import { keySounds } from './code.js';
 
@@ -66,8 +68,9 @@ export async function renderAudio({ TL, CFG, dur = CFG.DUR, sr = 48000, style = 
   tone(TL.pop + 0.22, 784, 0.08, 0.3, SND.wave, 0, 0.4); tone(TL.pop + 0.24, 1175, 0.04, 0.4, 'sine', 0, 0.5);
   TL.lines.forEach((t, i) => tone(t + 0.12, [1318.5, 1568][i], 0.035, 0.12, 'triangle', i ? 0.25 : -0.25, 0.25));
 
-  // ---- a short whoosh at each cut
+  // ---- a short whoosh at each cut, and a shorter, higher one at each cut inside a beat
   TL.cuts.forEach((t, i) => whoosh(t - 0.18, 0.26, 0.05, 1200, 400, i % 2 ? 0.2 : -0.2));
+  (TL.shots || []).forEach((t, i) => whoosh(t - 0.08, 0.14, 0.035, 2600, 5200, i % 2 ? -0.3 : 0.3));
 
   // ---- install: key ticks, the bar's rising tone, a chime when it lands
   const keys = ac.createGain(); keys.gain.value = 1; out(keys, 0.12);
@@ -99,5 +102,32 @@ export async function renderAudio({ TL, CFG, dur = CFG.DUR, sr = 48000, style = 
   [1568, 2349, 3136].forEach((f, i) => tone(TL.land + 0.05 + i * 0.04, f, 0.02 / (i + 1), 1.1, 'sine', (i - 1) * 0.4, 0.6));
   tone(TL.land + 0.3, 523.25, 0.05, 1.2, SND.wave, 0, 0.5); tone(TL.land + 0.3, 784, 0.035, 1.2, SND.wave, 0, 0.5);
 
+  return ac.startRendering();
+}
+
+// The bed stem: the energy's beat on its grid (beat 0 on the first frame), at full level like a music track (the mixer
+// brings it down), with a compressor holding its peaks, and the look's pitch.
+export async function renderBed({ CFG, dur = CFG.DUR, sr = 48000, style = null, energy = null }) {
+  const ac = new OfflineAudioContext(2, Math.ceil(sr * dur), sr);
+  const SND = { pitch: 1, bright: 1, ...(style ? style.sound : {}) };
+  const spb = energy ? energy.spb : 60 / 116, rnd = mulberry32(31);
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -10; comp.ratio.value = 12; comp.knee.value = 4; comp.attack.value = 0.002; comp.release.value = 0.1;
+  const master = ac.createGain(); master.gain.value = 4.0;
+  const endFade = ac.createGain();
+  endFade.gain.setValueAtTime(1, Math.max(0, dur - 0.03)); endFade.gain.linearRampToValueAtTime(0, dur);
+  master.connect(comp).connect(endFade).connect(ac.destination);
+  const noise = ac.createBuffer(1, sr, sr);
+  { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = rnd() * 2 - 1; }
+  const env = (t, a, peak, d) => { const g = ac.createGain(); g.gain.value = 0; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); return g; };
+  const kick = (t) => { const o = ac.createOscillator(); o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14); const g = env(t, 0.004, 0.34, 0.28); o.connect(g).connect(master); o.start(t); o.stop(t + 0.4); };
+  const hat = (t) => { const s = ac.createBufferSource(); s.buffer = noise; const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6500 * SND.bright; const g = env(t, 0.001, 0.05, 0.035); s.connect(f).connect(g).connect(master); s.start(t, rnd() * 0.5); s.stop(t + 0.08); };
+  const bass = (t, f) => { const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f * SND.pitch; const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600; const g = env(t, 0.01, 0.12, spb * 0.8); o.connect(lp).connect(g).connect(master); o.start(t); o.stop(t + spb); };
+  const roots = [49, 49, 43.65, 55];   // G1, G1, F1, A1: one a bar
+  for (let b = 0; b * spb < dur; b++) {
+    const t = b * spb;
+    kick(t); hat(t + spb / 2);
+    if (b % 2 === 0) bass(t, roots[Math.floor(b / 4) % roots.length]);
+  }
   return ac.startRendering();
 }

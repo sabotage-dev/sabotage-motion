@@ -10,6 +10,15 @@ the app's picture, board, render, mix, then `palette` and `check`.
 - **board**: the app's board, a full-page screenshot, panned inside a phone (`drawFrame`);
 - **end**: the logo, the name and the install command, held to the last frame.
 
+It runs at the `normal` energy (`energy: 'normal'` on the board; plan 23.9, `references/storyboard.md` section 7): a
+launch for developers should read as made and cut on the beat, while the terminal and the code keep their reading time.
+The board has no voice, so its beats snap to whole beats of 116 BPM (5, 6, 6, 6 and 6: 15.0 s). Inside each beat but
+the end card, the picture cuts every two beats: the ground swaps between the kit's own and a tone close to it, crossed by
+drifting stripes at a new angle, while the terminal, the code or the phone stays on screen; the camera pushes across
+each shot and punches on each hit (`moves.js`'s rig, which keeps every text box inside the safe area); `cuts()` lists the
+cuts for `check`. `audio.js` adds the bed stem (`renderBed`: a kick on every beat, an offbeat hat, a bass note on 1 and
+3), which `tools/mix.mjs --master-only` lays under the effects.
+
 ## The fixture
 
 `fixture/` is the project the video launches, kept inside the example so it is self-contained. It is made up: the name
@@ -43,7 +52,7 @@ node render.mjs contact                                 # contact.png
 node render.mjs check                                   # the source: 0 FAIL, 0 WARN
 node render.mjs palette                                 # the colour match against brand.json: pass
 node render.mjs full --out out/repo-launch.mp4          # the picture and its synthesized sound
-node tools/mix.mjs repo-launch --master-only            # the sound mastered to -14 LUFS
+node tools/mix.mjs repo-launch --master-only            # the effects over the bed stem, mastered to -14 LUFS
 node render.mjs check --file out/repo-launch-final.mp4  # the master: 0 FAIL, 0 WARN
 ```
 
@@ -59,13 +68,14 @@ node render.mjs check --file out/repo-launch-final.mp4  # the master: 0 FAIL, 0 
 - **The kit sheet and the board** were rendered (`node render.mjs brand`, `node render.mjs board --slates`) and looked
   at before anything was animated; the committed `board.png` is the later one, from the finished scene.
 
-Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-15):
+Measured on an Apple-silicon Mac with Chrome 157 and ffmpeg 9 (2026-11-17, the re-cut at `normal`):
 
 | Check | Result |
 |---|---|
-| `check` (the source) | 0 FAIL, 0 WARN, 10 ok; `hook_long` not checked (no voice, so no `hookMax`) |
-| `palette` | pass: the kit's `bgA` and `bgB` take 95.93% of the probe's pixels, its `accent` 1.19%; the most any look takes is `paper`'s `bgB`, 0.07%, and no look's accent takes any. The fonts drawn: Snagwick Display, Snagwick Text and the template's MONO |
-| `check --file out/repo-launch-final.mp4` | 0 FAIL, 0 WARN, 14 ok; -14.0 LUFS, -2.2 dBTP; `hook_long` and `vo_delay` not checked (no voice) |
+| `check` (the source) | 0 FAIL, 0 WARN, 10 ok; `hook_long` not checked (no voice, so no `hookMax`), `flash` not checked until it is rendered |
+| `palette` | pass: the kit's `bgA` and `bgB` take 95.31% of the probe's pixels (the second ground is close enough to `bgB` to count as it), its `accent` 1.28%; the most any look takes is `paper`'s, 0.09%, and no look's accent takes any. The fonts drawn: Snagwick Display, Snagwick Text and the template's MONO |
+| `check --file out/repo-launch-final.mp4` | 0 FAIL, 0 WARN, 15 ok; -13.9 LUFS, -2.4 dBTP; `flash` ok (the largest too-fast area 12,685 px, under 21,824); `audio_spike` hears the effects and the bed summed; `hook_long` and `vo_delay` not checked (no voice) |
+| the energy, measured from the frames | 11 declared cuts, 11 confirmed: a mean shot of 1.25 s (2.4 beats, inside normal's 2 to 3); the largest line's ink 9.8% of the height (the end card's name); median motion 5.8% of pixels a frame |
 
 `scene.js` reads the logo from `brand.json` and the screenshot from `assets/shots/app.png`, draws in the kit's colours
 and faces over the `product` look (quiet post, snap entrances, no glitch), and returns every text box from `boxes(t)`,
