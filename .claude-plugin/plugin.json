@@ -1,7 +1,7 @@
 {
   "name": "sabotage-motion",
   "displayName": "sabotage-motion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Motion graphics for short-form video, written in code: scenes as a pure function of time, rendered frame-exact with synthesized sound effects on the same timeline.",
   "author": {
     "name": "Sabotage Development LLC",

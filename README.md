@@ -22,16 +22,23 @@ frame. No React, no framework, no render service: Node, Chrome and ffmpeg.
   and the synthesized effects, mastered to -14 LUFS for social.
 - **Footage.** Screen recordings and clips as frame sequences, so they stay frame-exact.
 - **`check`.** Measured checks before you post: size, fps and frame count, loudness and true peak, stretches where
-  nothing moves, an empty first frame, and text outside the platform's safe zones.
+  nothing moves, an empty first frame, text outside the platform's safe zones, flashes, and a piece calmer or busier
+  than its energy.
 - **Transparent output.** ProRes 4444 or WebM with alpha, for overlays on other footage.
+- **Looks and brand kits.** Eight looks, each with its own colours, faces, background, motion vocabulary and sound,
+  and a `brand.json` kit for your own colours, fonts and logo; `palette` measures whether a piece is in them.
 - **Code and terminals.** Code typed out with a seeded cadence, diffs that land line by line and terminal sessions
   (typed commands, a spinner, a progress bar) in generic window, browser and phone frames, highlighted in the look's
   colours with no dependency, with key ticks that follow the typing.
 - **A launch video for a repo.** A scan of the project's files (name, pitch, install command, features, colours,
   fonts, logo) drafts its brand kit, a full-page screenshot or a scroll sequence pictures its app, and a recipe puts
   them on a board: hook, install, features, end card.
+- **Caption a clip.** A clip with speech comes back with word-by-word captions inside the platform's safe area, laid
+  over it by ffmpeg on the clip's own clock, its sound levelled and mastered.
 
-Version 0.1.0, the first release. macOS and Linux; it needs Node 22 or 24, Google Chrome and ffmpeg
+Version 0.2.0. It adds the energy presets, the looks and brand kits, code and terminal motion, a launch video for a
+repo, captions on a clip, and the `flash` and `energy_match` checks; 0.1.0 was the first release. macOS and Linux; it
+needs Node 22 or 24, Google Chrome and ffmpeg
 ([Requirements](#requirements)). The design and its decisions are in [docs/PLAN.md](docs/PLAN.md).
 
 ## One prompt, three results
@@ -116,7 +123,7 @@ cd my-piece
 npm install                                   # playwright-core; it drives your installed Chrome
 node render.mjs doctor                        # Chrome, WebGL2, ffmpeg, fonts: says what to install if anything is missing
 node render.mjs contact                       # contact.png: 12 frames of the whole timeline
-node render.mjs full --out out/my-piece.mp4   # the video, and its effects as out/my-piece.wav
+node render.mjs full --out out/my-piece.mp4   # the video, its effects and its bed: out/my-piece.wav, .bed.wav
 node tools/mix.mjs my-piece --master-only     # out/my-piece-final.mp4, mastered to -14 LUFS
 node render.mjs check --file out/my-piece-final.mp4   # measured checks on the source and the master: 0 FAIL, 0 WARN
 ```
@@ -231,10 +238,11 @@ node render.mjs board                       # the board sheet again, with the re
 ## Mix, master and footage
 
 `tools/mix.mjs` puts the sound under a rendered picture and masters it for social. Run it in the piece's
-folder after `node render.mjs full --out out/<name>.mp4` (which also writes the effects as `out/<name>.wav`):
+folder after `node render.mjs full --out out/<name>.mp4` (which also writes the effects as `out/<name>.wav`, and the
+bed stem as `out/<name>.bed.wav` when `audio.js` has a `renderBed`):
 
 ```sh
-node tools/mix.mjs piece                             # voice (vo.wav), bed.mp3 if there is one, effects: -14 LUFS
+node tools/mix.mjs piece                             # voice (vo.wav), the bed stem or bed.mp3, effects: -14 LUFS
 node tools/mix.mjs piece --bed music.mp3 --bed-skip 1.2 --bed-at cue:save --mute 6.0-7.5
 node tools/mix.mjs animatic --no-bed --no-sfx        # the animatic: the slate picture and the voice alone
 node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, for a clip cut into another video
@@ -246,13 +254,16 @@ node tools/mix.mjs sting --sting                     # effects only, -20 LUFS, f
   master to the render it came from. A refusal writes nothing and leaves the last master as it was.
 - **Voice.** Measured (EBU R128) and levelled to -24 LUFS, then `--vo-gain` (3.2), and delayed by `VO_OFFSET`
   from `cues.json`. A take quieter than -50 LUFS stops the mix.
-- **Bed.** `--bed-gain` (0.22); `--bed-skip` seconds cut from its start; by default it starts so its end lands on
-  the last frame (at 0 when it is longer than the picture), or at `--bed-at` seconds or `cue:<beat id>`. It fades
-  out where it stops (0.35 s, or 2.6 s when it is longer than the picture), is silent over each `--mute a-b`
-  window (picture time, with a short ramp outside it), and ducks under the voice.
+- **Bed.** `--bed`'s file, else the bed stem `full` wrote (`out/<name>.bed.wav`, the energy's beat on the picture's
+  grid), else `bed.mp3` under a voice; `--no-bed` leaves it out. `--bed-gain` (0.22 under a voice, 0.5 with
+  `--master-only`). It is silent over each `--mute a-b` window (picture time, with a short ramp outside it) and ducks
+  under the voice. The bed stem starts at 0 and spans the picture, with no fade; a missing or stale one is refused,
+  never left out. A music bed can skip `--bed-skip` seconds of its start; by default it starts so its end lands on the
+  last frame (at 0 when it is longer than the picture), or at `--bed-at` seconds or `cue:<beat id>`, and fades out
+  where it stops (0.35 s, or 2.6 s when it is longer than the picture).
 - **Effects and other stems.** `out/<name>.wav` at `--sfx-gain` (0.9), and any `--stem file:gain:delay`, such as a
   clip's own sound.
-- **Modes.** Default: -14 LUFS, -2.0 dBTP. `--master-only` masters the effects alone at the same target;
+- **Modes.** Default: -14 LUFS, -2.0 dBTP. `--master-only` masters the effects and the bed at the same target;
   `--sting` at -20 LUFS, -3.0 dBTP. `--target-lufs` and `--tp` override. The stems are summed, limited at
   -6 dBFS, then normalized in two `loudnorm` passes.
 - **Comparing mixers.** `--keep-premix` keeps the mix before normalization as `out/<name>.premix.wav`, and
@@ -352,7 +363,8 @@ checks.
 | `first_frame_empty` | WARN | The first frame is flat: a blank thumbnail. |
 | `text_safe` | FAIL / WARN | Text outside the safe area for more than 0.25 s in a beat is a FAIL; less (a slam, a whip) is a WARN. Only a WARN while the target's zones are estimates. |
 | `text_overlap` | WARN | Two pieces of text from different groups overlap by more than 2%. |
-| `audio_spike` | WARN | The loudest 50 ms of the effects is more than 18 dB over the rest: a click. |
+| `audio_spike` | WARN | The loudest 50 ms of the effects (with the bed stem, summed at the mixer's gains) is more than 18 dB over the rest: a click. |
+| `energy_match` | WARN | The piece's cuts (declared by `cuts()`, confirmed by the frames), its largest line of type (from ink) and its motion, against its energy: a `normal` or `extreme` piece calmer than its floor, or a `subtle` one busier than its ceiling (`references/check.md` section 8). |
 | `flash` | FAIL | More than three flashes a second over too large an area, per pixel, on the decoded picture: the current render in `out/`, or the `--file` itself. A safety net modelled on WCAG 2.3.1, not a certified photosensitivity test (`references/check.md` section 7). |
 | `provenance` | FAIL | The file is the master `master.json` records, mixed from the render `render.json` records, and the piece's source has not changed since. Then the checks above replay that render's scene, params, fps and subframes. |
 | `file_spec` | FAIL | Size, fps, pixel format, frame count `round(DUR x FPS)`, duration, and an audio stream. |
@@ -443,7 +455,8 @@ node test/mutations.mjs [--fast]           # break each check detector and thres
 npm run test:code                          # code and terminal motion: token goldens, typing, scroll, boxes, key ticks
 npm run test:launch                        # a launch video for a repo: the scan, page shots and sequences, the example
 npm run test:clip                          # caption a clip: transcripts, the sync fixture through the whole path, the example
-npm run test:energy                        # energy presets: the table, snapping, the rig, the template card at each preset, the bed stem
+npm run test:energy                        # energy presets: the table, snapping, the rig, the bed stem; energy_match on its fixtures
+npm run test:card-looks                    # the template card on every look at every energy (or test:card-looks-subtle, -normal, -extreme)
 npm run test:examples                      # the examples: engine files, outputs, VOICE.md, cues, check
 npm run test:repo                          # leak check, asset inventory, the skill text
 ```
