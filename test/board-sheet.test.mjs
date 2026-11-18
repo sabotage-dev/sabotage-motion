@@ -90,7 +90,7 @@ test('the template: its scene and slate take their length from board.js, on norm
   assert.match(md, /snapped to whole beats of normal's grid, 116 BPM/);
   render(t, ['video', '--scale', '0.25', '--sub', '1', '--out', 'out/t']);
   assert.equal(countFrames(path.join(t, 'out/t.mp4')), 93);
-  // at another energy the beats snap to its own grid: six beats at 136 BPM, the slate too
-  render(t, ['video', '--scene', 'slate.js', '--param', 'energy=extreme', '--scale', '0.25', '--sub', '1', '--out', 'out/s']);
-  assert.equal(countFrames(path.join(t, 'out/s.mp4')), Math.round((7 * 60 / 136) * 30));
+  // at another energy the beats snap to its own grid, the slate's too: four and one beats at subtle's 84 BPM, 3.571 s
+  render(t, ['video', '--scene', 'slate.js', '--param', 'energy=subtle', '--scale', '0.25', '--sub', '1', '--out', 'out/s']);
+  assert.equal(countFrames(path.join(t, 'out/s.mp4')), Math.round((5 * 60 / 84) * 30));   // 107, not normal's 93
 });

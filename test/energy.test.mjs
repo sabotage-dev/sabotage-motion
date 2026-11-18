@@ -218,6 +218,9 @@ test('P11b a clip\'s captions take their style from the energy every scene gets:
   assert.equal(await style({ 'p.energy': 'subtle' }), 'minimal');
   board(`energy: 'extreme',`);
   assert.equal(await style({}), 'karaoke', 'the board\'s energy');
+  // and the clip's board keeps its length: a clip's board never snaps to the grid, whatever energy it names
+  const { page } = await openPage(dir, { scene: 'caption.js' });
+  assert.equal(await page.evaluate(() => import('./lib.js').then((m) => m.boardInfo().dur)), 1);
   assert.equal(await style({ 'p.energy': 'subtle' }), 'minimal', '--param over the board');
   assert.equal(await style({ 'p.style': 'boxed' }), 'boxed', 'a named style over the energy');
 });

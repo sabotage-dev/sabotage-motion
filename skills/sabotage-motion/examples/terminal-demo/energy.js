@@ -13,8 +13,9 @@
 //     bpm          tempo of the beat grid and the bed
 //     cutBeats     [min, max] beats between visual cuts (inside beats: the copy stays on screen across them)
 //     inkHeight    [min, max] the largest line of type: one line's ink height as a share of the frame height
-//     motion       { min?, max? } the share of probe pixels whose luma changes by 8/255 or more, per frame pair
-//                  (median): normal and extreme have a floor, subtle a ceiling (Q23, first values)
+//     motion       { min?, max? } the median share of probe pixels that change between consecutive frames (what
+//                  counts as a change is energy_match's: references/check.md, its energy_match section, records the
+//                  measured thresholds): normal and extreme have a floor, subtle a ceiling (Q23)
 //     camera       amounts for moves.js's rig: push (zoom gained over a beat), punch (zoom kick on a hit), bounce
 //                  (zoom spring on a hit), shake (design px on an impact), whip (whips between beats allowed)
 //     transitions  the transitions the preset reaches for, gentlest first
@@ -25,8 +26,8 @@
 //     shotStep     at most this much relative luminance between consecutive shots' grounds (shotTones), so fast
 //                  cuts never make a flash sequence (null: the preset cuts too slowly for it to matter)
 //   }
-// The motion floors and ceiling, the cut intervals and the ink ranges are what P11b-2's energy_match check measures
-// a piece against; check.md records the contract (section 8).
+// The motion floors and ceiling, the cut intervals and the ink ranges are what check's energy_match measures a piece
+// against, with the thresholds its section of references/check.md records; section 8 there records this interface.
 
 const freeze = (o) => { for (const v of Object.values(o)) if (v && typeof v === 'object') freeze(v); return Object.freeze(o); };
 

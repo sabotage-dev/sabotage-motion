@@ -235,7 +235,9 @@ the text left out, and motion from the probe. This is the interface those measur
 - **The ranges**: `energy.js` exports `ENERGY`, one entry per preset, `{ bpm, cutBeats: [min, max], inkHeight:
   [min, max], motion: { min?, max? } }` (subtle has a motion ceiling, `max: 0.10`; normal and extreme a floor, `min:
   0.02` and `min: 0.06`), plus what the scene's moves use (`camera`, `transitions`, `ease`, `post`, `sound`,
-  `caption`, `shotStep`). Shot lengths are judged in beats at the piece's own tempo (Q22).
+  `caption`, `shotStep`). Shot lengths are judged in beats at the piece's own tempo (Q22). What confirms a cut and what
+  counts as a pixel moving are `energy_match`'s thresholds, recorded in its section of this file; `energy.js` holds no
+  threshold of its own.
 - **The cuts**: a scene exports `cuts()`, its declared visual cuts and transitions as `[{ t, d }]` in picture time:
   `d` 0 for a hard cut, at most 0.3 s for a transition from `t` to `t + d`. The page gives them, checked and sorted, as
   `window.sceneCuts()` (null when the scene exports no `cuts()`; a bad entry throws), and `window.INFO.CUTS` says
@@ -249,13 +251,14 @@ the text left out, and motion from the probe. This is the interface those measur
 - **Fast cuts and flash**: at extreme, consecutive shots' grounds stay under the flash rule's 0.1 swing of relative
   luminance (`energy.js` `groundTone`, `shotTones`), so the cuts read on the frames without making a flash sequence.
 
-Measured on the template card at each preset (the same card, `--param energy=<name>`, an Apple-silicon Mac, a scratch
-probe that follows the plan's measurement: probe frames at half size, cuts confirmed between the middles of the shots
-either side at 30% of pixels by 16/255, ink rows from a render with `fillText` and `strokeText` left out, motion the
-median share of pixels changing by 8/255 between frames outside confirmed cuts):
+Measured on the template card at each preset (the same card, `--param energy=<name>`, an Apple-silicon Mac), with a
+scratch probe that follows `energy_match`'s measurement and its thresholds (its section in this file): probe frames at
+half size, each declared cut confirmed between the middles of the shots either side, ink rows from a render with
+`fillText` and `strokeText` left out (over the whole frame, without `energy_match`'s ink gate), and motion the median
+share of moving pixels between frames outside confirmed cuts:
 
 | Preset | Length | Declared cuts, confirmed | Mean shot | Largest line's ink | Motion (median) |
 |---|---|---|---|---|---|
-| `subtle` | 3.571 s (5 beats at 84 BPM) | 0, 0 | 5 beats (3.571 s) | 7.6% of the height | 0.17% |
-| `normal` | 3.103 s (6 beats at 116 BPM) | 3, 3 | 1.5 beats (0.776 s) | 11.7% | 6.9% |
-| `extreme` | 3.088 s (7 beats at 136 BPM) | 11, 11 | 0.58 beats (0.257 s) | 29.2% | 22.3% |
+| `subtle` | 3.571 s (5 beats at 84 BPM) | 0, 0 | 5 beats (3.571 s) | 7.6% of the height | 0% |
+| `normal` | 3.103 s (6 beats at 116 BPM) | 3, 3 | 1.5 beats (0.776 s) | 11.7% | 4.8% |
+| `extreme` | 3.088 s (7 beats at 136 BPM) | 11, 11 | 0.58 beats (0.257 s) | 29.2% | 20.7% |

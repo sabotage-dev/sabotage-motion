@@ -90,7 +90,11 @@ test('P11b the beat grid: a silent board that names its energy snaps each beat t
   assert.ok(ct.dur >= EN.readTime(copy.beats[0].on[0]));
   // a board's own tempo
   near(lib.boardTiming({ energy: 'normal', bpm: 120, beats: [{ id: 'a', dur: 2 }] }).dur, 2, 1e-9, 'four beats at 120');
-  // no snapping: a board that names no energy or bpm (a clip's board, a piece from before the presets), and any voiced board
+  // a clip's board never snaps, even when it names an energy for its captions' style: the clip sets its length
+  const clipB = { energy: 'extreme', beats: [{ id: 'clip', dur: 15.03 }] };
+  near(lib.boardTiming(clipB, null, { clip: true }).dur, 15.03, 1e-9);
+  assert.equal(lib.boardTiming(clipB, null, { clip: true }).snapped, false);
+  // no snapping: a board that names no energy or bpm (a piece from before the presets), and any voiced board
   near(lib.boardTiming({ beats: [{ id: 'a', dur: 2.45 }, { id: 'b', dur: 0.55 }] }).dur, 3, 1e-9);
   const voiced = { energy: 'extreme', beats: [{ id: 'a', vo: 'Say this line now please.' }, { id: 'b', dur: 0.7 }] };
   const vt = lib.boardTiming(voiced);
@@ -243,6 +247,9 @@ test('P11b the bed stem in the mixer: it starts at 0, is never end-aligned and h
   const g = MX.bedPlan({ frames, bedFrames: 3 * sr + 100, generated: true, gain: 0.5 });
   assert.equal(g.start, 0); assert.equal(g.fadeSec, 0);
   assert.equal(g.gainAt(0), 0.5); assert.equal(g.gainAt(frames - 1), 0.5, 'no fade at the end');
+  // a bed stem shorter than the picture (a frame's rounding, or a render cut short) still starts at 0, on the grid
+  const short = MX.bedPlan({ frames, bedFrames: 2 * sr, generated: true, gain: 0.5 });
+  assert.equal(short.start, 0, 'never end-aligned'); assert.equal(short.gainAt(sr), 0.5); assert.equal(short.end, 2 * sr);
   const s = MX.bedPlan({ frames, bedFrames: 2 * sr, gain: 0.5 });
   assert.equal(s.start, sr, 'a shorter file bed ends on the last frame'); assert.ok(s.gainAt(frames - 1) < 0.01, 'and fades');
   const m = MX.bedPlan({ frames, bedFrames: frames, generated: true, mutes: [{ a: 1, b: 1.5, ramp: 0.05 }] });
