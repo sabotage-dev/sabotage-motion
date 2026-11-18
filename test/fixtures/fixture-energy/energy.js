@@ -49,6 +49,7 @@ function fit(text, share) {
 
 export async function init({ ctx: c, scale, params }) {
   ctx = c; P = params; K = params.kind || 'static'; S = scale;
+  if (params.cfgenergy) CFG.ENERGY = params.cfgenergy;   // --param cfgenergy=<name> sets CFG.ENERGY
   if (K === 'abab') CFG.DUR = 15 * BEAT;
   if (K === 'pace') CFG.DUR = num('dur', 4);
   if (K === 'small') TYPE.lines = ['Small type set', 'in three lines', 'reads as small'].map((s) => fit(s, 0.03));

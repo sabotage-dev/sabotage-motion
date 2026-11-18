@@ -45,7 +45,7 @@ boxes at every subframe time the render uses.
 | `text_safe` | FAIL, or WARN on an estimate | Each text box, mapped through the camera `frame(t)` returns at every subframe sample, is outside the safe area (or inside an `exclude` rectangle). More than 0.25 s of exposure in one beat is a FAIL on a measured target; less (a slam, a whip) is a WARN. On an estimate target it is always a WARN. Needs `boxes(t)`. | `deco: true` on a box that is decoration, not reading text. |
 | `text_overlap` | WARN | Two boxes from different groups overlap by more than 2% of the smaller one's area, at the same sample. | Put text that is meant to touch in one `group`, or mark decoration `deco: true`. |
 | `audio_spike` | WARN | The loudest 50 ms window of the effects stem peaks more than 18 dB above the 90th percentile of the windows that are not silent (peak above -60 dBFS): a click, or a gain envelope that starts after its source. | Fix the envelope (`envGain` in `audio.js` starts at 0 for this reason); section 5 has its blind spot. |
-| `energy_match` | WARN | Section 8. The piece's cuts (declared by `cuts()` and confirmed by the frames), its largest line of type (from ink) and its motion, measured on the probe, against the ranges of the energy it states (`--param energy`, else the board's `energy`, else `CFG.ENERGY`, else `normal`): a `normal` or `extreme` piece calmer than its floor, or a `subtle` one busier than its ceiling. A declared cut the frames do not show, and a box with no ink, are a WARN each. Not checked without `cuts()`, on an overlay (`--alpha`), or with an energy that is not a preset; a `cuts()` list that is not `[{ t, d }]` with d 0-0.3 s is a scene FAIL. | Nothing to switch off: state the energy the piece has, or cut, size and move it like the energy it states. |
+| `energy_match` | WARN | Section 8. The piece's cuts (declared by `cuts()` and confirmed by the frames), its largest line of type (from ink) and its motion, measured on the probe, against the ranges of the energy it states (`--param energy`, else `CFG.ENERGY`, else the board's `energy`, else `normal`): a `normal` or `extreme` piece calmer than its floor, or a `subtle` one busier than its ceiling. A declared cut the frames do not show, and a box with no ink, are a WARN each. Not checked without `cuts()`, on an overlay (`--alpha`), or with an energy that is not a preset; a `cuts()` list that is not `[{ t, d }]` with d 0-0.3 s is a scene FAIL. | Nothing to switch off: state the energy the piece has, or cut, size and move it like the energy it states. |
 | `flash` | FAIL | Run on the piece's current render: the newest `video` or `full` render in `out/` of the whole piece, with the scene, params and frame rate being checked, whose render record still matches the file and the source. Something flashes more than three times a second over too large an area (section 7). With no such render (none yet, only part of the piece, or the source changed since), it is not checked and says to render. An `--alpha` check is not checked: an overlay's flashes depend on what it is laid over. | Nothing: keep it to three flashes a second or fewer, make the flashing area smaller, or lower its contrast. |
 
 `boxes(t)` is the scene's list of the text on screen at `t`: `[{ id, text, x, y, w, h, group?, deco? }]`, one box per
@@ -125,7 +125,7 @@ on purpose to prove a test notices.
 | energy: a shot | 0.15 s or longer; a shorter "shot" is part of the transition around it | The plan's value: a one-frame flash (0.033 s) is never a shot, extreme's half-beat shot (0.22 s at 136 BPM) always is. |
 | energy: motion | the median share of probe pixels whose luma changes by 16/255 or more, per frame pair | Tuned in P11b-2 from the plan's 8/255: at 8/255 a slow drift (12 px a second on a textured card) moved 2.48% of the pixels and a slow push (6% over 2 s) 2.69%, both over normal's 2% floor though both are subtle moves; at 16/255 they move 1.78% and 1.10%. A static card is 0. |
 | energy: ink | a pixel differs from the text-off render by 32/255 or more on any channel, and by half the largest difference inside its box or more; a row with one such pixel has ink | The half is the glyph's half-covered edge: with the absolute 32/255 alone, a bloom of 0.6 (threshold 0.4) joined a three-line block of 3% type into one 9.5% line; with the half it reads 3.3%. The fixtures, built from `measureText`'s ink bounds, measure 2.97% for three lines of 3%, 5.00% for a 5% line in a box that claims 30%, and 18.12% for a 12% line punched in to 1.5x. |
-| energy: the presets | subtle: 4-5 beats at 84 BPM, type 4-8%, motion at most 10%; normal: 2-3 beats at 116 BPM, 9-16%, at least 2%; extreme: 0.5-1 beat at 136 BPM, 18-35%, at least 6% | Plan 23.9's table and Q23. The cut interval is in beats of the piece's tempo: the preset's, or its own (`--param tempo`, the board's `tempo`, `CFG.TEMPO`) within 10% of it, else the nearer end of that band (Q22). |
+| energy: the presets | subtle: 4-5 beats at 84 BPM, type 4-8%, motion at most 10%; normal: 2-3 beats at 116 BPM, 9-16%, at least 2%; extreme: 0.5-1 beat at 136 BPM, 18-35%, at least 6% | Plan 23.9's table and Q23. The cut interval is in beats of the piece's tempo: the preset's, or the board's own `bpm` within 10% of it, else the nearer end of that band (Q22). |
 | captions | lines fill the safe width / 1.165; between words, a space or the pop's growth plus half a space and the stroke, whichever is larger | 1.165 is the largest scale a popped word reaches (`anticip` dips below 0 before it settles), so a popped word at the end of a full line stays inside (P3). A popped long word used to touch its neighbours, and a word wider than the line was drawn whole, past the safe edge or into an `exclude` rectangle; both are fixed (P4, council round 1): the gap grows beside long words, and an oversized word is scaled to fit the line. |
 
 The organic safe zones (`tiktok`, `reels`, `shorts`) are estimates, so `text_safe` only warns on them; the ad
@@ -234,8 +234,8 @@ three flashes a second (cut, faded, or ramped), four 7-frame pulses spanning 1.0
 frame once, swings of 0.08, a slow fade, and grain.
 
 ## 8. Energy: `energy_match`
-A piece states its energy (`subtle`, `normal` or `extreme`: `--param energy`, else the board's `energy`, else
-`CFG.ENERGY`, else `normal`), and `energy_match` measures whether it moves like it, from the frames, never on the
+A piece states its energy (`subtle`, `normal` or `extreme`: `--param energy`, else `CFG.ENERGY`, else the board's
+`energy`, else `normal`), and `energy_match` measures whether it moves like it, from the frames, never on the
 scene's word. It runs in the source check, on the probe (half size, one subframe, grain off), and needs the scene's
 `cuts()`: its visual cuts and transitions as `[{ t, d }]`, `t` in seconds and `d` the transition's length (0 for a hard
 cut, at most 0.3 s).
@@ -253,8 +253,9 @@ cut, at most 0.3 s).
   height, is the type size: a three-line block of small type reads as small type, and a box that claims more than its
   ink is measured by its ink. A box with no ink at any frame is a WARN of its own.
 - **Motion.** The median, over the probe's frame pairs outside holds (`HOLDS` and `hold: true` beats), of the share of
-  pixels whose luma changes by 16/255 or more. Only the pairs that straddle a confirmed cut or lie in a declared
-  transition are left out.
+  pixels whose luma changes by 16/255 or more. Only the pairs that straddle a confirmed cut or lie in a transition are
+  left out: a declared one, or declared cuts closer than a shot (a flash declared in and out) merged into one, confirmed
+  or not. The pairs across a lone hard cut the frames do not confirm stay in.
 - **The verdict.** A `normal` or `extreme` piece WARNs when it is calmer than its floor on any of the three (its mean
   shot longer than its range, its largest line smaller, its motion under its floor), and a `subtle` piece when it is
   busier than its ceiling (shorter shots, larger type, more motion; a piece with no confirmed cut is never busy on

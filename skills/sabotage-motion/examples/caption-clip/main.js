@@ -539,10 +539,10 @@ window.renderBrandSheet = async () => {
 // ---------------------------------------------------------------- energy_match (plan 23.9, P11b-2)
 // What render.mjs check measures for energy_match (check.mjs has the rule). The probe is check's: renderProbe(t) of
 // every frame at the page's scale (1/2), one subframe, grain off, sampled at t + 0.25 / FPS.
-// energyInfo: whether the scene exports cuts(), its list, and CFG.ENERGY and CFG.TEMPO after init.
+// energyInfo: whether the scene exports cuts(), its list, and CFG.ENERGY after init.
 window.energyInfo = () => {
   const has = typeof scene.cuts === 'function';
-  return { has, cuts: has ? JSON.parse(JSON.stringify(scene.cuts() ?? null)) : null, energy: CFG.ENERGY ?? null, tempo: CFG.TEMPO ?? null };
+  return { has, cuts: has ? JSON.parse(JSON.stringify(scene.cuts() ?? null)) : null, energy: CFG.ENERGY ?? null };
 };
 // energyBoxes: for every probe frame, the scene's boxes at the probe's sample time and the camera frame() returns
 // there: [{ f, cam, boxes: [{ id, text, x, y, w, h, deco? }] }], frames with no box left out.

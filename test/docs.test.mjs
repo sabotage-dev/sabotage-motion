@@ -353,11 +353,11 @@ test('P11b-2 references/check.md: energy_match\'s rule, its thresholds and the p
   assert.ok(rows[1].includes(`${E.cut.shot} s or longer`), rows[1]);
   assert.ok(rows[2].includes(`changes by ${E.motion.delta}/255 or more`), rows[2]);
   assert.ok(rows[3].includes(`by ${E.ink.delta}/255 or more on any channel, and by half the largest difference`) && E.ink.rel === 0.5 && E.ink.px === 1, rows[3]);
-  const preset = (n) => { const x = R[n]; return `${n}: ${x.beats.join('-')} beat${x.beats[1] > 1 ? 's' : ''} at ${x.bpm} BPM`; };
+  const preset = (n) => { const x = R[n]; return `${n}: ${x.cutBeats.join('-')} beat${x.cutBeats[1] > 1 ? 's' : ''} at ${x.bpm} BPM`; };
   for (const n of ['subtle', 'normal', 'extreme']) assert.ok(rows[4].includes(preset(n)), `${rows[4]} has ${preset(n)}`);
   const range = ([lo, hi]) => `${Math.round(lo * 100)}-${p(hi)}`;
-  assert.ok(rows[4].includes(`type ${range(R.subtle.type)}, motion at most ${p(R.subtle.motion.max)}`) && rows[4].includes(`${range(R.normal.type)}, at least ${p(R.normal.motion.min)}`)
-    && rows[4].includes(`${range(R.extreme.type)}, at least ${p(R.extreme.motion.min)}`), rows[4]);
+  assert.ok(rows[4].includes(`type ${range(R.subtle.inkHeight)}, motion at most ${p(R.subtle.motion.max)}`) && rows[4].includes(`${range(R.normal.inkHeight)}, at least ${p(R.normal.motion.min)}`)
+    && rows[4].includes(`${range(R.extreme.inkHeight)}, at least ${p(R.extreme.motion.min)}`), rows[4]);
   assert.ok(rows[4].includes(`within ${E.tempo * 100}% of it`), rows[4]);
   assert.ok(md.includes('| `energy_match` | WARN | Section 8.'), 'a row in the source table');
 });

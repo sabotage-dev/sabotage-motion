@@ -616,7 +616,7 @@ async function energyCheck(page, { INFOc, settings, BOARD, windows, sceneFail })
     const params = settings.params || {};
     const en = C.energySetting({ param: params.energy, board: BOARD && BOARD.energy, cfg: info.energy });
     if (en.error) return SK(`no energy to judge it by: ${en.error}`);
-    const tempo = C.energyTempo(en.energy, params.tempo ?? (BOARD && BOARD.tempo) ?? info.tempo);
+    const tempo = C.energyTempo(en.energy, BOARD && BOARD.bpm);   // the board's own tempo (Q22; council round 1, I1)
     const holdsOk = !C.validHolds(INFOc.HOLDS);
     const holds = C.holdIntervals(holdsOk ? INFOc.HOLDS : null, windows);
     const N = Math.round(INFOc.DUR * INFOc.FPS), reg = C.energyRegions(info.cuts, INFOc.DUR), pairs = C.energyPairs(reg, INFOc.FPS, N);

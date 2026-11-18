@@ -56,6 +56,8 @@ test('a shake and a full-frame flash are no cut: undeclared they count nothing, 
   // the flash declared as two cuts (in and out, one frame apart): one transition, still no cut
   const two = run('flash', { declare: 2 });
   assert.equal(two.main.measured.cuts, 0); assert.equal(two.extra.length, 1);
+  // council R1 E1: the merged transition's two pairs (29 and 30, which overlap 1.00-1.03 s) are left out of motion
+  assert.equal(two.main.measured.motion, 0); assert.match(two.main.detail, /median of 57 pairs/);
   assert.match(two.extra[0].detail, /^the declared cuts at 1\.00, 1\.03 s are not in the frames/);
 });
 test('a declared cut on a card that does not change is reported', () => {
@@ -147,6 +149,10 @@ const onBoard = (energy, params, extra = '') => {
   fs.writeFileSync(path.join(board, 'board.js'), `export const BOARD = { title: 'energy', energy: '${energy}',${extra} beats: [{ id: 'a', dur: ${params.dur} }] };\n`);
   return run('pace', params, [], board);
 };
+test('council R1 I2: CFG.ENERGY comes before the board\'s energy (as P11b-1\'s energyName())', () => {
+  const x = onBoard('normal', { shot: 1, dur: 3, size: 0.12, band: 0.3, cfgenergy: 'subtle' });
+  assert.match(x.main.detail, /^energy subtle \(CFG\.ENERGY\)/);
+});
 test('acceptance: a normal board rendered calm (2 s shots, 5% type, nothing moving) WARNs on all three', () => {
   const x = onBoard('normal', { shot: 2, dur: 4, size: 0.05, band: 0 });
   assert.equal(x.main.level, 'WARN');
@@ -163,9 +169,12 @@ test('acceptance: an extreme board at normal pace (2.5 beats at 116 BPM, 12% typ
   const x = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3 });
   assert.equal(x.main.level, 'OK', x.main.detail); assert.deepEqual(x.extra, []);
   assert.equal(x.main.measured.cuts, 11); typeNear(x, 0.22);
-  // the same at a board tempo 10% under the preset's: three quarters of a beat is now 0.37 s against a range up to 0.49 s
-  const t = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3 }, ' tempo: 122.4,');
+  // council R1 I1: the board's own tempo is BOARD.bpm (P11b-1), here 10% under the preset's, so the range is up to 0.49 s
+  const t = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3 }, ' bpm: 122.4,');
   assert.match(t.main.detail, /range 0\.25-0\.49 s, 0\.5-1 beats at 122\.4 BPM/);
+  // the tempo comes from the board alone: --param tempo is not read
+  const p = onBoard('extreme', { shot: e, dur: 12 * e, size: 0.22, band: 0.3, tempo: 122.4 });
+  assert.match(p.main.detail, /0\.5-1 beats at the preset's 136 BPM/);
 });
 test('a subtle board: busy (1 s shots, 12% type, a wide moving band) WARNs; calm (3 s shots, 6% type, a thin band) is OK', () => {
   const b = onBoard('subtle', { shot: 1, dur: 3, size: 0.12, band: 0.3 });

@@ -14,17 +14,18 @@ const hist = (npx, d, n) => { const h = new Array(256).fill(0); h[d] += n; h[0] 
 test('the thresholds as tuned on the calibration fixtures, and the presets as plan 23.9 and Q23 give them', () => {
   assert.deepEqual(E, { cut: { share: 0.20, delta: 16, shot: 0.15, d: 0.3 }, motion: { delta: 16 }, ink: { delta: 32, rel: 0.5, px: 1 }, tempo: 0.10 });
   assert.deepEqual(JSON.parse(JSON.stringify(C.ENERGY_RANGES)), {
-    subtle: { bpm: 84, beats: [4, 5], type: [0.04, 0.08], motion: { max: 0.10 } },
-    normal: { bpm: 116, beats: [2, 3], type: [0.09, 0.16], motion: { min: 0.02 } },
-    extreme: { bpm: 136, beats: [0.5, 1], type: [0.18, 0.35], motion: { min: 0.06 } },
+    subtle: { bpm: 84, cutBeats: [4, 5], inkHeight: [0.04, 0.08], motion: { max: 0.10 } },
+    normal: { bpm: 116, cutBeats: [2, 3], inkHeight: [0.09, 0.16], motion: { min: 0.02 } },
+    extreme: { bpm: 136, cutBeats: [0.5, 1], inkHeight: [0.18, 0.35], motion: { min: 0.06 } },
   });
   assert.ok(C.SOURCE_IDS.includes('energy_match') && C.ALL_IDS.includes('energy_match'));
 });
 
-test('the energy: --param energy, else the board, else CFG.ENERGY, else normal; a name that is not a preset is an error', () => {
+test('the energy (council R1 I2, as P11b-1\'s energyName()): --param energy, else CFG.ENERGY, else the board, else normal; a name that is not a preset is an error', () => {
   assert.deepEqual(C.energySetting({}), { energy: 'normal', from: 'the default' });
   assert.deepEqual(C.energySetting({ cfg: 'subtle' }), { energy: 'subtle', from: 'CFG.ENERGY' });
-  assert.deepEqual(C.energySetting({ board: 'extreme', cfg: 'subtle' }), { energy: 'extreme', from: 'the board' });
+  assert.deepEqual(C.energySetting({ board: 'extreme' }), { energy: 'extreme', from: 'the board' });
+  assert.deepEqual(C.energySetting({ board: 'extreme', cfg: 'subtle' }), { energy: 'subtle', from: 'CFG.ENERGY' }, 'CFG.ENERGY before the board');
   assert.deepEqual(C.energySetting({ param: 'subtle', board: 'extreme', cfg: 'normal' }), { energy: 'subtle', from: '--param energy' });
   assert.deepEqual(C.energySetting({ param: '', board: 'extreme' }), { energy: 'extreme', from: 'the board' });
   assert.match(C.energySetting({ board: 'wild' }).error, /^the board is "wild", not one of subtle, normal, extreme$/);
@@ -234,6 +235,25 @@ test('a declared cut the frames do not show is reported, and does not count; one
   assert.equal(lead[0].measured.cuts, 0);
 });
 
+test('council R1 E1: hard cuts merged into a transition (closer than 0.15 s) leave motion, confirmed or not; an unconfirmed lone hard cut does not', () => {
+  // codex's case: a 3 s static card with 26 one-frame flashes at 0.2 + i x 0.1 s, both edges declared as hard cuts. Each
+  // flash lights one probe frame; the pairs touching a lit frame change every pixel, the rest none.
+  const fps = 30, npx = 1000, dur = 3, N = dur * fps, cuts = [];
+  for (let i = 0; i < 26; i++) { const t = +(0.2 + i * 0.1).toFixed(6); cuts.push({ t, d: 0 }, { t: t + 1 / fps, d: 0 }); }
+  const lit = (f) => cuts.some((c, j) => j % 2 === 0 && (f + 0.25) / fps >= c.t && (f + 0.25) / fps < c.t + 1 / fps);
+  const reg = C.energyRegions(cuts, dur);
+  const x = C.energyMatch({ energy: 'subtle', from: 'the board', tempo: C.energyTempo('subtle'), dur, fps, cuts, reg,
+    pairHists: C.energyPairs(reg, fps, N).map((p) => (p ? hist(npx, 16, 0) : null)),
+    motionHists: Array.from({ length: N - 1 }, (_, k) => hist(npx, 16, lit(k) || lit(k + 1) ? npx : 0)), npx, holds: [], rects: null, ink: {}, RH: 1000, why: 'x' });
+  assert.equal(x[0].measured.cuts, 0);
+  assert.equal(x[0].measured.motion, 0, x[0].detail);
+  assert.match(x[0].detail, /median of 12 pairs/);
+  assert.equal(x[0].level, 'OK', 'a static card with flashes nobody counts is not busy at subtle');
+  // an ordinary hard cut the frames do not confirm keeps the pairs across it
+  const npx2 = 1000, one = C.energyRegions([{ t: 0.15, d: 0 }], 1);
+  const m = C.energyMotion([0.1, 0.9, 0.1].map((v) => hist(npx2, 16, v * npx2)), npx2, { fps: 10, regions: one.regions });
+  assert.equal(m.pairs, 3);
+});
 test('type and motion that cannot be measured are said so, and not judged', () => {
   const x = piece({ dur: 10, boxes: false, motion: 0 });
   assert.match(x[0].detail, /type not measured \(x has no boxes\(t\)\)/);
